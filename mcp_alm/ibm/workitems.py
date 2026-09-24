@@ -15,6 +15,7 @@ from . import common
 WORKITEM = "/ccm/resource/itemName/com.ibm.team.workitem.WorkItem/{id}"
 REPORTABLE_WORKITEM = "/ccm/rpt/repository/workitem"
 REPORTABLE_FIELDS = "workitem/{kind}[projectArea/itemId={pa}]/(itemId|name|archived)"
+REPORTABLE_CATEGORY_FIELDS = "workitem/category[projectArea/itemId={pa}]/(itemId|name|archived|defaultTeamArea/itemId|defaultTeamArea/name)"
 MAX_PAGE = 500
 SCHEMA_SECTIONS = ("attributes", "enumerations", "workflows", "linkTypes", "approvals", "createMetadata")
 
@@ -215,9 +216,22 @@ def _reportable_items(kind: str, project_area_item_id: str, include_archived: bo
 def list_workitem_categories(
     project_area_item_id: str, include_archived: bool = False, limit: int = 100, offset: int = 0,
 ) -> list[dict]:
-    """Categorias (Filed Against) da project area: [{itemId, name, archived}]. Use itemId em `category`
-    de create_workitem. limit máx. 500."""
-    return _reportable_items("category", project_area_item_id, include_archived, limit, offset)
+    """Categorias (Filed Against) da project area: [{itemId, name, archived, defaultTeamArea?}]. Use itemId em
+    `category` de create_workitem. `defaultTeamArea` (quando presente) indica o Team Area vinculado à categoria:
+    {itemId, name}. O Team Area do work item é derivado automaticamente da categoria — não pode ser definido
+    diretamente via OSLC. limit máx. 500."""
+    if not 1 <= limit <= MAX_PAGE:
+        raise ValueError(f"limit deve estar entre 1 e {MAX_PAGE}.")
+    records = reportable(REPORTABLE_WORKITEM, REPORTABLE_CATEGORY_FIELDS.format(pa=project_area_item_id), "category")
+    items = []
+    for r in records:
+        item = {"itemId": r.findtext("itemId"), "name": r.findtext("name"), "archived": r.findtext("archived") == "true"}
+        team_area = r.find("defaultTeamArea")
+        if team_area is not None and team_area.findtext("itemId"):
+            item["defaultTeamArea"] = {"itemId": team_area.findtext("itemId"), "name": team_area.findtext("name")}
+        items.append(item)
+    items = [i for i in items if include_archived or not i["archived"]]
+    return items[offset:offset + limit]
 
 
 @tool
