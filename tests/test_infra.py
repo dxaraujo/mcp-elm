@@ -33,7 +33,7 @@ def test_load_config_missing_key_and_file(tmp_path):
 
 
 def test_default_path_env(monkeypatch):
-    monkeypatch.setenv("MCP_ALM_CONFIG", "/tmp/x.properties")
+    monkeypatch.setenv("ALM_MCP_CONFIG", "/tmp/x.properties")
     assert config.default_path() == Path("/tmp/x.properties")
 
 

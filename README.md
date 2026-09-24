@@ -8,10 +8,10 @@ Ele fornece as capacidades que as skills vão consumir. As tools seguem os nomes
 
 | SO | Arquivo |
 |---|---|
-| Linux/Mac | `~/.config/mcp-alm/alm.properties` |
-| Windows | `%APPDATA%\mcp-alm\alm.properties` |
+| Linux/Mac | `~/.config/alm-mcp/alm.properties` |
+| Windows | `%APPDATA%\alm-mcp\alm.properties` |
 
-Para usar outro caminho, defina a variável de ambiente `MCP_ALM_CONFIG`.
+Para usar outro caminho, defina a variável de ambiente `ALM_MCP_CONFIG`.
 
 ```ini
 [DEFAULT]
