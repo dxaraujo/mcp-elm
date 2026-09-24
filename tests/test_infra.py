@@ -5,8 +5,8 @@ import pytest
 from rdflib import Graph, Literal, URIRef
 from rdflib.namespace import RDF
 
-from alm_mcp.infra import auth, config, oslc
-from alm_mcp.infra.http import AlmHttpError, get_session, get_xml, reportable
+from mcp_alm.infra import auth, config, oslc
+from mcp_alm.infra.http import AlmHttpError, get_session, get_xml, reportable
 
 from conftest import SERVER, fixture, ok, xml_ok
 
@@ -33,7 +33,7 @@ def test_load_config_missing_key_and_file(tmp_path):
 
 
 def test_default_path_env(monkeypatch):
-    monkeypatch.setenv("ALM_MCP_CONFIG", "/tmp/x.properties")
+    monkeypatch.setenv("MCP_ALM_CONFIG", "/tmp/x.properties")
     assert config.default_path() == Path("/tmp/x.properties")
 
 

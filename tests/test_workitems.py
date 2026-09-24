@@ -3,7 +3,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 import pytest
 
-from alm_mcp.ibm import workitems
+from mcp_alm.ibm import workitems
 
 from conftest import SERVER, ok, xml_ok
 

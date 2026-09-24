@@ -18,11 +18,11 @@ class AlmConfig:
 
 
 def default_path() -> Path:
-    if env := os.environ.get("ALM_MCP_CONFIG"):
+    if env := os.environ.get("MCP_ALM_CONFIG"):
         return Path(env)
     if sys.platform == "win32":
-        return Path(os.environ["APPDATA"]) / "alm-mcp" / "alm.properties"
-    return Path.home() / ".config" / "alm-mcp" / "alm.properties"
+        return Path(os.environ["APPDATA"]) / "mcp-alm" / "alm.properties"
+    return Path.home() / ".config" / "mcp-alm" / "alm.properties"
 
 
 def load_config(path: Path | None = None) -> AlmConfig:

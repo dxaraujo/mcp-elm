@@ -1,7 +1,7 @@
 """Servidor MCP do IBM ELM (DOORS Next, EWM, ETM).
 
-As tools são os serviços de alm_mcp/ibm/ (nomes e parâmetros do IBM Engineering AI Hub 1.3.0),
-registrados com `@tool`; o encanamento HTTP/OSLC fica em alm_mcp/infra/.
+As tools são os serviços de mcp_alm/ibm/ (nomes e parâmetros do IBM Engineering AI Hub 1.3.0),
+registrados com `@tool`; o encanamento HTTP/OSLC fica em mcp_alm/infra/.
 """
 from __future__ import annotations
 

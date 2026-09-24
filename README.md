@@ -1,4 +1,4 @@
-# alm-mcp
+# mcp-alm
 
 Servidor MCP para o IBM ELM via OSLC: **rm** (DOORS Next), **ccm** (EWM) e **qm** (ETM).
 Ele fornece as capacidades que as skills vão consumir. As tools seguem os nomes e parâmetros do
@@ -8,10 +8,10 @@ Ele fornece as capacidades que as skills vão consumir. As tools seguem os nomes
 
 | SO | Arquivo |
 |---|---|
-| Linux/Mac | `~/.config/alm-mcp/alm.properties` |
-| Windows | `%APPDATA%\alm-mcp\alm.properties` |
+| Linux/Mac | `~/.config/mcp-alm/alm.properties` |
+| Windows | `%APPDATA%\mcp-alm\alm.properties` |
 
-Para usar outro caminho, defina a variável de ambiente `ALM_MCP_CONFIG`.
+Para usar outro caminho, defina a variável de ambiente `MCP_ALM_CONFIG`.
 
 ```ini
 [DEFAULT]
@@ -28,9 +28,9 @@ A autenticação usa o form Jazz (`j_security_check`). Se o servidor responder 4
 
 ```bash
 uv sync
-claude mcp add alm -- uv run --directory /caminho/para/alm-mcp alm-mcp
+claude mcp add alm -- uv run --directory /caminho/para/mcp-alm mcp-alm
 # depuração com o MCP Inspector
-uv run mcp dev alm_mcp/server.py
+uv run mcp dev mcp_alm/server.py
 ```
 
 ## Contrato de saída
@@ -118,7 +118,7 @@ Um plano do alm.json vira filtro de `ccm_list_workitems` com `iteration=plans[no
 ## Arquitetura
 
 ```
-alm_mcp/
+mcp_alm/
   server.py   instância MCP + @tool (erros esperados viram ToolError com a mensagem)
   infra/      config, auth (login Jazz), http (sessão, XML, Reportable), oslc (RDF, query, descoberta)
   ibm/        um módulo por conjunto de tools da doc: common, requirements, workitems, test

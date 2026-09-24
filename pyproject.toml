@@ -1,7 +1,11 @@
 [project]
-name = "alm-mcp"
+name = "mcp-alm"
 version = "1.0.6"
 description = "MCP server para IBM ELM (DOORS Next, EWM, ETM) via OSLC"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Daniel Xavier Araújo", email = "danielxaraujo@gmail.com" }]
 requires-python = ">=3.10"
 dependencies = [
     "mcp[cli]>=2.2",
@@ -9,8 +13,11 @@ dependencies = [
     "rdflib>=7.0",
 ]
 
+[project.urls]
+Repository = "https://github.com/dxaraujo/mcp-alm"
+
 [project.scripts]
-alm-mcp = "alm_mcp.server:main"
+mcp-alm = "mcp_alm.server:main"
 
 [dependency-groups]
 dev = ["pytest>=8"]

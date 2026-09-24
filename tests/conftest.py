@@ -5,8 +5,8 @@ import pytest
 import requests
 from requests.adapters import BaseAdapter
 
-from alm_mcp.infra.config import AlmConfig
-from alm_mcp.infra.http import AlmSession, set_session
+from mcp_alm.infra.config import AlmConfig
+from mcp_alm.infra.http import AlmSession, set_session
 
 FIXTURES = Path(__file__).parent / "fixtures"
 SERVER = "https://alm.test"
@@ -42,10 +42,10 @@ class FakeAdapter(BaseAdapter):
 
 
 def _clear_caches():
-    from alm_mcp.infra import oslc
+    from mcp_alm.infra import oslc
     oslc.clear_cache()
     try:
-        from alm_mcp.ibm import common
+        from mcp_alm.ibm import common
         common.contributors.cache_clear()
     except ImportError:  # antes da Task 3 o módulo não existe
         pass

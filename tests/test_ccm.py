@@ -1,6 +1,6 @@
 import pytest
 
-from alm_mcp import ccm
+from mcp_alm import ccm
 
 from conftest import SERVER, fixture, ok, xml_ok
 

@@ -1,7 +1,7 @@
 import pytest
 
-from alm_mcp import rm
-from alm_mcp.ibm import requirements
+from mcp_alm import rm
+from mcp_alm.ibm import requirements
 
 from conftest import SERVER, fixture, xml_ok
 from test_requirements import COMP, RDF, ROUTES, SHAPE, STREAM
