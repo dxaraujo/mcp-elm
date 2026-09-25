@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 
 from .ibm import common, workitems
 from .infra import oslc
@@ -13,6 +13,18 @@ from .server import tool
 PROJECT_AREA = "/ccm/process/project-areas/{pa}"
 TEAM_AREA = "/ccm/process/project-areas/{pa}/team-areas/{team}"
 REPORTABLE_PLANS = "/ccm/rpt/repository/apt"
+# serviço interno usado pela UI web (IPlanProcessRestService.postCreateIteration); não há API pública
+CREATE_ITERATION = "/ccm/service/com.ibm.team.apt.internal.service.rest.IPlanProcessRestService/createIteration"
+# "sem tipo" da UI web; sem iterationTypeItemId o servidor responde NullPointerException
+NO_ITERATION_TYPE = "com.ibm.team.apt.web.ui.internal.iteration.type.none"
+# serviço interno usado pela UI web ao salvar um plano novo (IPlanRestService.putItems)
+PUT_PLAN = "/ccm/service/com.ibm.team.apt.internal.service.rest.IPlanRestService/putItems"
+DEFAULT_PLAN_TYPE = "com.ibm.team.apt.plantype.default"
+# token do guard da UI web para o IPlanRestService; o servidor devolve o atual no WebServiceUsageException
+PLAN_GUARD_TOKEN = "_eugWIJstEfGZGNAHniZkPA"
+GUARD_ERROR = "com.ibm.team.rtc.common.internal.service.web.guard.WebServiceUsageException"
+# prefixos de tipo de item nos handles da UI ("39;<uuid>")
+PLAN_RECORD, PLAN_TYPE, ITERATION_ITEM, TEAM_AREA_ITEM, PROJECT_AREA_ITEM = 16, 8, 35, 39, 40
 PLAN_FIELDS = "apt/iterationPlanRecord[contextId={pa}]/(name|itemId|archived|owner/itemId|iteration/itemId)"
 # ponytail: fuso fixo de Brasília (como a UI mostra); tornar configurável se houver servidor em outro fuso
 BRT = timezone(timedelta(hours=-3))
@@ -133,6 +145,58 @@ def ccm_list_iterations(project_area_identifier: str) -> list[dict]:
     return [{k: v for k, v in {**r, "name": names[r["identifier"]]}.items() if v is not None} for r in rows]
 
 
+def _ui_post(path: str, data: dict, guarded: bool = False) -> None:
+    """POST num serviço interno da UI web (form, header anti-CSRF com o JSESSIONID do /ccm). `guarded`: manda o
+    token `_t` e, se o servidor recusar com um token novo, repete uma vez com ele. Chame depois de uma leitura no /ccm
+    (garante o login e o cookie)."""
+    session = get_session()
+    jsession = next((c.value for c in session.session.cookies if c.name == "JSESSIONID" and c.path.startswith("/ccm")),
+                    None)
+    headers = {"Accept": "text/json", "X-Jazz-CSRF-Prevent": jsession or ""}
+    token = PLAN_GUARD_TOKEN if guarded else None
+    for _ in range(2):
+        resp = session.request("POST", path, data={**data, **({"_t": token} if token else {})}, headers=headers,
+                               ok=tuple(range(200, 600)))
+        if resp.ok:
+            return
+        try:
+            error = resp.json()
+        except ValueError:
+            break
+        token = (error.get("errorData") or {}).get("token") if error.get("errorClass") == GUARD_ERROR else None
+        if not token:
+            break
+    raise AlmHttpError(resp)
+
+
+def _epoch_ms(day: str, end: bool = False) -> int:
+    """'2026-10-01' -> início (ou fim, 23:59) do dia em Brasília, em ms (formato da UI web)."""
+    moment = datetime.combine(date.fromisoformat(day), time(23, 59) if end else time(0), BRT)
+    return int(moment.timestamp() * 1000)
+
+
+@tool
+def ccm_create_iteration(
+    project_area_identifier: str, parent: str, name: str, start_date: str, end_date: str | None = None,
+    iteration_id: str | None = None, iteration_type: str | None = None,
+) -> dict:
+    """Cria uma iteração filha de `parent` (identifier de ccm_list_iterations), como o diálogo 'Create Iteration'
+    da UI web. Datas 'AAAA-MM-DD' (Brasília). `iteration_id`: id interno (padrão: o nome). `iteration_type`: itemId
+    do tipo de iteração (padrão: sem tipo). Exige a permissão 'Modify structures of iterations'. Retorna {name, identifier, start-date, end-date?, parent}."""
+    before = {i["identifier"] for i in ccm_list_iterations(project_area_identifier)}  # também autentica o /ccm
+    if parent not in before:
+        raise LookupError(f"Iteração pai '{parent}' não existe em {project_area_identifier}.")
+    payload = {"id": iteration_id or name, "name": name, "startDateTime": _epoch_ms(start_date),
+               "hasDeliverable": True, "parentIterationId": parent,
+               "iterationTypeItemId": iteration_type or NO_ITERATION_TYPE,
+               **({"endDateTime": _epoch_ms(end_date, end=True)} if end_date else {})}
+    _ui_post(CREATE_ITERATION, {"jsonObject": json.dumps(payload)})
+    created = [i for i in ccm_list_iterations(project_area_identifier) if i["identifier"] not in before]
+    if not created:
+        raise LookupError(f"O servidor aceitou, mas a iteração '{name}' não apareceu sob '{parent}'.")
+    return created[0]
+
+
 @tool
 def ccm_list_iteration_plans(project_area_identifier: str, iteration_identifiers: list[str] | None = None) -> list[dict]:
     """Planos de iteração não arquivados, opcionalmente só das iterações informadas:
@@ -144,6 +208,28 @@ def ccm_list_iteration_plans(project_area_identifier: str, iteration_identifiers
              for r in reportable(REPORTABLE_PLANS, PLAN_FIELDS.format(pa=project_area_identifier), "iterationPlanRecord")
              if r.findtext("archived") != "true"]
     return [p for p in plans if not wanted or p["iteration"] in wanted]
+
+
+@tool
+def ccm_create_iteration_plan(
+    project_area_identifier: str, name: str, iteration: str, owner: str | None = None, plan_type: str | None = None,
+) -> dict:
+    """Cria um plano de iteração, como 'Create Plan' da UI web. `iteration`: identifier de ccm_list_iterations.
+    `owner`: identifier do time (ccm_list_team_areas); padrão: a project area. `plan_type`: id do tipo de plano
+    (padrão: com.ibm.team.apt.plantype.default). Retorna {name, identifier, owner, iteration}."""
+    pa = project_area_identifier
+    before = {p["identifier"] for p in ccm_list_iteration_plans(pa)}  # também autentica o /ccm
+    owner = owner or pa
+    owner_item = PROJECT_AREA_ITEM if owner == pa else TEAM_AREA_ITEM
+    record = {"itemId": "__new_1", "itemType": "item:com.ibm.team.apt:IterationPlanRecord",
+              "planType": f"{PLAN_TYPE};{pa}/{plan_type or DEFAULT_PLAN_TYPE}", "projectArea": f"{PROJECT_AREA_ITEM};{pa}",
+              "label": name, "alwaysLoadAllExecutionItems": False, "fetchChildrenOnDemand": True,
+              "teamArea": f"{owner_item};{owner}", "iteration": f"{ITERATION_ITEM};{iteration}", "rankingMode": "explicit"}
+    _ui_post(PUT_PLAN, {"h": f"{PLAN_RECORD};__new_1", "json": json.dumps(record)}, guarded=True)
+    created = [p for p in ccm_list_iteration_plans(pa) if p["identifier"] not in before]
+    if not created:
+        raise LookupError(f"O servidor aceitou, mas o plano '{name}' não apareceu em {pa}.")
+    return created[0]
 
 
 # --- alm-ccm

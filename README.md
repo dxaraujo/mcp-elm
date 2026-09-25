@@ -88,7 +88,7 @@ Saída com as chaves do alm.json (`alm/pa_*.json`; a skill grava o arquivo, o MC
 
 | Skill | Tools |
 |---|---|
-| alm-setup (ccm) | whoami, list_project_areas("CCM"), ccm_list_team_areas, ccm_list_members, ccm_list_workitem_types, ccm_list_workitem_fields, ccm_list_iterations, ccm_list_iteration_plans |
+| alm-setup (ccm) | whoami, list_project_areas("CCM"), ccm_list_team_areas, ccm_list_members, ccm_list_workitem_types, ccm_list_workitem_fields, ccm_list_iterations, ccm_list_iteration_plans, ccm_create_iteration, ccm_create_iteration_plan |
 | alm-setup (rm) | list_project_areas("RM"), get_project_area(include_associations), rm_get_configuration, rm_list_members, rm_list_folders, rm_list_requirement_types |
 | alm-ccm | ccm_list_workitems, ccm_list_field_values, ccm_create_workitem, ccm_update_workitem, ccm_list_workitem_states (+ get_workitem, add_comment_to_workitem, link_*) |
 | alm-rm | rm_search_requirements, rm_get_requirement, rm_create_requirement, rm_update_requirement (+ link_workitem_and_requirement) |
@@ -99,6 +99,10 @@ Um plano do alm.json vira filtro de `ccm_list_workitems` com `iteration=plans[no
 `team_areas=[plans[nome].owner]`.
 
 ## Limites em relação à doc IBM
+
+- `ccm_create_iteration` e `ccm_create_iteration_plan` usam os serviços internos da UI web
+  (`IPlanProcessRestService/createIteration` e `IPlanRestService/putItems`), pois o EWM não tem API pública para
+  criá-los. Exigem as permissões de processo correspondentes (ex.: "Modify structures of iterations").
 
 - Fora do escopo: Models e Source control; `create_requirement_change_set` e `deliver_requirement_change_set`
   (removidos a pedido); `add_comment_to_testartifact` (o ETM não expõe comentários de revisão

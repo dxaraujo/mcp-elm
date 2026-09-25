@@ -238,3 +238,59 @@ def test_iterations_repeated_root_names_get_timeline_prefix(srv):
 
 def test_local_date_with_z_suffix():
     assert ccm._local_date("2026-12-19T02:59:00.000Z") == "2026-12-18"
+
+
+def test_create_iteration_posts_ui_payload_and_returns_new(srv):
+    def create(req):
+        srv.routes[("GET", f"{SERVER}/its/_Y26")] = timeline([("_S26", "Sprint 01", None, False),
+                                                             ("_S27", "Sprint 02", "2026-10-01T03:00:00.000Z", False)])
+        return 200, {"Content-Type": "text/json"}, b"{}"
+    srv.routes[("POST", f"{SERVER}{ccm.CREATE_ITERATION}")] = create
+    assert ccm.ccm_create_iteration("_PA1", "_Y26", "Sprint 02", "2026-10-01", "2026-10-14") == {
+        "name": "Sprint 02", "identifier": "_S27", "start-date": "2026-10-01", "parent": "_Y26"}
+    post = next(c for c in srv.calls if c.method == "POST")
+    payload = json.loads(parse_qs(post.body)["jsonObject"][0])
+    assert payload == {"id": "Sprint 02", "name": "Sprint 02", "startDateTime": 1790823600000,
+                       "endDateTime": 1792033140000, "hasDeliverable": True, "parentIterationId": "_Y26",
+                       "iterationTypeItemId": ccm.NO_ITERATION_TYPE}
+
+
+def test_create_iteration_unknown_parent(srv):
+    with pytest.raises(LookupError, match="_NAO"):
+        ccm.ccm_create_iteration("_PA1", "_NAO", "Sprint 02", "2026-10-01")
+
+
+NEW_PLAN = ('<apt><iterationPlanRecord><name>Novo Plano</name><archived>false</archived><itemId>_P9</itemId>'
+            '<owner><itemId>_TA</itemId></owner><iteration><itemId>_I1</itemId></iteration></iterationPlanRecord></apt>')
+
+
+def test_create_iteration_plan_sends_ui_record_and_retries_guard(srv):
+    posts = []
+
+    def put(req):
+        posts.append(parse_qs(req.body))
+        if len(posts) == 1:  # guard recusa o token embutido e devolve o atual
+            return 400, {"Content-Type": "text/json"}, json.dumps(
+                {"errorClass": ccm.GUARD_ERROR, "errorData": {"token": "_NOVO", "serviceName": "x"}})
+        srv.routes[("GET", f"{SERVER}/ccm/rpt/repository/apt")] = lambda r: xml_ok("<apt/>") if "pos=" in r.url \
+            else xml_ok(NEW_PLAN)
+        return 200, {"Content-Type": "text/json"}, b"{}"
+    srv.routes[("POST", f"{SERVER}{ccm.PUT_PLAN}")] = put
+    assert ccm.ccm_create_iteration_plan("_PA1", "Novo Plano", "_I1", owner="_TA") == {
+        "name": "Novo Plano", "identifier": "_P9", "owner": "_TA", "iteration": "_I1"}
+    assert [p["_t"] for p in posts] == [[ccm.PLAN_GUARD_TOKEN], ["_NOVO"]]
+    assert posts[1]["h"] == ["16;__new_1"]
+    assert json.loads(posts[1]["json"][0]) == {
+        "itemId": "__new_1", "itemType": "item:com.ibm.team.apt:IterationPlanRecord",
+        "planType": "8;_PA1/com.ibm.team.apt.plantype.default", "projectArea": "40;_PA1", "label": "Novo Plano",
+        "alwaysLoadAllExecutionItems": False, "fetchChildrenOnDemand": True, "teamArea": "39;_TA",
+        "iteration": "35;_I1", "rankingMode": "explicit"}
+
+
+def test_create_iteration_plan_owner_defaults_to_project_area_and_raises_http_error(srv):
+    srv.routes[("POST", f"{SERVER}{ccm.PUT_PLAN}")] = (403, {"Content-Type": "text/json"},
+                                                       b'{"errorMessage": "Permission Denied"}')
+    with pytest.raises(RuntimeError, match="Permission Denied"):
+        ccm.ccm_create_iteration_plan("_PA1", "Plano", "_I1")
+    post = next(c for c in srv.calls if c.method == "POST")
+    assert json.loads(parse_qs(post.body)["json"][0])["teamArea"] == "40;_PA1"
