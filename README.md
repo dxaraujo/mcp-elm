@@ -95,8 +95,8 @@ Saída com as chaves do alm.json (`alm/pa_*.json`; a skill grava o arquivo, o MC
 | alm-qm | search_testartifact, get_testartifact, get_testartifact_schema, get_qm_component, get_qm_component_configuration |
 | alm-gc | whoami, get_user, list_project_areas, get_project_area, get_global_configuration, search_global_configuration, list_linked_*, link_* |
 
-Um plano do alm.json vira filtro de `ccm_list_workitems` com `iteration=plans[nome].iteration` e
-`team_areas=[plans[nome].owner]`.
+Um plano do alm.json vira filtro de `ccm_list_workitems` com `iteration=iterations[it].identifier` e
+`team_areas=[iterations[it].plans[nome].team-area]` (plano sem `team-area`: omita `team_areas`).
 
 ## Limites em relação à doc IBM
 

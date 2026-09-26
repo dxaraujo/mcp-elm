@@ -93,8 +93,15 @@ def test_list_iterations_dates_and_duplicate_names(srv):
 
 def test_list_iteration_plans_skips_archived_and_filters(srv):
     assert ccm.ccm_list_iteration_plans("_PA1", ["_I1"]) == [
-        {"name": "Sprint 1 - Time A", "identifier": "_P1", "owner": "_TA", "iteration": "_I1"}]
+        {"name": "Sprint 1 - Time A", "identifier": "_P1", "team-area": "_TA", "iteration": "_I1"}]
     assert {p["identifier"] for p in ccm.ccm_list_iteration_plans("_PA1")} == {"_P1", "_P2"}
+
+
+def test_list_iteration_plans_team_area_none_when_owned_by_project_area(srv):
+    srv.routes[("GET", f"{SERVER}/ccm/rpt/repository/apt")] = lambda r: xml_ok("<apt/>") if "pos=" in r.url \
+        else xml_ok(NEW_PLAN.replace("_TA", "_PA1"))
+    assert ccm.ccm_list_iteration_plans("_PA1") == [
+        {"name": "Novo Plano", "identifier": "_P9", "team-area": None, "iteration": "_I1"}]
 
 
 import json
@@ -276,8 +283,8 @@ def test_create_iteration_plan_sends_ui_record_and_retries_guard(srv):
             else xml_ok(NEW_PLAN)
         return 200, {"Content-Type": "text/json"}, b"{}"
     srv.routes[("POST", f"{SERVER}{ccm.PUT_PLAN}")] = put
-    assert ccm.ccm_create_iteration_plan("_PA1", "Novo Plano", "_I1", owner="_TA") == {
-        "name": "Novo Plano", "identifier": "_P9", "owner": "_TA", "iteration": "_I1"}
+    assert ccm.ccm_create_iteration_plan("_PA1", "Novo Plano", "_I1", team_area="_TA") == {
+        "name": "Novo Plano", "identifier": "_P9", "team-area": "_TA", "iteration": "_I1"}
     assert [p["_t"] for p in posts] == [[ccm.PLAN_GUARD_TOKEN], ["_NOVO"]]
     assert posts[1]["h"] == ["16;__new_1"]
     assert json.loads(posts[1]["json"][0]) == {
@@ -287,7 +294,7 @@ def test_create_iteration_plan_sends_ui_record_and_retries_guard(srv):
         "iteration": "35;_I1", "rankingMode": "explicit"}
 
 
-def test_create_iteration_plan_owner_defaults_to_project_area_and_raises_http_error(srv):
+def test_create_iteration_plan_team_area_defaults_to_project_area_and_raises_http_error(srv):
     srv.routes[("POST", f"{SERVER}{ccm.PUT_PLAN}")] = (403, {"Content-Type": "text/json"},
                                                        b'{"errorMessage": "Permission Denied"}')
     with pytest.raises(RuntimeError, match="Permission Denied"):

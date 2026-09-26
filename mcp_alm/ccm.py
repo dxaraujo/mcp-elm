@@ -200,26 +200,27 @@ def ccm_create_iteration(
 @tool
 def ccm_list_iteration_plans(project_area_identifier: str, iteration_identifiers: list[str] | None = None) -> list[dict]:
     """Planos de iteração não arquivados, opcionalmente só das iterações informadas:
-    [{name, identifier, owner (time ou project area), iteration}]. alm.json: plans {name: {identifier, owner,
-    iteration}}."""
-    wanted = set(iteration_identifiers or [])
-    plans = [{"name": r.findtext("name"), "identifier": r.findtext("itemId"), "owner": r.findtext("owner/itemId"),
+    [{name, identifier, team-area (time dono; None se o dono é a project area), iteration}]. alm.json:
+    iterations[nome da iteração].plans {name: {identifier, team-area}} (sem team-area quando None)."""
+    pa, wanted = project_area_identifier, set(iteration_identifiers or [])
+    plans = [{"name": r.findtext("name"), "identifier": r.findtext("itemId"),
+              "team-area": None if r.findtext("owner/itemId") == pa else r.findtext("owner/itemId"),
               "iteration": r.findtext("iteration/itemId")}
-             for r in reportable(REPORTABLE_PLANS, PLAN_FIELDS.format(pa=project_area_identifier), "iterationPlanRecord")
+             for r in reportable(REPORTABLE_PLANS, PLAN_FIELDS.format(pa=pa), "iterationPlanRecord")
              if r.findtext("archived") != "true"]
     return [p for p in plans if not wanted or p["iteration"] in wanted]
 
 
 @tool
 def ccm_create_iteration_plan(
-    project_area_identifier: str, name: str, iteration: str, owner: str | None = None, plan_type: str | None = None,
+    project_area_identifier: str, name: str, iteration: str, team_area: str | None = None, plan_type: str | None = None,
 ) -> dict:
     """Cria um plano de iteração, como 'Create Plan' da UI web. `iteration`: identifier de ccm_list_iterations.
-    `owner`: identifier do time (ccm_list_team_areas); padrão: a project area. `plan_type`: id do tipo de plano
-    (padrão: com.ibm.team.apt.plantype.default). Retorna {name, identifier, owner, iteration}."""
+    `team_area`: identifier do time dono (ccm_list_team_areas); padrão: a project area. `plan_type`: id do tipo de
+    plano (padrão: com.ibm.team.apt.plantype.default). Retorna {name, identifier, team-area, iteration}."""
     pa = project_area_identifier
     before = {p["identifier"] for p in ccm_list_iteration_plans(pa)}  # também autentica o /ccm
-    owner = owner or pa
+    owner = team_area or pa
     owner_item = PROJECT_AREA_ITEM if owner == pa else TEAM_AREA_ITEM
     record = {"itemId": "__new_1", "itemType": "item:com.ibm.team.apt:IterationPlanRecord",
               "planType": f"{PLAN_TYPE};{pa}/{plan_type or DEFAULT_PLAN_TYPE}", "projectArea": f"{PROJECT_AREA_ITEM};{pa}",
@@ -260,8 +261,8 @@ def ccm_list_workitems(
     workitem_type: str | None = None,
 ) -> list[dict]:
     """Work items (até 1000): [{id, title, type, state, owner, iteration, url}]. Filtros combinam com 'e';
-    informe ao menos iteration, team_areas ou owner. Plano do alm.json: iteration=plans[nome].iteration e
-    team_areas=[plans[nome].owner] (dono = project area não filtra time). team_areas inclui os subtimes.
+    informe ao menos iteration, team_areas ou owner. Plano do alm.json: iteration=iterations[it].identifier e
+    team_areas=[iterations[it].plans[nome].team-area] (plano sem team-area: omita). team_areas inclui os subtimes.
     `state`: nome do estado ('Em Desenvolvimento'). `workitem_type`: identifier ('task')."""
     teams = [t for t in team_areas or [] if t != project_area_identifier]
     if not (iteration or teams or owner):
