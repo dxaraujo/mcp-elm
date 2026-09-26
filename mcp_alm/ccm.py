@@ -75,7 +75,7 @@ def _kind(prop: dict) -> str:
 @tool
 def ccm_list_team_areas(project_area_identifier: str) -> list[dict]:
     """Times (team areas) da project area em lista plana: [{name, identifier, parent}] (parent = time pai ou None).
-    alm.json: team-areas {name: identifier}."""
+    alm.json: team-areas {name: {identifier, categories}}."""
     return [{"name": t["name"], "identifier": t["team_area_uuid"], "parent": t["parent"]}
             for t in common.team_areas(_url(PROJECT_AREA, pa=project_area_identifier))]
 
@@ -115,7 +115,7 @@ def ccm_list_workitem_fields(project_area_identifier: str, workitem_type: str) -
 @tool
 def ccm_list_iterations(project_area_identifier: str) -> list[dict]:
     """Iterações de todas as timelines, em lista plana: [{name, identifier, start-date?, end-date?, parent?}].
-    Nomes repetidos viram caminho ('2026/Sprint 01'). alm.json: iterations {name: identifier}."""
+    Nomes repetidos viram caminho ('2026/Sprint 01'). alm.json: iterations {name: {identifier, plans}}."""
     rows = []
 
     timeline_of: dict[str, str] = {}
