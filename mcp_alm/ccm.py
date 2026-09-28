@@ -19,7 +19,12 @@ CREATE_ITERATION = "/ccm/service/com.ibm.team.apt.internal.service.rest.IPlanPro
 NO_ITERATION_TYPE = "com.ibm.team.apt.web.ui.internal.iteration.type.none"
 # serviço interno usado pela UI web ao salvar um plano novo (IPlanRestService.putItems)
 PUT_PLAN = "/ccm/service/com.ibm.team.apt.internal.service.rest.IPlanRestService/putItems"
-DEFAULT_PLAN_TYPE = "com.ibm.team.apt.plantype.default"
+# tipos de plano suportados (id do planType -> nome amigável). Só estes dois são aceitos na criação;
+# o servidor pode normalizar outros ids conforme a configuração de processo, então restringimos aqui
+PLAN_TYPES = {
+    "com.ibm.team.apt.plantype.kanbanBoard": "Quadro de tarefas Kanban",
+    "com.ibm.team.apt.plantype.product.backlog": "Backlog do Produto",
+}
 # token do guard da UI web para o IPlanRestService; o servidor devolve o atual no WebServiceUsageException
 PLAN_GUARD_TOKEN = "_eugWIJstEfGZGNAHniZkPA"
 GUARD_ERROR = "com.ibm.team.rtc.common.internal.service.web.guard.WebServiceUsageException"
@@ -213,17 +218,21 @@ def ccm_list_iteration_plans(project_area_identifier: str, iteration_identifiers
 
 @tool
 def ccm_create_iteration_plan(
-    project_area_identifier: str, name: str, iteration: str, team_area: str | None = None, plan_type: str | None = None,
+    project_area_identifier: str, name: str, iteration: str, plan_type: str, team_area: str | None = None,
 ) -> dict:
     """Cria um plano de iteração, como 'Create Plan' da UI web. `iteration`: identifier de ccm_list_iterations.
-    `team_area`: identifier do time dono (ccm_list_team_areas); padrão: a project area. `plan_type`: id do tipo de
-    plano (padrão: com.ibm.team.apt.plantype.default). Retorna {name, identifier, team-area, iteration}."""
+    `plan_type`: id do tipo de plano; só 'com.ibm.team.apt.plantype.kanbanBoard' (Quadro de tarefas Kanban) e
+    'com.ibm.team.apt.plantype.product.backlog' (Backlog do Produto) são aceitos. `team_area`: identifier do time
+    dono (ccm_list_team_areas); padrão: a project area. Retorna {name, identifier, team-area, iteration}."""
     pa = project_area_identifier
+    if plan_type not in PLAN_TYPES:
+        opcoes = ", ".join(f"{i} ({n})" for i, n in PLAN_TYPES.items())
+        raise ValueError(f"plan_type '{plan_type}' não é suportado. Use um destes: {opcoes}.")
     before = {p["identifier"] for p in ccm_list_iteration_plans(pa)}  # também autentica o /ccm
     owner = team_area or pa
     owner_item = PROJECT_AREA_ITEM if owner == pa else TEAM_AREA_ITEM
     record = {"itemId": "__new_1", "itemType": "item:com.ibm.team.apt:IterationPlanRecord",
-              "planType": f"{PLAN_TYPE};{pa}/{plan_type or DEFAULT_PLAN_TYPE}", "projectArea": f"{PROJECT_AREA_ITEM};{pa}",
+              "planType": f"{PLAN_TYPE};{pa}/{plan_type}", "projectArea": f"{PROJECT_AREA_ITEM};{pa}",
               "label": name, "alwaysLoadAllExecutionItems": False, "fetchChildrenOnDemand": True,
               "teamArea": f"{owner_item};{owner}", "iteration": f"{ITERATION_ITEM};{iteration}", "rankingMode": "explicit"}
     _ui_post(PUT_PLAN, {"h": f"{PLAN_RECORD};__new_1", "json": json.dumps(record)}, guarded=True)
