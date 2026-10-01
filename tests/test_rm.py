@@ -51,6 +51,7 @@ from test_requirements import FACTORY, QUERY, R1
 PRIO = "https://alm.test/rm/types/AT_PRIO"
 ALTA = "https://alm.test/rm/types/AT_PRIO#alta"
 FOLDER = f"{SERVER}/rm/folders/FR_1"
+LINK = "http://www.ibm.com/xmlns/rdm/types/Link"
 
 
 @pytest.fixture
@@ -60,15 +61,25 @@ def req_srv(srv):
         <oslc:property><oslc:Property><dcterms:title>Prioridade</dcterms:title><oslc:name>prio</oslc:name>
           <oslc:propertyDefinition rdf:resource="{PRIO}"/><oslc:allowedValue rdf:resource="{ALTA}"/>
         </oslc:Property></oslc:property>
+        <oslc:property><oslc:Property><dcterms:title>Vincular A</dcterms:title><oslc:name>link</oslc:name>
+          <oslc:propertyDefinition rdf:resource="{LINK}"/>
+          <oslc:valueType rdf:resource="http://open-services.net/ns/core#Resource"/>
+        </oslc:Property></oslc:property>
+        <oslc:property><oslc:Property><dcterms:title>Revisor</dcterms:title><oslc:name>revisor</oslc:name>
+          <oslc:propertyDefinition rdf:resource="https://alm.test/rm/types/AT_REV"/>
+          <oslc:range rdf:resource="http://xmlns.com/foaf/0.1/Person"/>
+        </oslc:Property></oslc:property>
         <oslc:property><oslc:Property><oslc:name>semtitulo</oslc:name>
           <oslc:propertyDefinition rdf:resource="http://purl.org/dc/terms/contributor"/>
         </oslc:Property></oslc:property></oslc:ResourceShape></rdf:RDF>''')
-    srv.routes[("GET", ALTA)] = (200, {}, f'''<rdf:RDF {RDF}><rdf:Description rdf:about="{ALTA}">
-        <dcterms:title>Alta</dcterms:title></rdf:Description></rdf:RDF>''')
+    # como no DOORS Next: o valor é um fragmento do documento do tipo e o nome vem em rdfs:label
+    srv.routes[("GET", ALTA.split("#")[0])] = (200, {}, f'''<rdf:RDF {RDF}><rdf:Description rdf:about="{ALTA}">
+        <rdfs:label>Alta</rdfs:label></rdf:Description></rdf:RDF>''')
     srv.routes[("GET", R1)] = (200, {"ETag": '"1"'}, f'''<rdf:RDF {RDF} xmlns:nav="http://jazz.net/ns/rm/navigation#"
         xmlns:jazz_rm="http://jazz.net/ns/rm#"><rdf:Description rdf:about="{R1}">
         <dcterms:identifier>123</dcterms:identifier><dcterms:title>Login</dcterms:title>
-        <jazz_rm:primaryText rdf:parseType="Literal"><div xmlns="http://www.w3.org/1999/xhtml">texto</div></jazz_rm:primaryText>
+        <jazz_rm:primaryText rdf:parseType="Literal"><div xmlns="http://www.w3.org/1999/xhtml"><p>Passo 1: <a class="embedded" href="{R1}"> </a></p></div></jazz_rm:primaryText>
+        <dcterms:created rdf:datatype="http://www.w3.org/2001/XMLSchema#dateTime">2024-09-23T20:30:48.392Z</dcterms:created>
         <oslc:instanceShape rdf:resource="{SHAPE}"/><nav:parent rdf:resource="{FOLDER}"/>
         <rdf:type rdf:resource="http://open-services.net/ns/rm#Requirement"/>
         <j.0:PRIO xmlns:j.0="https://alm.test/rm/types/AT_" rdf:resource="{ALTA}"/>
@@ -93,10 +104,29 @@ def test_search_filters_and_summary(req_srv):
     assert q["oslc.searchTerms"] == ['"login"']
 
 
-def test_get_requirement_attributes_by_name(req_srv):
-    r = rm.rm_get_requirement("_PA1", C, S, "123")
-    assert (r["title"], r["type"], r["folder"], r["text"]) == ("Login", "Requisito", "01-Requisitos", "texto")
-    assert r["attributes"] == {"Prioridade": ["Alta"]}
+def test_get_requirement_markdown_with_server_names_and_embeds(req_srv):
+    req_srv.routes[("GET", R1)] = (200, {"ETag": '"1"'}, req_srv.routes[("GET", R1)][2].replace(
+        "</rdf:Description>", f'<j.1:Link xmlns:j.1="http://www.ibm.com/xmlns/rdm/types/" rdf:resource="{R1}"/>'
+        "</rdf:Description>", 1))
+    doc = rm.rm_get_requirement("_PA1", C, S, "123")
+    assert doc == f"""---
+id: 123
+type: Requisito
+title: Login
+folder: "01-Requisitos"
+url: "{R1}"
+contributor: joao
+created: "2024-09-23 17:30"
+attributes:
+  Prioridade: Alta
+links:
+  Vincular A:
+    - "123: Login"
+embedded:
+  - "123: Login"
+---
+Passo 1: ![[123: Login]]
+"""
 
 
 def test_create_requirement_validates_attributes_before_post(req_srv):
@@ -125,6 +155,31 @@ def test_update_requirement_title_text(req_srv):
         rm.rm_update_requirement("_PA1", C, S, "123")
 
 
+def test_update_requirement_markdown_embed_and_link_by_id(req_srv):
+    sent = {}
+    req_srv.routes[("PUT", R1)] = lambda req: (sent.update(body=req.body.decode()), (200, {}, b""))[1]
+    rm.rm_update_requirement("_PA1", C, S, "123", text="1. Passo ![[123]]", attributes={"Vincular A": "123: Login"})
+    assert f'class="embedded" href="{R1}"' in sent["body"] and "<ol>" in sent["body"]
+    assert f'rdf:resource="{R1}"' in sent["body"].split("Link")[1]
+
+
 def test_search_requires_a_filter():
     with pytest.raises(ValueError, match="ao menos um filtro"):
         rm.rm_search_requirements("_PA1", C, S)
+
+
+def test_update_multi_value_enum_member_login_and_unreadable_link(req_srv):
+    sent = {}
+    req_srv.routes[("PUT", R1)] = lambda req: (sent.update(body=req.body.decode()), (200, {}, b""))[1]
+    rm.rm_update_requirement("_PA1", C, S, "123", attributes={"Prioridade": ["Alta"]})
+    assert f'rdf:resource="{ALTA}"' in sent["body"]
+    with pytest.raises(ValueError, match="Baixa"):
+        rm.rm_update_requirement("_PA1", C, S, "123", attributes={"Prioridade": ["Alta", "Baixa"]})
+    rm.rm_update_requirement("_PA1", C, S, "123", attributes={"Revisor": "joao"})
+    assert f'rdf:resource="{SERVER}/jts/users/joao"' in sent["body"]
+
+
+def test_unreadable_artifact_does_not_break_read(req_srv):
+    gone = f"{SERVER}/rm/resources/TX_GONE"
+    req_srv.routes[("GET", gone)] = (403, {}, b"forbidden")
+    assert rm._artifact_label(gone, STREAM) == gone

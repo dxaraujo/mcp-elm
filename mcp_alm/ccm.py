@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime, time
 
 from .ibm import common, workitems
 from .infra import oslc
+from .infra.document import BRT, document, local_datetime, one_line, to_ewm_html, to_markdown
 from .infra.http import AlmHttpError, get_session, reportable
 from .server import tool
 
@@ -31,8 +32,6 @@ GUARD_ERROR = "com.ibm.team.rtc.common.internal.service.web.guard.WebServiceUsag
 # prefixos de tipo de item nos handles da UI ("39;<uuid>")
 PLAN_RECORD, PLAN_TYPE, ITERATION_ITEM, TEAM_AREA_ITEM, PROJECT_AREA_ITEM = 16, 8, 35, 39, 40
 PLAN_FIELDS = "apt/iterationPlanRecord[contextId={pa}]/(name|itemId|archived|owner/itemId|iteration/itemId)"
-# ponytail: fuso fixo de Brasília (como a UI mostra); tornar configurável se houver servidor em outro fuso
-BRT = timezone(timedelta(hours=-3))
 # campos que já são parâmetros de ccm_create_workitem (summary, description)
 PARAMETER_FIELDS = {"dcterms:title", "dcterms:description"}
 ITERATION = "/ccm/oslc/iterations/{id}"
@@ -43,6 +42,8 @@ SUMMARY_SELECT = ("dcterms:identifier,dcterms:title,dcterms:type,rtc_cm:state{dc
 KINDS = {"rtc_cm:filedAgainst": "category", "rtc_cm:plannedFor": "iteration", "rtc_cm:teamArea": "team-area",
          "rtc_cm:foundIn": "release", "dcterms:contributor": "member", "dcterms:creator": "member",
          "rtc_cm:resolvedBy": "member"}
+# durações em ms, mostradas como '4h' / '1h30'
+DURATIONS = {"rtc_cm:estimate", "rtc_cm:correctedEstimate", "rtc_cm:timeSpent"}
 VALUE_KINDS = {"xsd:string": "text", "rdf:XMLLiteral": "text", "xsd:integer": "integer", "xsd:int": "integer",
                "xsd:long": "integer", "xsd:dateTime": "date", "xsd:date": "date", "xsd:boolean": "boolean"}
 
@@ -67,6 +68,13 @@ def _type(project_area_identifier: str, workitem_type: str) -> dict:
 def _props(project_area_identifier: str, workitem_type: str) -> list[dict]:
     t = _type(project_area_identifier, workitem_type)
     return oslc.shape(t["shape"])["properties"] if t["shape"] else []
+
+
+def _is_link(prop: dict) -> bool:
+    """Tipo de link (pai, filhos, requisito, teste, commit...), não campo."""
+    predicate = prop["predicate"]
+    return ".linktype." in predicate.lower() or (
+        predicate.startswith(("oslc_cm:", "calm:")) and prop["value_type"] not in VALUE_KINDS)
 
 
 def _kind(prop: dict) -> str:
@@ -114,7 +122,15 @@ def ccm_list_workitem_fields(project_area_identifier: str, workitem_type: str) -
     alm.json: workitem-types[name].fields {name: attribute}."""
     return [{"name": p["title"], "attribute": p["predicate"], "required": p["required"], "kind": _kind(p)}
             for p in _props(project_area_identifier, workitem_type)
-            if not p["read_only"] and p["predicate"] not in PARAMETER_FIELDS]
+            if not p["read_only"] and p["predicate"] not in PARAMETER_FIELDS and not _is_link(p)]
+
+
+@tool
+def ccm_list_link_types(project_area_identifier: str, workitem_type: str) -> list[dict]:
+    """Tipos de link do tipo de work item (pai, filhos, relacionados, requisitos, testes, commits...):
+    [{name, attribute}]. alm.json: ccm.link-types {name: attribute} (só os que o projeto usa; nomes à escolha)."""
+    return [{"name": p["title"], "attribute": p["predicate"]}
+            for p in _props(project_area_identifier, workitem_type) if _is_link(p)]
 
 
 @tool
@@ -248,6 +264,12 @@ def _first(resource: dict, predicate: str) -> dict | None:
     return next(iter(resource["links"].get(predicate, [])), None)
 
 
+def _project_area(resource: dict) -> str:
+    """Id da project area do work item ('' se o recurso não informar)."""
+    link = _first(resource, "rtc_cm:projectArea") or _first(resource, "process:projectArea")
+    return (oslc.item_id(link["url"]) or "") if link else ""
+
+
 def _title(link: dict | None) -> str | None:
     return (link.get("title") or oslc.title(link["url"])) if link else None
 
@@ -325,14 +347,73 @@ def ccm_list_field_values(project_area_identifier: str, workitem_type: str, attr
                        for v in values]}
 
 
+def _duration(ms) -> str:
+    hours, minutes = divmod(int(ms) // 60000, 60)
+    return f"{hours}h" + (f"{minutes:02d}" if minutes else "")
+
+
+def _label(link: dict) -> str | None:
+    """Link -> texto: título (nome da pessoa, do estado, 'id: resumo', mensagem do commit) ou URL.
+    None para o usuário 'unassigned' (campo sem pessoa)."""
+    if link["url"].endswith("/jts/users/unassigned"):
+        return None
+    return one_line(link.get("title")) or link["url"]
+
+
+@tool
+def ccm_get_workitem(workitem_id: str, fields: dict, link_types: dict | None = None) -> str:
+    """Work item em Markdown + YAML. Cabeçalho: id, type, title, state, url, creator, created, modified, closed,
+    attributes {nome do alm.json: valor} e links {nome do alm.json: ['id: título', ...]}. Corpo: descrição em
+    Markdown e comentários (outro WI citado no texto, 'Tarefa 479977', fica como texto e aparece no link
+    'Menções' quando mapeado). Só entram os campos e links informados: fields=workitem-types[tipo].fields e
+    link_types=link-types do alm.json. Pessoas vêm pelo nome (login: members do alm.json); durações como '4h'
+    (na gravação, em ms). Para gravar, use a chave do alm.json (fields[nome]) em ccm_update_workitem."""
+    wi = workitems.get_workitem(workitem_id, fetch_all=True)
+    props, links = wi["properties"], wi["links"]
+
+    def value(attribute: str):
+        key = oslc.qname(oslc.expand(attribute))
+        if key in links:
+            values = [label for link in links[key] if (label := _label(link))]
+            return (values[0] if len(values) == 1 else values) or None
+        v = props.get(key)
+        if key in DURATIONS:  # o EWM usa -1 para "sem estimativa"
+            return _duration(v) if isinstance(v, int) and v > 0 else None
+        return v
+
+    def related(attribute: str) -> list[str]:
+        return list(dict.fromkeys(label for link in links.get(oslc.qname(oslc.expand(attribute)), [])
+                                  if (label := _label(link))))
+
+    body = to_markdown(oslc.markup(wi["url"], "dcterms:description"))
+    comments = []
+    for c in sorted(wi.get("comments", []), key=lambda c: str(c["properties"].get("dcterms:created"))):
+        author = next((link["url"].rsplit("/", 1)[-1] for link in c["links"].get("dcterms:creator", [])), "?")
+        created = local_datetime(c["properties"].get("dcterms:created"))
+        comments.append(f"**{author} · {created}**\n\n{c['properties'].get('dcterms:description') or ''}".strip())
+    head = {"id": int(wi["id"]), "type": props.get("dcterms:type"), "title": one_line(wi["title"]),
+            "state": _title(_first(wi, "rtc_cm:state")), "url": wi["url"],
+            "creator": next((_label(link) for link in links.get("dcterms:creator", [])), None),
+            "created": local_datetime(props.get("dcterms:created")),
+            "modified": local_datetime(props.get("dcterms:modified")),
+            "closed": local_datetime(props.get("oslc_cm:closeDate")),
+            "attributes": {name: v for name, attribute in fields.items()
+                           if (v := value(attribute)) not in (None, "", [])},
+            "links": {name: v for name, attribute in (link_types or {}).items() if (v := related(attribute))}}
+    return document(head, (body or "*(sem descrição)*") + "\n\n## Comentários\n\n"
+                    + ("\n\n".join(comments) or "*(nenhum)*"))
+
+
 @tool
 def ccm_create_workitem(
     project_area_identifier: str, workitem_type: str, summary: str, description: str | None = None,
     fields: dict | None = None, parent: str | None = None,
 ) -> dict:
-    """Cria um work item. `fields`: {atributo do alm.json: identifier de ccm_list_field_values ou valor}.
-    `parent`: id do work item pai. Retorna {id, title, type, state, owner, iteration, url}."""
-    attributes = {"dcterms:title": summary, **({"dcterms:description": description} if description else {}),
+    """Cria um work item. `description`: Markdown (vira o texto formatado do EWM; 'Tarefa 123' no texto faz o
+    EWM criar o link de menção). `fields`: {chave do alm.json (fields[nome]): identifier de ccm_list_field_values
+    ou valor}. `parent`: id do work item pai. Retorna {id, title, type, state, owner, iteration, url}."""
+    attributes = {"dcterms:title": summary,
+                  **({"dcterms:description": to_ewm_html(description)} if description else {}),
                   **(fields or {})}
     links = [{"endpointId": "parent", "targetWorkItemId": parent}] if parent else []
     return _summary(workitems.create_workitem(project_area_identifier, workitem_type, json.dumps(attributes),
@@ -357,14 +438,18 @@ def ccm_list_workitem_states(workitem_id: str) -> dict:
 
 
 @tool
-def ccm_update_workitem(workitem_id: str, fields: dict | None = None, state: str | None = None) -> dict:
-    """Atualiza campos ({atributo: identifier ou valor}) e/ou muda o estado pelo nome ('Pronto').
-    Retorna {id, title, type, state, owner, iteration, url}."""
-    if not fields and not state:
-        raise ValueError("Informe fields e/ou state.")
+def ccm_update_workitem(
+    workitem_id: str, fields: dict | None = None, state: str | None = None, description: str | None = None,
+) -> dict:
+    """Atualiza campos ({chave do alm.json: identifier ou valor}), a descrição (Markdown; substitui a descrição
+    inteira) e/ou muda o estado pelo nome ('Pronto'). Retorna {id, title, type, state, owner, iteration, url}."""
+    if not fields and not state and description is None:
+        raise ValueError("Informe fields, description e/ou state.")
+    if description is not None:
+        fields = {**(fields or {}), "dcterms:description": to_ewm_html(description)}
     url = workitems.workitem_url(workitem_id)
     resource = oslc.get(url)
-    pa = oslc.item_id((_first(resource, "rtc_cm:projectArea") or {}).get("url")) or ""
+    pa = _project_area(resource)
     attributes = {attribute: workitems.node(pa, attribute, value) for attribute, value in (fields or {}).items()}
     if not state:
         return _summary(oslc.update(url, attributes))

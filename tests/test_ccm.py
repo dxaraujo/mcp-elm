@@ -308,3 +308,105 @@ def test_create_iteration_plan_rejects_unsupported_plan_type(srv):
     with pytest.raises(ValueError, match="plantype.default"):
         ccm.ccm_create_iteration_plan("_PA1", "Plano", "_I1", "com.ibm.team.apt.plantype.default")
     assert not [c for c in srv.calls if c.method == "POST"]
+
+
+WI_1001 = f"{SERVER}/ccm/resource/itemName/com.ibm.team.workitem.WorkItem/1001"
+PARENT = "http://jazz.net/xmlns/prod/jazz/rtc/cm/1.0/com.ibm.team.workitem.linktype.parentworkitem.parent"
+COMMIT = "http://jazz.net/xmlns/prod/jazz/rtc/cm/1.0/com.ibm.team.git.workitem.linktype.gitCommit.gitcommit"
+CLASSIFICACAO = "http://jazz.net/xmlns/prod/jazz/rtc/ext/1.0/tarefa.classificação"
+
+
+def test_get_workitem_markdown_only_pa_fields_with_pa_names(srv):
+    srv.routes[("GET", WI_1001)] = xml_ok(f"""<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+        xmlns:dcterms="http://purl.org/dc/terms/" xmlns:rtc_cm="http://jazz.net/xmlns/prod/jazz/rtc/cm/1.0/"
+        xmlns:oslc_cm="http://open-services.net/ns/cm#" xmlns:oslc_cmx="http://open-services.net/ns/cm-x#">
+      <oslc_cm:ChangeRequest rdf:about="{WI_1001}">
+        <dcterms:identifier>1001</dcterms:identifier><dcterms:title>Especificar cadastro</dcterms:title>
+        <dcterms:type>Tarefa</dcterms:type>
+        <dcterms:description rdf:parseType="Literal">Linha 1<br/><b>Linha 2</b> ver Task 1000 e task 999</dcterms:description>
+        <rtc_cm:projectArea rdf:resource="{SERVER}/ccm/oslc/projectareas/_PA1"/>
+        <j.3:textuallyReferenced xmlns:j.3="http://jazz.net/xmlns/prod/jazz/rtc/cm/1.0/com.ibm.team.workitem.linktype.textualReference." rdf:resource="{SERVER}/ccm/wi/1000"/>
+        <dcterms:created rdf:datatype="http://www.w3.org/2001/XMLSchema#dateTime">2024-05-09T18:29:09.534Z</dcterms:created>
+        <rtc_cm:estimate rdf:datatype="http://www.w3.org/2001/XMLSchema#long">14400000</rtc_cm:estimate>
+        <rtc_cm:timeSpent rdf:datatype="http://www.w3.org/2001/XMLSchema#long">-1</rtc_cm:timeSpent>
+        <rtc_cm:state rdf:resource="{SERVER}/ccm/oslc/workflows/_PA1/wf/s3"/>
+        <oslc_cmx:priority rdf:resource="{SERVER}/ccm/oslc/enumerations/_PA1/priority/l1"/>
+        <dcterms:contributor rdf:resource="{SERVER}/jts/users/joao"/>
+        <rtc_cm:resolvedBy rdf:resource="{SERVER}/jts/users/unassigned"/>
+        <rtc_cm:plannedFor rdf:resource="{SERVER}/ccm/oslc/iterations/_S1"/>
+        <j.0:classificação xmlns:j.0="http://jazz.net/xmlns/prod/jazz/rtc/ext/1.0/tarefa." rdf:resource="{SERVER}/ccm/oslc/enumerations/_PA1/c/l0"/>
+        <j.1:parent xmlns:j.1="http://jazz.net/xmlns/prod/jazz/rtc/cm/1.0/com.ibm.team.workitem.linktype.parentworkitem." rdf:resource="{SERVER}/ccm/wi/1000"/>
+        <j.2:gitcommit xmlns:j.2="http://jazz.net/xmlns/prod/jazz/rtc/cm/1.0/com.ibm.team.git.workitem.linktype.gitCommit." rdf:resource="{SERVER}/git/c1"/>
+        <j.2:gitcommit xmlns:j.2="http://jazz.net/xmlns/prod/jazz/rtc/cm/1.0/com.ibm.team.git.workitem.linktype.gitCommit." rdf:resource="{SERVER}/git/c2"/>
+      </oslc_cm:ChangeRequest>
+      <rdf:Description rdf:about="{SERVER}/ccm/oslc/workflows/_PA1/wf/s3"><dcterms:title>Pronto</dcterms:title></rdf:Description>
+      <rdf:Description rdf:about="{SERVER}/ccm/oslc/enumerations/_PA1/priority/l1"><dcterms:title>Alto</dcterms:title></rdf:Description>
+      <rdf:Description rdf:about="{SERVER}/ccm/oslc/iterations/_S1"><dcterms:title>Sprint 4</dcterms:title></rdf:Description>
+      <rdf:Description rdf:about="{SERVER}/ccm/oslc/enumerations/_PA1/c/l0"><dcterms:title>Não designado</dcterms:title></rdf:Description>
+      <rdf:Description rdf:about="{SERVER}/ccm/wi/1000"><dcterms:title>1000: Épico\xa0de cadastro</dcterms:title></rdf:Description>
+      <rdf:Description rdf:about="{SERVER}/git/c1"><dcterms:title>task 1001 - ajustes no cadastro
+See merge request</dcterms:title></rdf:Description>
+      <rdf:Description rdf:about="{SERVER}/git/c2"><dcterms:title>task 1001 - ajustes no cadastro</dcterms:title></rdf:Description>
+    </rdf:RDF>""")
+    fields = {"Responsável": "dcterms:contributor", "Planejado para": "rtc_cm:plannedFor",
+              "Estimativa": "rtc_cm:estimate", "Prioridade": "oslc_cmx:priority",
+              # nome codificado, como o shape publica: casa com o recurso depois do unquote
+              "Classificação": "rtc_ext:tarefa.classifica%C3%A7%C3%A3o", "Vazio": "rtc_cm:due",
+              "Resolvido por": "rtc_cm:resolvedBy",  # 'unassigned' = sem pessoa: omitido
+              "Tempo gasto": "rtc_cm:timeSpent"}  # -1 = sem valor: omitido
+    links = {"Pai": PARENT, "Commits git": COMMIT, "Filhos": "rtc_cm:com.ibm.team.workitem.linktype.parentworkitem.children"}
+    assert ccm.ccm_get_workitem("1001", fields, links) == f"""---
+id: 1001
+type: Tarefa
+title: Especificar cadastro
+state: Pronto
+url: "{WI_1001}"
+created: "2024-05-09 15:29"
+attributes:
+  Responsável: João Silva
+  Planejado para: Sprint 4
+  Estimativa: "4h"
+  Prioridade: Alto
+  Classificação: Não designado
+links:
+  Pai:
+    - "1000: Épico de cadastro"
+  Commits git:
+    - task 1001 - ajustes no cadastro
+---
+Linha 1\\
+**Linha 2** ver Task 1000 e task 999
+
+## Comentários
+
+*(nenhum)*
+"""
+
+
+def test_list_link_types_and_fields_without_links(srv):
+    shape = fixture("shape_defect.xml").replace(b"</oslc:ResourceShape>", f"""<oslc:property><oslc:Property>
+        <dcterms:title>Parent</dcterms:title><oslc:propertyDefinition rdf:resource="{PARENT}"/>
+        <oslc:readOnly>true</oslc:readOnly></oslc:Property></oslc:property>
+        <oslc:property><oslc:Property><dcterms:title>Implements Requirement</dcterms:title>
+        <oslc:propertyDefinition rdf:resource="http://open-services.net/ns/cm#implementsRequirement"/>
+        <oslc:valueType rdf:resource="http://open-services.net/ns/core#Resource"/></oslc:Property></oslc:property>
+        <oslc:property><oslc:Property><dcterms:title>Status</dcterms:title>
+        <oslc:propertyDefinition rdf:resource="http://open-services.net/ns/cm#status"/>
+        <oslc:valueType rdf:resource="http://www.w3.org/2001/XMLSchema#string"/></oslc:Property></oslc:property>
+        </oslc:ResourceShape>""".encode())
+    srv.routes[("GET", f"{SERVER}/ccm/oslc/context/_PA1/shapes/workitems/defect")] = (200, {}, shape)
+    assert ccm.ccm_list_link_types("_PA1", "defect") == [
+        {"name": "Implements Requirement", "attribute": "oslc_cm:implementsRequirement"},
+        {"name": "Parent", "attribute": "rtc_cm:com.ibm.team.workitem.linktype.parentworkitem.parent"}]
+    fields = {f["attribute"] for f in ccm.ccm_list_workitem_fields("_PA1", "defect")}
+    assert "oslc_cm:implementsRequirement" not in fields and "oslc_cm:status" in fields
+
+
+def test_update_description_markdown_goes_as_ewm_xml_literal(srv):
+    srv.routes[("GET", WI7)] = lambda req: (200, {"ETag": '"1"'}, fixture("workitem_7.xml"))
+    sent = {}
+    srv.routes[("PUT", WI7)] = lambda req: (sent.update(body=req.body.decode()), (200, {}, b""))[1]
+    ccm.ccm_update_workitem("7", description="Regras:\\\n- **um**\n- dois\n\nFim")
+    assert 'rdf:parseType="Literal"' in sent["body"]
+    assert "Regras:<br/><br/>• <b>um</b><br/>• dois<br/><br/>Fim</dcterms:description>" in sent["body"]
+

@@ -128,6 +128,11 @@ def srv(fake):
     return fake
 
 
+def test_qname_decodes_accents():
+    encoded = "http://jazz.net/xmlns/prod/jazz/rtc/ext/1.0/tarefa.classifica%C3%A7%C3%A3o"
+    assert oslc.qname(encoded) == oslc.qname(encoded.replace("%C3%A7%C3%A3", "çã")) == "rtc_ext:tarefa.classificação"
+
+
 def test_resource_dict():
     r = oslc.resource(oslc.parse(fixture("workitem_42.xml")), URIRef(WI))
     assert (r["id"], r["title"], r["types"]) == ("42", "Corrigir login", ["oslc_cm:ChangeRequest"])

@@ -88,12 +88,50 @@ Saída com as chaves do alm.json (`alm/pa_*.json`; a skill grava o arquivo, o MC
 
 | Skill | Tools |
 |---|---|
-| alm-setup (ccm) | whoami, list_project_areas("CCM"), ccm_list_team_areas, ccm_list_members, ccm_list_workitem_types, ccm_list_workitem_fields, ccm_list_iterations, ccm_list_iteration_plans, ccm_create_iteration, ccm_create_iteration_plan |
+| alm-setup (ccm) | whoami, list_project_areas("CCM"), ccm_list_team_areas, ccm_list_members, ccm_list_workitem_types, ccm_list_workitem_fields, ccm_list_link_types, ccm_list_iterations, ccm_list_iteration_plans, ccm_create_iteration, ccm_create_iteration_plan |
 | alm-setup (rm) | list_project_areas("RM"), get_project_area(include_associations), rm_get_configuration, rm_list_members, rm_list_folders, rm_list_requirement_types |
-| alm-ccm | ccm_list_workitems, ccm_list_field_values, ccm_create_workitem, ccm_update_workitem, ccm_list_workitem_states (+ get_workitem, add_comment_to_workitem, link_*) |
+| alm-ccm | ccm_list_workitems, ccm_get_workitem, ccm_list_field_values, ccm_create_workitem, ccm_update_workitem, ccm_list_workitem_states (+ add_comment_to_workitem, link_*) |
 | alm-rm | rm_search_requirements, rm_get_requirement, rm_create_requirement, rm_update_requirement (+ link_workitem_and_requirement) |
 | alm-qm | search_testartifact, get_testartifact, get_testartifact_schema, get_qm_component, get_qm_component_configuration |
 | alm-gc | whoami, get_user, list_project_areas, get_project_area, get_global_configuration, search_global_configuration, list_linked_*, link_* |
+
+### Leitura em Markdown + YAML
+
+`ccm_get_workitem` e `rm_get_requirement` devolvem um documento Markdown com cabeçalho YAML. O MCP não traduz
+nomes:
+
+- **Work item:** o cabeçalho traz só os campos e links mapeados no alm.json, com o nome de lá. A skill passa
+  `fields=workitem-types[tipo].fields` e `link_types=ccm.link-types` e, para gravar, procura a chave no mesmo mapa
+  (`fields["Estimativa"]` → `rtc_cm:estimate`).
+- **Requisito:** o cabeçalho traz todos os atributos e links preenchidos, com os nomes do DOORS Next, e `embedded`
+  (artefatos embutidos no texto). A gravação usa os mesmos nomes. O alm.json do RM guarda só tipos e pastas.
+
+Exemplo (dados fictícios):
+
+```markdown
+---
+id: 2010
+type: Caso de Uso
+title: UC - Cadastrar cliente
+folder: "03-Casos de Uso"
+attributes:
+  Prioridade: Alta
+links:
+  Vincular A:
+    - "2002: RN - Cliente deve ser maior de idade"
+embedded:
+  - "2001: RN - Validar CPF do cliente"
+---
+## Fluxo Básico
+
+1. O usuário informa os dados do cliente.
+2. O sistema valida o documento: ![[2001: RN - Validar CPF do cliente]]
+```
+
+O corpo é Markdown nos dois sentidos: `text` (RM) e `description` (WI) aceitam Markdown na gravação. No RM,
+`![[id]]` (formato de embed do Obsidian) embute o artefato; links de requisito em `attributes` aceitam a URL ou o
+id. No EWM a descrição só tem texto, `<br/>`, `<b>`, `<i>` e `<a>` (listas viram `• ` / `1. `); para citar outro
+WI, escreva "Tarefa 1002" no texto e o EWM cria o link "Menções". `[texto](url)` é hyperlink comum.
 
 Um plano do alm.json vira filtro de `ccm_list_workitems` com `iteration=iterations[it].identifier` e
 `team_areas=[iterations[it].plans[nome].team-area]` (plano sem `team-area`: omita `team_areas`).
@@ -112,6 +150,8 @@ Um plano do alm.json vira filtro de `ccm_list_workitems` com `iteration=iteratio
   filtrados pelo id (`com.ibm.team.workitem.taskWorkflow.state.s2`, `task`).
 - `get_workitem_schema`: `include=approvals` não é suportado.
 - `search_testartifact`: `customAttributeFilters`, `categoryFilters` e `linkFilters` não são suportados.
+- `rm_update_requirement`: `attributes` substitui os valores atuais do atributo (links incluídos: mande a lista
+  completa) e `text` substitui o texto inteiro. `ccm_update_workitem`: `description` substitui a descrição inteira.
 - `rm_search_requirements`: exige ao menos um filtro (`text`, `folder` ou `requirement_type`). O DOORS Next
   responde HTTP 400 quando `text` vem junto com `folder`/`requirement_type`: busque só pelo texto e filtre o
   resultado pelo `type`/`folder`.
@@ -124,7 +164,8 @@ Um plano do alm.json vira filtro de `ccm_list_workitems` com `iteration=iteratio
 ```
 mcp_alm/
   server.py   instância MCP + @tool (erros esperados viram ToolError com a mensagem)
-  infra/      config, auth (login Jazz), http (sessão, XML, Reportable), oslc (RDF, query, descoberta)
+  infra/      config, auth (login Jazz), http (sessão, XML, Reportable), oslc (RDF, query, descoberta),
+              document (leitura em Markdown + YAML)
   ibm/        um módulo por conjunto de tools da doc: common, requirements, workitems, test
   ccm.py rm.py qm.py   tools das skills (prefixos ccm_/rm_); compõem ibm/ e infra/
 skills/       SKILL.md de alm-setup, alm-ccm, alm-rm, alm-qm e alm-gc

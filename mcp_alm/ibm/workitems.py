@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from urllib.parse import unquote
+from xml.etree import ElementTree
 
 from rdflib import Literal, URIRef
 from rdflib.namespace import DCTERMS, RDF, RDFS
@@ -245,6 +246,17 @@ def list_workitem_releases(
 
 # --- busca, criação e comentários
 
+def _is_xml(value: str) -> bool:
+    """Texto com marcação ou entidades que forma XML válido (texto puro com '<' ou '&' soltos não forma)."""
+    if "<" not in value and "&" not in value:
+        return False
+    try:
+        ElementTree.fromstring(f"<x>{value}</x>")
+    except ElementTree.ParseError:
+        return False
+    return True
+
+
 def node(project_area_id: str, pred: str, value) -> URIRef | Literal:
     """Valor da doc IBM (UUID, literal de enumeração, login, texto) -> nó RDF."""
     if not isinstance(value, str):
@@ -252,6 +264,8 @@ def node(project_area_id: str, pred: str, value) -> URIRef | Literal:
     url = get_session().url
     if value.startswith(("http://", "https://")):
         return URIRef(value)
+    if pred == "dcterms:description" and _is_xml(value):  # descrição formatada (<br/>, <b>, &amp;...)
+        return Literal(value, datatype=RDF.XMLLiteral)
     if pred in USER_PREDICATES:
         return URIRef(common.user_url(value))
     if pred in ITEM_URLS and value.startswith("_"):

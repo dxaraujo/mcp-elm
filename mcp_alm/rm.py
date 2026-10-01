@@ -1,8 +1,11 @@
 """Tools do DOORS Next para as skills (alm-setup e alm-rm): saída com as chaves do alm.json."""
 from __future__ import annotations
 
+import re
+
 from .ibm import common, requirements
 from .infra import oslc
+from .infra.document import document, local_datetime, one_line, to_markdown, to_xhtml
 from .infra.http import get_session
 from .server import tool
 
@@ -16,6 +19,18 @@ SEARCH_SELECT = "dcterms:identifier,dcterms:title,oslc:instanceShape,nav:parent"
 # propriedades que já têm lugar próprio na saída (não entram em attributes)
 CORE = {"dcterms:title", "dcterms:identifier", "dcterms:description", "jazz_rm:primaryText", "nav:parent",
         "oslc:instanceShape"}
+# preenchidos pelo servidor: não são campos que a skill grava
+SYSTEM = CORE | {"dcterms:created", "dcterms:modified", "dcterms:creator", "dcterms:contributor",
+                 "oslc_config:component", "process:projectArea"}
+VALUE_KINDS = {"xsd:string": "text", "rdf:XMLLiteral": "text", "xsd:integer": "integer", "xsd:int": "integer",
+               "xsd:long": "integer", "xsd:double": "number", "xsd:float": "number", "xsd:decimal": "number",
+               "xsd:dateTime": "date", "xsd:date": "date", "xsd:boolean": "boolean"}
+# valueType de link para outro recurso (vazio: o DOORS Next omite em alguns tipos de link)
+RESOURCE_TYPES = {"oslc:Resource", "oslc:AnyResource", "oslc:LocalResource", ""}
+PERSON = "http://xmlns.com/foaf/0.1/Person"
+# link que o DOORS Next deriva dos embeds do texto: já aparece em `embedded`
+EMBEDDING = "http://www.ibm.com/xmlns/rdm/types/Embedding"
+ARTIFACT_ID = re.compile(r"(\d+)(?::.*)?")
 
 
 def _area_url(project_area_identifier: str) -> str:
@@ -80,6 +95,16 @@ def rm_list_requirement_types(project_area_identifier: str, component: str, conf
 
 # --- alm-rm
 
+def _kind(prop: dict) -> str:
+    if prop["allowed_values"]:
+        return "enumeration"
+    if PERSON in prop["range"]:
+        return "member"
+    if prop["value_type"] in VALUE_KINDS:
+        return VALUE_KINDS[prop["value_type"]]
+    return "link" if prop["value_type"] in RESOURCE_TYPES else "text"
+
+
 def _link(resource: dict, predicate: str) -> dict | None:
     return next(iter(resource["links"].get(predicate, [])), None)
 
@@ -89,26 +114,57 @@ def _summary(resource: dict, configuration: str) -> dict:
     shape, folder = _link(resource, "oslc:instanceShape"), _link(resource, "nav:parent")
     return {"id": resource["id"], "title": resource["title"],
             "type": oslc.shape(shape["url"], configuration)["title"] if shape else None,
-            "folder": (folder.get("title") or oslc.title(folder["url"])) if folder else None,
+            "folder": (folder.get("title") or oslc.title(folder["url"], configuration)) if folder else None,
             "url": resource["url"]}
 
 
-def _attributes(shape_url: str, configuration: str, attributes: dict) -> dict:
-    """{nome do atributo: valor} -> {predicado: valor}; valor de enumeração pelo nome -> URL permitida."""
-    props = {p["title"]: p for p in oslc.shape(shape_url, configuration)["properties"]}
+def _artifact_label(url: str, configuration: str) -> str:
+    """URL de artefato -> 'id: título'; a URL se o artefato não puder ser lido (sem permissão, removido...)."""
+    try:
+        found = oslc.get(url.split("?")[0], configuration)
+    except RuntimeError:  # AlmHttpError: um artefato ilegível não derruba a leitura do requisito
+        return url.split("?")[0]
+    return f"{found['id']}: {one_line(found['title'])}"
+
+
+def _artifact_url(project_area_identifier: str, component: str, configuration: str, requirement_id: str) -> str:
+    return requirements.get_requirement(project_area_identifier, component, requirement_id,
+                                        configuration_url=configuration)["url"].split("?")[0]
+
+
+def _attributes(shape_url: str, configuration: str, attributes: dict, pa: str, component: str) -> dict:
+    """{nome do atributo (como em rm_get_requirement) ou predicado: valor} -> {predicado: valor}. Enumeração pelo
+    nome do valor; link pela URL ou pelo id do artefato ('341864' ou '341864: título'); lista = vários valores."""
+    props = [p for p in oslc.shape(shape_url, configuration)["properties"] if p["title"]]
+    by_name = {p["title"]: p for p in props} | {p["predicate"]: p for p in props}
     out = {}
     for name, value in attributes.items():
-        prop = props.get(name)
+        prop = by_name.get(name)
         if prop is None:
-            raise ValueError(f"Atributo '{name}' não existe no tipo. Válidos: {', '.join(sorted(props))}.")
+            valid = ", ".join(sorted({p["title"] for p in props if p["predicate"] not in SYSTEM}))
+            raise ValueError(f"Atributo '{name}' não existe no tipo. Válidos: {valid}.")
+        values = value if isinstance(value, list) else [value]
         if prop["allowed_values"]:
-            allowed = {oslc.title(u): u for u in prop["allowed_values"]}
-            if value not in allowed:
-                raise ValueError(f"Valor '{value}' inválido para '{name}'. Válidos: "
+            allowed = {oslc.title(u, configuration): u for u in prop["allowed_values"]}
+            invalid = [v for v in values if v not in allowed]
+            if invalid:
+                raise ValueError(f"Valor '{invalid[0]}' inválido para '{prop['title']}'. Válidos: "
                                  f"{', '.join(sorted(str(t) for t in allowed))}.")
-            value = allowed[value]
-        out[prop["predicate"]] = value
+            values = [allowed[v] for v in values]
+        elif _kind(prop) == "link":
+            values = [_artifact_url(pa, component, configuration, m.group(1))
+                      if isinstance(v, str) and (m := ARTIFACT_ID.fullmatch(v)) else v for v in values]
+        elif _kind(prop) == "member":  # login (como rm_get_requirement mostra) -> URL do usuário
+            values = [v if str(v).startswith(("http://", "https://")) else common.user_url(v) for v in values]
+        out[prop["predicate"]] = values if isinstance(value, list) else values[0]
     return out
+
+
+def _xhtml(project_area_identifier: str, component: str, configuration: str, text: str) -> str:
+    """`text` em Markdown (com `![[id]]` para embutir artefatos) ou XHTML -> XHTML."""
+    if text.lstrip().startswith("<"):
+        return text
+    return to_xhtml(text, lambda rid: _artifact_url(project_area_identifier, component, configuration, rid))
 
 
 @tool
@@ -131,21 +187,58 @@ def rm_search_requirements(
 
 
 @tool
-def rm_get_requirement(project_area_identifier: str, component: str, configuration: str, requirement_id: str) -> dict:
-    """Requisito pelo id numérico: {id, title, type, folder, text, attributes {nome: valor}, links {qname: [...]},
-    url}. Atributos pelo nome do tipo; valores de enumeração pelo nome."""
+def rm_get_requirement(project_area_identifier: str, component: str, configuration: str, requirement_id: str) -> str:
+    """Requisito pelo id numérico em Markdown + YAML. Cabeçalho: id, type, title, folder, url, creator,
+    contributor, created, modified, description, attributes {nome: valor}, links {nome: ['id: título', ...]} e
+    embedded (artefatos embutidos no texto, 'id: título'). Nomes de atributo e link são os do DOORS Next; só entram
+    os preenchidos; enumerações pelo nome do valor. Corpo: o texto em Markdown; cada artefato embutido aparece como
+    ![[id: título]] no ponto do texto. Para gravar, use os mesmos nomes em rm_update_requirement."""
     configuration = _url(STREAM, configuration)
     resource = requirements.get_requirement(project_area_identifier, component, requirement_id,
                                             configuration_url=configuration)
+    props, links = resource["properties"], resource["links"]
     shape = _link(resource, "oslc:instanceShape")
-    props = oslc.shape(shape["url"], configuration)["properties"] if shape else []
-    names = {p["predicate"]: p["title"] for p in props if p["title"]}  # sem título não dá para nomear
-    attributes = {names[k]: v for k, v in resource["properties"].items() if k in names and k not in CORE}
-    attributes |= {names[k]: [link.get("title") or oslc.title(link["url"]) or link["url"] for link in v]
-                   for k, v in resource["links"].items() if k in names and k not in CORE}
-    links = {k: v for k, v in resource["links"].items() if k not in names and k not in CORE and k != "rdf:type"}
-    return {**_summary(resource, configuration), "text": resource["properties"].get("jazz_rm:primaryText"),
-            "attributes": attributes, "links": links}
+    artifacts: dict[str, str] = {}  # um GET por artefato, mesmo se ligado e embutido
+
+    def artifact(url: str) -> str:
+        if url not in artifacts:
+            artifacts[url] = _artifact_label(url, configuration)
+        return artifacts[url]
+
+    def label(link: dict) -> str:
+        url = link["url"]
+        if "/rm/resources/" in url:
+            return artifact(url.split("?")[0])
+        if "/jts/users/" in url:
+            return url.rsplit("/", 1)[-1]
+        return one_line(link.get("title")) or oslc.title(url, configuration) or url
+
+    attributes, related = {}, {}
+    for prop in oslc.shape(shape["url"], configuration)["properties"] if shape else []:
+        key = prop["predicate"]
+        if not prop["title"] or key in SYSTEM or key == EMBEDDING:
+            continue
+        if key in links:
+            values = [label(link) for link in links[key]]
+            if _kind(prop) == "link":
+                related[prop["title"]] = values
+            else:
+                attributes[prop["title"]] = values[0] if len(values) == 1 else values
+        elif props.get(key) not in (None, ""):
+            attributes[prop["title"]] = props[key]
+    summary = _summary(resource, configuration)
+    body = to_markdown(oslc.markup(resource["url"], "jazz_rm:primaryText", configuration),
+                       lambda url: artifact(url.split("?")[0]))
+    login = lambda predicate: next((link["url"].rsplit("/", 1)[-1] for link in links.get(predicate, [])), None)
+    head = {"id": int(resource["id"]), "type": summary["type"], "title": one_line(resource["title"]),
+            "folder": summary["folder"], "url": resource["url"].split("?")[0],
+            "creator": login("dcterms:creator"), "contributor": login("dcterms:contributor"),
+            "created": local_datetime(props.get("dcterms:created")),
+            "modified": local_datetime(props.get("dcterms:modified")),
+            "description": props.get("dcterms:description") or None,
+            "attributes": attributes, "links": related,
+            "embedded": list(dict.fromkeys(m.group(1) for m in re.finditer(r"!\[\[([^\]]+)\]\]", body)))}
+    return document(head, body)
 
 
 @tool
@@ -153,13 +246,15 @@ def rm_create_requirement(
     project_area_identifier: str, component: str, configuration: str, requirement_type: str, folder: str,
     title: str, text: str, attributes: dict | None = None,
 ) -> dict:
-    """Cria um requisito na pasta e no tipo do alm.json (identifiers). `text`: texto ou XHTML. `attributes`:
-    {nome: valor} (valor de enumeração pelo nome). Retorna {id, title, url}."""
+    """Cria um requisito na pasta e no tipo do alm.json (identifiers). `text`: Markdown (![[id]] embute o
+    artefato id) ou XHTML. `attributes`: {nome do atributo ou link (como em rm_get_requirement): valor};
+    enumeração pelo nome do valor, link pela URL ou id do artefato. Retorna {id, title, url}."""
+    pa = project_area_identifier
     configuration, requirement_type = _url(STREAM, configuration), _url(TYPE, requirement_type)
-    values = _attributes(requirement_type, configuration, attributes or {})  # valida antes do POST
-    created = requirements.create_requirement(_area_url(project_area_identifier), _url(COMPONENT, component),
-                                              requirement_type, title, "", text, configuration_url=configuration,
-                                              folder_url=_url(FOLDER, folder))
+    values = _attributes(requirement_type, configuration, attributes or {}, pa, component)  # valida antes do POST
+    created = requirements.create_requirement(_area_url(pa), _url(COMPONENT, component), requirement_type, title, "",
+                                              _xhtml(pa, component, configuration, text),
+                                              configuration_url=configuration, folder_url=_url(FOLDER, folder))
     if values:  # ponytail: 2ª gravação para os atributos; montar tudo no POST se virar gargalo
         created = oslc.update(created["url"], values, configuration=configuration)
     return {"id": created["id"], "title": created["title"], "url": created["url"]}
@@ -170,21 +265,22 @@ def rm_update_requirement(
     project_area_identifier: str, component: str, configuration: str, requirement_id: str,
     title: str | None = None, text: str | None = None, attributes: dict | None = None,
 ) -> dict:
-    """Atualiza título, texto e/ou atributos ({nome: valor}) do requisito pelo id numérico. Retorna {id, title, url}."""
+    """Atualiza título, texto (Markdown com ![[id]] ou XHTML; substitui o texto inteiro) e/ou atributos e links
+    ({nome: valor}, nomes como em rm_get_requirement; substituem os valores atuais, então um link novo apaga os
+    outros do mesmo tipo: mande a lista completa) do requisito pelo id numérico. Retorna {id, title, url}."""
     if not (title or text is not None or attributes):
         raise ValueError("Informe title, text e/ou attributes.")
-    configuration = _url(STREAM, configuration)
-    resource = requirements.get_requirement(project_area_identifier, component, requirement_id,
-                                            configuration_url=configuration)
+    pa, configuration = project_area_identifier, _url(STREAM, configuration)
+    resource = requirements.get_requirement(pa, component, requirement_id, configuration_url=configuration)
     changes: dict = {}
     if title:
         changes["dcterms:title"] = title
     if text is not None:
-        changes["jazz_rm:primaryText"] = requirements.xhtml(text)
+        changes["jazz_rm:primaryText"] = requirements.xhtml(_xhtml(pa, component, configuration, text))
     if attributes:
         shape = _link(resource, "oslc:instanceShape")
         if shape is None:
             raise LookupError(f"Requisito {requirement_id} não informa o tipo (oslc:instanceShape).")
-        changes |= _attributes(shape["url"], configuration, attributes)
+        changes |= _attributes(shape["url"], configuration, attributes, pa, component)
     updated = oslc.update(resource["url"], changes, configuration=configuration)
     return {"id": updated["id"], "title": updated["title"], "url": updated["url"]}

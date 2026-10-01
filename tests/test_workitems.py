@@ -214,3 +214,9 @@ def test_workflow_from_states_url(srv):
     assert [s["title"] for s in wf["states"]] == ["Novo", "Em Testes", "Pronto"]
     assert {(a["title"], a["resultState"]) for a in wf["actions"]} == {
         ("Concluir", "Pronto"), ("Testar", "Em Testes"), ("Disponibilizar", "Em Testes")}
+
+
+def test_description_is_xml_literal_only_when_well_formed(srv):
+    from rdflib.namespace import RDF
+    assert workitems.node("_PA1", "dcterms:description", "a &amp; <b>b</b>").datatype == RDF.XMLLiteral
+    assert workitems.node("_PA1", "dcterms:description", "prazo < 5 & tal").datatype is None

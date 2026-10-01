@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 from functools import lru_cache
 from html import unescape
+from urllib.parse import unquote
 
 from rdflib import BNode, Graph, Literal, Namespace, URIRef
 from rdflib.namespace import DCTERMS, FOAF, RDF, RDFS, XSD
@@ -65,6 +66,8 @@ def clark(ns: Namespace | str, local: str = "") -> str:
 
 def qname(uri: str) -> str:
     """Abrevia uma URI usando os prefixos conhecidos (dcterms:title)."""
+    # o EWM codifica acentos no shape (classifica%C3%A7%C3%A3o), mas não no recurso: iguala as duas formas
+    uri = unquote(uri)
     for p, ns in PREFIXES.items():
         if uri.startswith(str(ns)):
             return f"{p}:{uri[len(str(ns)):]}"
@@ -247,6 +250,16 @@ def get(url: str, configuration: str | None = None) -> dict:
         subject = next((s for s in g.subjects() if isinstance(s, URIRef) and s.startswith(url.split("?")[0])),
                        subject)
     return resource(g, subject)
+
+
+def markup(url: str, predicate: str, configuration: str | None = None) -> str | None:
+    """XHTML de uma propriedade (resource() devolve só o texto, sem as tags)."""
+    # ponytail: GET a mais por leitura; guardar o XHTML em resource() se a latência pesar
+    g, subject, _ = fetch(url, configuration)
+    pred = URIRef(expand(predicate))
+    # o servidor pode ter redirecionado para outra URI canônica: aí vale o primeiro recurso com a propriedade
+    value = g.value(subject, pred) or next(g.objects(None, pred), None)
+    return str(value) if value is not None else None
 
 
 def query(
@@ -453,10 +466,13 @@ def allowed_values(url: str) -> list[dict]:
             for v in g.objects(None, OSLC.allowedValue)]
 
 
-def title(url: str) -> str | None:
-    """dcterms:title de um recurso (GET com cache); None se não houver representação RDF."""
+def title(url: str, configuration: str | None = None) -> str | None:
+    """dcterms:title de um recurso (GET com cache); None se não houver representação RDF. No DOORS Next, valores de
+    enumeração e pastas só respondem com o contexto de configuração."""
     try:
-        t = _cached(url).value(URIRef(url), DCTERMS.title)
+        # o fragmento (#valor) não vai na requisição; valores de enumeração do DOORS Next usam rdfs:label
+        g = _cached(url.split("#")[0], configuration)
+        t = g.value(URIRef(url), DCTERMS.title) or g.value(URIRef(url), RDFS.label)
     except Exception:  # valor sem representação RDF: devolve só a URL
         return None
     return text(t) if t is not None else None
