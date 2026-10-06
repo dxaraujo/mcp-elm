@@ -280,7 +280,8 @@ primeiras.
 | `rm_list_members` | — | `[{identifier, name}]` |
 | `rm_list_folders` | `component`, `configuration` | `[{name ('01-Requisitos/Funcionais'), identifier ('FR_...')}]` (sem a raiz) |
 | `rm_list_requirement_types` | `component`, `configuration` | `[{name, identifier ('OT_...')}]` |
-| `rm_search_requirements` | `text?`, `folder?`, `requirement_type?` (≥1) | `[{id, title, type, folder, url}]` (≤1000) |
+| `rm_search_requirements` | `text?`, `folder?`, `requirement_type?` (≥1) | `[{id, title, type, folder, modified, url}]` (≤1000; `modified` em ISO 8601 UTC) |
+| `rm_list_modified` | `requirement_ids` (lista; um id = consulta individual) | `[{id, title, modified}]` (`modified` em ISO 8601 UTC; id inexistente não volta) |
 | `rm_get_requirement` | `requirement_id` (numérico) | documento Markdown + YAML (ver 5.7) |
 | `rm_create_requirement` | `requirement_type`, `folder`, `title`, `text` (Markdown ou XHTML), `attributes{nome: valor}?` | `{id, title, url}` |
 | `rm_update_requirement` | `requirement_id`, `title?`, `text?` (substitui o texto inteiro), `attributes?` (substituem os valores atuais) | `{id, title, url}` |
@@ -378,7 +379,8 @@ Iniciado.
 **Requisito** — `rm_get_requirement(pa, componente, stream, "2010")`:
 
 O cabeçalho do requisito segue o Google OKF v0.2: campos OKF padrão (`type`, `title`, `description?`, `resource`,
-`tags`), depois `generated` e, por fim, as extensões RM. `url` repete `resource` como alias de compatibilidade.
+`tags`), depois `sources` (OKF §5.1: a fonte no DOORS Next; `last_modified` = última modificação no ALM),
+`generated` (OKF §5.2: `at` = quando o documento foi gerado) e, por fim, as extensões RM. `url` repete `resource` como alias de compatibilidade.
 `verified`/`status`/`stale_after` só aparecem com um sinal real do artefato.
 
 ```markdown
@@ -389,8 +391,14 @@ resource: "https://alm.example.com/rm/resources/TX_exemplo2010"
 tags:
   - "03-Casos de Uso"
   - Caso de Uso
+sources:
+  - id: doors-next
+    resource: "https://alm.example.com/rm/resources/TX_exemplo2010"
+    title: DOORS Next 2010
+    author: "human:bruno.lima"
+    last_modified: "2026-01-10T13:05:00Z"
 generated:
-  by: "process:alm-mcp/1.0.12"
+  by: "process:alm-mcp/1.0.14"
   at: "2026-01-11T19:20:00Z"
 id: 2010
 url: "https://alm.example.com/rm/resources/TX_exemplo2010"
@@ -423,13 +431,13 @@ O usuário está autenticado.
 
 | Parte | Work item | Requisito |
 |---|---|---|
-| Cabeçalho fixo | id, type, title, state, url, creator, created, modified, closed | OKF v0.2: type, title, description?, resource, tags, generated{by, at}; extensões: id, url (alias de resource), folder, creator, contributor, created, modified |
+| Cabeçalho fixo | id, type, title, state, url, creator, created, modified, closed | OKF v0.2: type, title, description?, resource, tags, sources[{id, resource, title, author?, last_modified}], generated{by, at}; extensões: id, url (alias de resource), folder, creator, contributor, created, modified |
 | `attributes` | só os de `fields` (alm.json), com o nome de lá | todos os preenchidos, com o nome do DOORS Next |
 | `links` | só os de `link_types` (alm.json), como `id: título` | todos os preenchidos, com o nome do DOORS Next, como `id: título` |
 | `embedded` | — | artefatos embutidos no texto, como `id: título` |
 | Corpo | descrição + `## Comentários` | texto; cada embed vira `![[id: título]]` no ponto em que aparece |
 
-Valores: datas em Brasília (`AAAA-MM-DD HH:MM`) em `created`/`modified`, mas `generated.at` (OKF) é ISO 8601 UTC
+Valores: datas em Brasília (`AAAA-MM-DD HH:MM`) em `created`/`modified`, mas `sources[].last_modified` e `generated.at` (OKF) são ISO 8601 UTC
 (`...Z`); enumerações e iterações pelo nome; links como `id: título`; no WI, pessoas pelo nome e durações como
 `4h`; no RM, pessoas pelo login. Campos vazios são omitidos (inclusive pessoa "unassigned").
 
@@ -780,7 +788,7 @@ description: >-
   (RF), não funcionais (RNF), histórias de usuário (HU), casos de uso (UC), regras, mensagens e
   especificações, embutir artefatos no texto e ligá-los entre si ou a work items. Use para
   "requisito", "RF-123", "criar HU", "regra do caso de uso".
-allowed-tools: Read, mcp__alm__rm_search_requirements, mcp__alm__rm_get_requirement,
+allowed-tools: Read, mcp__alm__rm_search_requirements, mcp__alm__rm_list_modified, mcp__alm__rm_get_requirement,
   mcp__alm__rm_create_requirement, mcp__alm__rm_update_requirement,
   mcp__alm__link_workitem_and_requirement
 ---

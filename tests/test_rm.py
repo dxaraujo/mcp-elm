@@ -90,6 +90,7 @@ def req_srv(srv):
     srv.routes[("GET", QUERY)] = (200, {}, f'''<rdf:RDF {RDF} xmlns:nav="http://jazz.net/ns/rm/navigation#">
         <rdf:Description rdf:about="{QUERY}"><rdfs:member><rdf:Description rdf:about="{R1}">
         <dcterms:identifier>123</dcterms:identifier><dcterms:title>Login</dcterms:title>
+        <dcterms:modified rdf:datatype="http://www.w3.org/2001/XMLSchema#dateTime">2024-10-01T13:45:10.000Z</dcterms:modified>
         <oslc:instanceShape rdf:resource="{SHAPE}"/><nav:parent rdf:resource="{FOLDER}"/>
         </rdf:Description></rdfs:member></rdf:Description></rdf:RDF>''')
     srv.routes[("GET", FOLDER)] = (200, {}, f'''<rdf:RDF {RDF}><rdf:Description rdf:about="{FOLDER}">
@@ -99,13 +100,32 @@ def req_srv(srv):
 
 def test_search_filters_and_summary(req_srv):
     found = rm.rm_search_requirements("_PA1", C, S, text="login", folder=F, requirement_type=T)
-    assert found == [{"id": "123", "title": "Login", "type": "Requisito", "folder": "01-Requisitos", "url": R1}]
+    assert found == [{"id": "123", "title": "Login", "type": "Requisito", "folder": "01-Requisitos",
+                      "modified": "2024-10-01T13:45:10Z", "url": R1}]
     q = parse_qs(urlsplit(next(c.url for c in req_srv.calls if c.url.startswith(QUERY + "?"))).query)
     assert q["oslc.where"] == [f"nav:parent=<{FOLDER}> and oslc:instanceShape=<{SHAPE}>"]
     assert q["oslc.searchTerms"] == ['"login"']
 
 
-def test_get_requirement_markdown_with_server_names_and_embeds(req_srv):
+def test_list_modified_single_and_batch(req_srv):
+    assert rm.rm_list_modified("_PA1", C, S, ["123"]) == [
+        {"id": "123", "title": "Login", "modified": "2024-10-01T13:45:10Z"}]
+    q = parse_qs(urlsplit(next(c.url for c in req_srv.calls if c.url.startswith(QUERY + "?"))).query)
+    assert q["oslc.where"] == ['dcterms:identifier in ["123"]']
+    assert q["oslc.select"] == [rm.MODIFIED_SELECT]
+    req_srv.calls.clear()
+    rm.rm_list_modified("_PA1", C, S, [str(i) for i in range(150)] + ["0"])  # repetido não conta
+    wheres = [parse_qs(urlsplit(c.url).query)["oslc.where"][0] for c in req_srv.calls
+              if c.url.startswith(QUERY + "?")]
+    assert [w.count(",") + 1 for w in wheres] == [100, 50]
+
+
+def test_get_requirement_markdown_with_server_names_and_embeds(req_srv, monkeypatch):
+    class FixedNow(rm.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return rm.datetime(2026, 10, 6, 13, 0, tzinfo=tz)
+    monkeypatch.setattr(rm, "datetime", FixedNow)
     req_srv.routes[("GET", R1)] = (200, {"ETag": '"1"'}, req_srv.routes[("GET", R1)][2].replace(
         "</rdf:Description>", f'<j.1:Link xmlns:j.1="http://www.ibm.com/xmlns/rdm/types/" rdf:resource="{R1}"/>'
         "</rdf:Description>", 1))
@@ -119,9 +139,15 @@ resource: "{R1}"
 tags:
   - "01-Requisitos"
   - Requisito
+sources:
+  - id: doors-next
+    resource: "{R1}"
+    title: DOORS Next 123
+    author: "human:joao"
+    last_modified: "2024-10-01T13:45:10Z"
 generated:
   by: "process:alm-mcp/{version}"
-  at: "2024-10-01T13:45:10Z"
+  at: "2026-10-06T13:00:00Z"
 id: 123
 url: "{R1}"
 folder: "01-Requisitos"

@@ -91,7 +91,7 @@ Saída com as chaves do alm.json (`alm/pa_*.json`; a skill grava o arquivo, o MC
 | alm-setup (ccm) | whoami, list_project_areas("CCM"), ccm_list_team_areas, ccm_list_members, ccm_list_workitem_types, ccm_list_workitem_fields, ccm_list_link_types, ccm_list_iterations, ccm_list_iteration_plans, ccm_create_iteration, ccm_create_iteration_plan |
 | alm-setup (rm) | list_project_areas("RM"), get_project_area(include_associations), rm_get_configuration, rm_list_members, rm_list_folders, rm_list_requirement_types |
 | alm-ccm | ccm_list_workitems, ccm_get_workitem, ccm_list_field_values, ccm_create_workitem, ccm_update_workitem, ccm_list_workitem_states (+ add_comment_to_workitem, link_*) |
-| alm-rm | rm_search_requirements, rm_get_requirement, rm_create_requirement, rm_update_requirement (+ link_workitem_and_requirement) |
+| alm-rm | rm_search_requirements, rm_list_modified, rm_get_requirement, rm_create_requirement, rm_update_requirement (+ link_workitem_and_requirement) |
 | alm-qm | search_testartifact, get_testartifact, get_testartifact_schema, get_qm_component, get_qm_component_configuration |
 | alm-gc | whoami, get_user, list_project_areas, get_project_area, get_global_configuration, search_global_configuration, list_linked_*, link_* |
 
@@ -107,8 +107,10 @@ nomes:
   (artefatos embutidos no texto). A gravação usa os mesmos nomes. O alm.json do RM guarda só tipos e pastas.
 
 O cabeçalho do requisito segue o [Google OKF v0.2](https://okf.md/): primeiro os campos OKF padrão (`type`,
-`title`, `description?`, `resource`, `tags`), depois `generated` (quem gerou e quando, em ISO 8601 UTC) e, por fim,
-as extensões RM. `url` é mantido como alias de compatibilidade de `resource` (mesmo valor). `verified`, `status` e
+`title`, `description?`, `resource`, `tags`), depois `sources` (a fonte no DOORS Next, com `last_modified` = última
+modificação no ALM) e `generated` (quem gerou e **quando o documento foi gerado**), ambos em ISO 8601 UTC, e, por
+fim, as extensões RM. `sources[0].last_modified` > `generated.at` indica cópia desatualizada; `rm_list_modified`
+devolve essa data para um ou vários ids sem ler o conteúdo. `url` é mantido como alias de compatibilidade de `resource` (mesmo valor). `verified`, `status` e
 `stale_after` só aparecem quando o artefato traz um sinal real (requisitos do DOORS Next não os definem).
 
 Exemplo (dados fictícios):
@@ -121,8 +123,14 @@ resource: "https://alm.example.com/rm/resources/TX_exemplo2010"
 tags:
   - "03-Casos de Uso"
   - Caso de Uso
+sources:
+  - id: doors-next
+    resource: "https://alm.example.com/rm/resources/TX_exemplo2010"
+    title: DOORS Next 2010
+    author: "human:bruno.lima"
+    last_modified: "2026-01-10T13:05:00Z"
 generated:
-  by: "process:alm-mcp/1.0.12"
+  by: "process:alm-mcp/1.0.14"
   at: "2026-01-11T19:20:00Z"
 id: 2010
 url: "https://alm.example.com/rm/resources/TX_exemplo2010"

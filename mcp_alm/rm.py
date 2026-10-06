@@ -17,7 +17,8 @@ COMPONENT = "/rm/cm/component/{id}"
 STREAM = "/rm/cm/stream/{id}"
 FOLDER = "/rm/folders/{id}"
 TYPE = "/rm/types/{id}"
-SEARCH_SELECT = "dcterms:identifier,dcterms:title,oslc:instanceShape,nav:parent"
+SEARCH_SELECT = "dcterms:identifier,dcterms:title,dcterms:modified,oslc:instanceShape,nav:parent"
+MODIFIED_SELECT = "dcterms:identifier,dcterms:title,dcterms:modified"
 # propriedades que já têm lugar próprio na saída (não entram em attributes)
 CORE = {"dcterms:title", "dcterms:identifier", "dcterms:description", "jazz_rm:primaryText", "nav:parent",
         "oslc:instanceShape"}
@@ -121,12 +122,12 @@ def _link(resource: dict, predicate: str) -> dict | None:
 
 
 def _summary(resource: dict, configuration: str) -> dict:
-    """Requisito enxuto: {id, title, type, folder, url}."""
+    """Requisito enxuto: {id, title, type, folder, modified (ISO 8601 UTC), url}."""
     shape, folder = _link(resource, "oslc:instanceShape"), _link(resource, "nav:parent")
     return {"id": resource["id"], "title": resource["title"],
             "type": oslc.shape(shape["url"], configuration)["title"] if shape else None,
             "folder": (folder.get("title") or oslc.title(folder["url"], configuration)) if folder else None,
-            "url": resource["url"]}
+            "modified": utc_datetime(resource["properties"].get("dcterms:modified")), "url": resource["url"]}
 
 
 def _artifact_label(url: str, configuration: str) -> str:
@@ -183,8 +184,9 @@ def rm_search_requirements(
     project_area_identifier: str, component: str, configuration: str, text: str | None = None,
     folder: str | None = None, requirement_type: str | None = None,
 ) -> list[dict]:
-    """Requisitos (até 1000): [{id, title, type, folder, url}]. Filtros combinam com 'e': texto no título/corpo,
-    pasta (identifier de rm.folders) e tipo (identifier de rm.requirements-types). Exige ao menos um filtro."""
+    """Requisitos (até 1000): [{id, title, type, folder, modified, url}], modified em ISO 8601 UTC. Filtros
+    combinam com 'e': texto no título/corpo, pasta (identifier de rm.folders) e tipo (identifier de
+    rm.requirements-types). Exige ao menos um filtro."""
     if not (text or folder or requirement_type):
         raise ValueError("Informe ao menos um filtro: text, folder ou requirement_type.")
     configuration = _url(STREAM, configuration)
@@ -198,16 +200,35 @@ def rm_search_requirements(
 
 
 @tool
+def rm_list_modified(project_area_identifier: str, component: str, configuration: str,
+                     requirement_ids: list[str]) -> list[dict]:
+    """Última modificação de um ou vários requisitos pelo id numérico, sem ler o conteúdo: [{id, title, modified}],
+    modified em ISO 8601 UTC (mesmo formato do generated.at do OKF). Ids não encontrados não voltam."""
+    configuration = _url(STREAM, configuration)
+    base = requirements.requirements_base(project_area_identifier, configuration)
+    ids = list(dict.fromkeys(str(i) for i in requirement_ids))
+    found = []
+    for start in range(0, len(ids), 100):  # ponytail: bloco fixo de 100 ids por limite de URL
+        found += oslc.query(base, where=oslc.where_in("dcterms:identifier", ids[start:start + 100]),
+                            select=MODIFIED_SELECT, limit=oslc.MAX_LIMIT, configuration=configuration)
+    return [{"id": r["id"], "title": one_line(r["title"]),
+             "modified": utc_datetime(r["properties"].get("dcterms:modified"))} for r in found]
+
+
+@tool
 def rm_get_requirement(project_area_identifier: str, component: str, configuration: str, requirement_id: str) -> str:
     """Requisito pelo id numérico em Markdown + YAML, conforme Google OKF v0.2. Cabeçalho, nesta ordem:
-    campos OKF padrão (type, title, description?, resource, tags) + trust/lifecycle (generated) + extensões RM
+    campos OKF padrão (type, title, description?, resource, tags) + provenance (sources) + trust (generated) +
+    extensões RM
     (id, url, folder, creator, contributor, created, modified, attributes, links, embedded).
     - type, title: tipo e título do requisito.
     - description: resumo (dcterms:description) em uma linha; só aparece quando o artefato tem esse valor.
     - resource: URI canônico do artefato; url é o mesmo valor, mantido como alias de compatibilidade.
     - tags: [folder, type] (sem nulos).
-    - generated {by, at}: by = 'process:alm-mcp/<versão>'; at = o dcterms:modified do artefato (ou o instante da
-      leitura) em ISO 8601 UTC ('...Z').
+    - sources (OKF §5.1): [{id: doors-next, resource, title, author?, last_modified}]; last_modified = a última
+      modificação do artefato no DOORS Next (dcterms:modified) e author = 'human:<login do contributor>'.
+    - generated {by, at} (OKF §5.2): by = 'process:alm-mcp/<versão>'; at = o instante em que este documento foi
+      gerado. Timestamps em ISO 8601 UTC ('...Z'): last_modified > generated.at => o documento está desatualizado.
     - verified/status/stale_after: OMITIDOS por padrão — só aparecem quando o artefato traz um sinal real de
       verificação/estado/validade (requisitos do DOORS Next não os definem); nunca inventados.
     - id, folder, creator, contributor; created/modified em horário de Brasília; attributes {nome: valor};
@@ -254,9 +275,13 @@ def rm_get_requirement(project_area_identifier: str, component: str, configurati
     login = lambda predicate: next((link["url"].rsplit("/", 1)[-1] for link in links.get(predicate, [])), None)
     url = resource["url"].split("?")[0]  # URI canônico do artefato
     tags = [t for t in (summary["folder"], summary["type"]) if t]  # OKF tags = [folder, type], sem nulos
-    # generated.at: o modified do artefato (OSLC) em UTC; sem ele, o instante da leitura em UTC
-    generated = {"by": _generator(),
-                 "at": utc_datetime(props.get("dcterms:modified")) or utc_datetime(datetime.now(timezone.utc))}
+    # OKF §5.1/§5.2: a última modificação no ALM é da fonte (sources.last_modified); generated.at é quando o
+    # documento foi escrito, para comparar e saber se a cópia baixada está desatualizada
+    contributor = login("dcterms:contributor")
+    source = {"id": "doors-next", "resource": url, "title": f"DOORS Next {resource['id']}",
+              "author": f"human:{contributor}" if contributor else None,
+              "last_modified": utc_datetime(props.get("dcterms:modified"))}
+    generated = {"by": _generator(), "at": utc_datetime(datetime.now(timezone.utc))}
     # verified/status/stale_after: OMITIDOS por padrão — requisitos do DOORS Next não têm sinal de
     # aprovação/revisão, estado de workflow nem atributo de validade/expiração definidos pelo servidor (ver
     # .agents/tasks/okf-rm-output/plan.md). Emitir só se um sinal real do servidor for encontrado; não inventar.
@@ -265,11 +290,11 @@ def rm_get_requirement(project_area_identifier: str, component: str, configurati
         "type": summary["type"], "title": one_line(resource["title"]),
         "description": one_line(props.get("dcterms:description")) or None,
         "resource": url, "tags": tags or None,
-        # trust/lifecycle
-        "generated": generated,
+        # provenance e trust
+        "sources": [{k: v for k, v in source.items() if v}], "generated": generated,
         # extensões RM (nada do que já era emitido some; `url` é alias de compatibilidade de `resource`)
         "id": int(resource["id"]), "url": url, "folder": summary["folder"],
-        "creator": login("dcterms:creator"), "contributor": login("dcterms:contributor"),
+        "creator": login("dcterms:creator"), "contributor": contributor,
         "created": local_datetime(props.get("dcterms:created")),
         "modified": local_datetime(props.get("dcterms:modified")),
         "attributes": attributes, "links": related,
