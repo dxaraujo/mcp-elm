@@ -377,13 +377,24 @@ Iniciado.
 
 **Requisito** — `rm_get_requirement(pa, componente, stream, "2010")`:
 
+O cabeçalho do requisito segue o Google OKF v0.2: campos OKF padrão (`type`, `title`, `description?`, `resource`,
+`tags`), depois `generated` e, por fim, as extensões RM. `url` repete `resource` como alias de compatibilidade.
+`verified`/`status`/`stale_after` só aparecem com um sinal real do artefato.
+
 ```markdown
 ---
-id: 2010
 type: Caso de Uso
 title: UC - Cadastrar cliente
-folder: "03-Casos de Uso"
+resource: "https://alm.example.com/rm/resources/TX_exemplo2010"
+tags:
+  - "03-Casos de Uso"
+  - Caso de Uso
+generated:
+  by: "process:alm-mcp/1.0.12"
+  at: "2026-01-11T19:20:00Z"
+id: 2010
 url: "https://alm.example.com/rm/resources/TX_exemplo2010"
+folder: "03-Casos de Uso"
 creator: ana.souza
 contributor: bruno.lima
 created: "2026-01-05 10:00"
@@ -412,15 +423,15 @@ O usuário está autenticado.
 
 | Parte | Work item | Requisito |
 |---|---|---|
-| Cabeçalho fixo | id, type, title, state, url, creator, created, modified, closed | id, type, title, folder, url, creator, contributor, created, modified, description |
+| Cabeçalho fixo | id, type, title, state, url, creator, created, modified, closed | OKF v0.2: type, title, description?, resource, tags, generated{by, at}; extensões: id, url (alias de resource), folder, creator, contributor, created, modified |
 | `attributes` | só os de `fields` (alm.json), com o nome de lá | todos os preenchidos, com o nome do DOORS Next |
 | `links` | só os de `link_types` (alm.json), como `id: título` | todos os preenchidos, com o nome do DOORS Next, como `id: título` |
 | `embedded` | — | artefatos embutidos no texto, como `id: título` |
 | Corpo | descrição + `## Comentários` | texto; cada embed vira `![[id: título]]` no ponto em que aparece |
 
-Valores: datas em Brasília (`AAAA-MM-DD HH:MM`); enumerações e iterações pelo nome; links como `id: título`; no WI,
-pessoas pelo nome e durações como `4h`; no RM, pessoas pelo login. Campos vazios são omitidos (inclusive pessoa
-"unassigned").
+Valores: datas em Brasília (`AAAA-MM-DD HH:MM`) em `created`/`modified`, mas `generated.at` (OKF) é ISO 8601 UTC
+(`...Z`); enumerações e iterações pelo nome; links como `id: título`; no WI, pessoas pelo nome e durações como
+`4h`; no RM, pessoas pelo login. Campos vazios são omitidos (inclusive pessoa "unassigned").
 
 **Corpo e gravação.** A gravação aceita o mesmo Markdown do corpo: `text` no RM e `description` no WI.
 

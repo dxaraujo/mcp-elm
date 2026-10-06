@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
+from importlib import metadata
 
 from .ibm import common, requirements
 from .infra import oslc
-from .infra.document import document, local_datetime, one_line, to_markdown, to_xhtml
+from .infra.document import document, local_datetime, one_line, to_markdown, to_xhtml, utc_datetime
 from .infra.http import get_session
 from .server import tool
 
@@ -31,6 +33,15 @@ PERSON = "http://xmlns.com/foaf/0.1/Person"
 # link que o DOORS Next deriva dos embeds do texto: já aparece em `embedded`
 EMBEDDING = "http://www.ibm.com/xmlns/rdm/types/Embedding"
 ARTIFACT_ID = re.compile(r"(\d+)(?::.*)?")
+
+
+def _generator() -> str:
+    """Ator OKF `generated.by`: 'process:alm-mcp/<versão>' pela metadata da distribuição 'mcp-alm'.
+    Sem a distribuição instalada (rodando do fonte) cai para 'process:alm-mcp' em vez de levantar."""
+    try:
+        return f"process:alm-mcp/{metadata.version('mcp-alm')}"
+    except metadata.PackageNotFoundError:
+        return "process:alm-mcp"
 
 
 def _area_url(project_area_identifier: str) -> str:
@@ -188,11 +199,22 @@ def rm_search_requirements(
 
 @tool
 def rm_get_requirement(project_area_identifier: str, component: str, configuration: str, requirement_id: str) -> str:
-    """Requisito pelo id numérico em Markdown + YAML. Cabeçalho: id, type, title, folder, url, creator,
-    contributor, created, modified, description, attributes {nome: valor}, links {nome: ['id: título', ...]} e
-    embedded (artefatos embutidos no texto, 'id: título'). Nomes de atributo e link são os do DOORS Next; só entram
-    os preenchidos; enumerações pelo nome do valor. Corpo: o texto em Markdown; cada artefato embutido aparece como
-    ![[id: título]] no ponto do texto. Para gravar, use os mesmos nomes em rm_update_requirement."""
+    """Requisito pelo id numérico em Markdown + YAML, conforme Google OKF v0.2. Cabeçalho, nesta ordem:
+    campos OKF padrão (type, title, description?, resource, tags) + trust/lifecycle (generated) + extensões RM
+    (id, url, folder, creator, contributor, created, modified, attributes, links, embedded).
+    - type, title: tipo e título do requisito.
+    - description: resumo (dcterms:description) em uma linha; só aparece quando o artefato tem esse valor.
+    - resource: URI canônico do artefato; url é o mesmo valor, mantido como alias de compatibilidade.
+    - tags: [folder, type] (sem nulos).
+    - generated {by, at}: by = 'process:alm-mcp/<versão>'; at = o dcterms:modified do artefato (ou o instante da
+      leitura) em ISO 8601 UTC ('...Z').
+    - verified/status/stale_after: OMITIDOS por padrão — só aparecem quando o artefato traz um sinal real de
+      verificação/estado/validade (requisitos do DOORS Next não os definem); nunca inventados.
+    - id, folder, creator, contributor; created/modified em horário de Brasília; attributes {nome: valor};
+      links {nome: ['id: título', ...]}; embedded (artefatos embutidos no texto, 'id: título'). Nomes de atributo
+      e link são os do DOORS Next; só entram os preenchidos; enumerações pelo nome do valor.
+    Corpo: o texto em Markdown; cada artefato embutido aparece como ![[id: título]] no ponto do texto, inalterado.
+    Para gravar, use os mesmos nomes de atributo e link em rm_update_requirement."""
     configuration = _url(STREAM, configuration)
     resource = requirements.get_requirement(project_area_identifier, component, requirement_id,
                                             configuration_url=configuration)
@@ -230,14 +252,28 @@ def rm_get_requirement(project_area_identifier: str, component: str, configurati
     body = to_markdown(oslc.markup(resource["url"], "jazz_rm:primaryText", configuration),
                        lambda url: artifact(url.split("?")[0]))
     login = lambda predicate: next((link["url"].rsplit("/", 1)[-1] for link in links.get(predicate, [])), None)
-    head = {"id": int(resource["id"]), "type": summary["type"], "title": one_line(resource["title"]),
-            "folder": summary["folder"], "url": resource["url"].split("?")[0],
-            "creator": login("dcterms:creator"), "contributor": login("dcterms:contributor"),
-            "created": local_datetime(props.get("dcterms:created")),
-            "modified": local_datetime(props.get("dcterms:modified")),
-            "description": props.get("dcterms:description") or None,
-            "attributes": attributes, "links": related,
-            "embedded": list(dict.fromkeys(m.group(1) for m in re.finditer(r"!\[\[([^\]]+)\]\]", body)))}
+    url = resource["url"].split("?")[0]  # URI canônico do artefato
+    tags = [t for t in (summary["folder"], summary["type"]) if t]  # OKF tags = [folder, type], sem nulos
+    # generated.at: o modified do artefato (OSLC) em UTC; sem ele, o instante da leitura em UTC
+    generated = {"by": _generator(),
+                 "at": utc_datetime(props.get("dcterms:modified")) or utc_datetime(datetime.now(timezone.utc))}
+    # verified/status/stale_after: OMITIDOS por padrão — requisitos do DOORS Next não têm sinal de
+    # aprovação/revisão, estado de workflow nem atributo de validade/expiração definidos pelo servidor (ver
+    # .agents/tasks/okf-rm-output/plan.md). Emitir só se um sinal real do servidor for encontrado; não inventar.
+    head = {
+        # OKF padrão
+        "type": summary["type"], "title": one_line(resource["title"]),
+        "description": one_line(props.get("dcterms:description")) or None,
+        "resource": url, "tags": tags or None,
+        # trust/lifecycle
+        "generated": generated,
+        # extensões RM (nada do que já era emitido some; `url` é alias de compatibilidade de `resource`)
+        "id": int(resource["id"]), "url": url, "folder": summary["folder"],
+        "creator": login("dcterms:creator"), "contributor": login("dcterms:contributor"),
+        "created": local_datetime(props.get("dcterms:created")),
+        "modified": local_datetime(props.get("dcterms:modified")),
+        "attributes": attributes, "links": related,
+        "embedded": list(dict.fromkeys(m.group(1) for m in re.finditer(r"!\[\[([^\]]+)\]\]", body)))}
     return document(head, body)
 
 

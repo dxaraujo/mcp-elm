@@ -80,6 +80,7 @@ def req_srv(srv):
         <dcterms:identifier>123</dcterms:identifier><dcterms:title>Login</dcterms:title>
         <jazz_rm:primaryText rdf:parseType="Literal"><div xmlns="http://www.w3.org/1999/xhtml"><p>Passo 1: <a class="embedded" href="{R1}"> </a></p></div></jazz_rm:primaryText>
         <dcterms:created rdf:datatype="http://www.w3.org/2001/XMLSchema#dateTime">2024-09-23T20:30:48.392Z</dcterms:created>
+        <dcterms:modified rdf:datatype="http://www.w3.org/2001/XMLSchema#dateTime">2024-10-01T13:45:10.000Z</dcterms:modified>
         <oslc:instanceShape rdf:resource="{SHAPE}"/><nav:parent rdf:resource="{FOLDER}"/>
         <rdf:type rdf:resource="http://open-services.net/ns/rm#Requirement"/>
         <j.0:PRIO xmlns:j.0="https://alm.test/rm/types/AT_" rdf:resource="{ALTA}"/>
@@ -108,15 +109,25 @@ def test_get_requirement_markdown_with_server_names_and_embeds(req_srv):
     req_srv.routes[("GET", R1)] = (200, {"ETag": '"1"'}, req_srv.routes[("GET", R1)][2].replace(
         "</rdf:Description>", f'<j.1:Link xmlns:j.1="http://www.ibm.com/xmlns/rdm/types/" rdf:resource="{R1}"/>'
         "</rdf:Description>", 1))
+    from importlib import metadata
+    version = metadata.version("mcp-alm")
     doc = rm.rm_get_requirement("_PA1", C, S, "123")
     assert doc == f"""---
-id: 123
 type: Requisito
 title: Login
-folder: "01-Requisitos"
+resource: "{R1}"
+tags:
+  - "01-Requisitos"
+  - Requisito
+generated:
+  by: "process:alm-mcp/{version}"
+  at: "2024-10-01T13:45:10Z"
+id: 123
 url: "{R1}"
+folder: "01-Requisitos"
 contributor: joao
 created: "2024-09-23 17:30"
+modified: "2024-10-01 10:45"
 attributes:
   Prioridade: Alta
 links:
@@ -127,6 +138,20 @@ embedded:
 ---
 Passo 1: ![[123: Login]]
 """
+    # description/verified/status/stale_after não têm fonte neste requisito: ausentes do cabeçalho
+    assert "description:" not in doc
+    assert "verified:" not in doc and "status:" not in doc and "stale_after:" not in doc
+    # resource é o URI canônico e url é alias com o mesmo valor
+    assert f'resource: "{R1}"' in doc and f'url: "{R1}"' in doc
+
+
+def test_get_requirement_description_present_when_source_exists(req_srv):
+    # dcterms:description com espaços repetidos vira a OKF description em uma linha (one_line)
+    req_srv.routes[("GET", R1)] = (200, {"ETag": '"1"'}, req_srv.routes[("GET", R1)][2].replace(
+        "</rdf:Description>",
+        "<dcterms:description>Resumo  do   requisito.</dcterms:description></rdf:Description>", 1))
+    doc = rm.rm_get_requirement("_PA1", C, S, "123")
+    assert "description: Resumo do requisito." in doc
 
 
 def test_create_requirement_validates_attributes_before_post(req_srv):

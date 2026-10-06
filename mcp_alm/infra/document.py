@@ -32,6 +32,19 @@ def local_datetime(value) -> str | None:
     return datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone(BRT).strftime("%Y-%m-%d %H:%M")
 
 
+def utc_datetime(value) -> str | None:
+    """ISO 8601 em UTC com offset explícito, precisão de segundos: '2024-05-09T18:29:09Z' (OKF trust/lifecycle).
+
+    Aceita string ISO (com 'Z' ou offset), datetime (naïve é assumido UTC) ou None; devolve None para valor falso.
+    Diferente de `local_datetime`, que mantém `created`/`modified` em Brasília."""
+    if not value:
+        return None
+    dt = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def one_line(text: str | None) -> str | None:
     """Primeira linha, sem espaços repetidos nem espaço não separável (títulos do DOORS Next, commits)."""
     return " ".join(next((l for l in text.splitlines() if l.strip()), "").split()) if text else text
@@ -51,6 +64,15 @@ def _scalar(v) -> str:
     return s if plain else json.dumps(s, ensure_ascii=False)  # string JSON é YAML válido
 
 
+def _item(x, indent: int) -> list[str]:
+    """Um item de lista: '- mapa' (dict vira bloco com a 1ª chave na linha do '-') ou '- escalar'."""
+    pad = "  " * indent
+    if isinstance(x, dict) and x:
+        body = _yaml(x, indent + 1)
+        return [f"{pad}- {body[0].lstrip()}", *body[1:]]  # 1ª chave colada no '-', resto já indentado
+    return [f"{pad}- {_scalar(x)}"]
+
+
 def _yaml(value, indent: int = 0) -> list[str]:
     pad = "  " * indent
     lines = []
@@ -58,7 +80,9 @@ def _yaml(value, indent: int = 0) -> list[str]:
         if isinstance(v, dict) and v:
             lines += [f"{pad}{_scalar(key)}:", *_yaml(v, indent + 1)]
         elif isinstance(v, list) and v:
-            lines += [f"{pad}{_scalar(key)}:", *(f"{pad}  - {_scalar(x)}" for x in v)]
+            lines.append(f"{pad}{_scalar(key)}:")
+            for x in v:
+                lines += _item(x, indent + 1)
         else:
             lines.append(f"{pad}{_scalar(key)}: {'{}' if v == {} else '[]' if v == [] else _scalar(v)}")
     return lines

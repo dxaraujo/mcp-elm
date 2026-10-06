@@ -1,4 +1,7 @@
-from mcp_alm.infra.document import document, local_datetime, one_line, to_ewm_html, to_markdown, to_xhtml
+from datetime import datetime, timezone
+
+from mcp_alm.infra.document import (document, local_datetime, one_line, to_ewm_html, to_markdown, to_xhtml,
+                                    utc_datetime)
 
 UC_HTML = """<div xmlns="http://www.w3.org/1999/xhtml">
 <h2 dir="ltr" id="_1">Pré-condição:</h2>
@@ -15,6 +18,25 @@ def test_yaml_header_quotes_only_what_needs_it():
             "links": {"Pai": ["2: X"]}, "none": None}
     assert document(head, "corpo") == ('---\nid: 1\ntitle: "UC - A: b"\nstate: Pronto\nattributes:\n'
                                        '  Estimativa: "4h"\n  Vazio: {}\nlinks:\n  Pai:\n    - "2: X"\n---\ncorpo\n')
+
+
+def test_yaml_renders_list_of_mappings_as_block_sequence():
+    # OKF trust: verified é uma lista de mapas {by, at}; deve virar bloco YAML válido, não repr de dict
+    head = {"verified": [{"by": "human:joao", "at": "2024-10-01T13:45:10Z"},
+                         {"by": "human:ana", "at": "2024-10-02T09:00:00Z"}]}
+    assert document(head, "corpo") == (
+        '---\nverified:\n  - by: "human:joao"\n    at: "2024-10-01T13:45:10Z"\n'
+        '  - by: "human:ana"\n    at: "2024-10-02T09:00:00Z"\n---\ncorpo\n')
+
+
+def test_utc_datetime_normalizes_to_utc_iso():
+    assert utc_datetime("2026-09-30T22:35:27.611Z") == "2026-09-30T22:35:27Z"
+    assert utc_datetime("2024-05-09 18:29:09+00:00") == "2024-05-09T18:29:09Z"
+    assert utc_datetime("2024-05-09T15:00:00-03:00") == "2024-05-09T18:00:00Z"  # Brasília -> UTC
+    assert utc_datetime("2024-05-09T18:29:09") == "2024-05-09T18:29:09Z"  # naïve = UTC
+    assert utc_datetime(datetime(2024, 5, 9, 18, 29, 9, tzinfo=timezone.utc)) == "2024-05-09T18:29:09Z"
+    assert utc_datetime(None) is None
+    assert utc_datetime("") is None
 
 
 def test_word_html_to_markdown_keeps_structure_and_embeds():

@@ -106,13 +106,26 @@ nomes:
 - **Requisito:** o cabeçalho traz todos os atributos e links preenchidos, com os nomes do DOORS Next, e `embedded`
   (artefatos embutidos no texto). A gravação usa os mesmos nomes. O alm.json do RM guarda só tipos e pastas.
 
+O cabeçalho do requisito segue o [Google OKF v0.2](https://okf.md/): primeiro os campos OKF padrão (`type`,
+`title`, `description?`, `resource`, `tags`), depois `generated` (quem gerou e quando, em ISO 8601 UTC) e, por fim,
+as extensões RM. `url` é mantido como alias de compatibilidade de `resource` (mesmo valor). `verified`, `status` e
+`stale_after` só aparecem quando o artefato traz um sinal real (requisitos do DOORS Next não os definem).
+
 Exemplo (dados fictícios):
 
 ```markdown
 ---
-id: 2010
 type: Caso de Uso
 title: UC - Cadastrar cliente
+resource: "https://alm.example.com/rm/resources/TX_exemplo2010"
+tags:
+  - "03-Casos de Uso"
+  - Caso de Uso
+generated:
+  by: "process:alm-mcp/1.0.12"
+  at: "2026-01-11T19:20:00Z"
+id: 2010
+url: "https://alm.example.com/rm/resources/TX_exemplo2010"
 folder: "03-Casos de Uso"
 attributes:
   Prioridade: Alta
