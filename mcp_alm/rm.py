@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import glob
+from concurrent.futures import ThreadPoolExecutor
 import os
 import posixpath
 import re
@@ -316,7 +317,9 @@ def _requirement(project_area_identifier: str, component: str, configuration: st
                                             configuration_url=configuration)
     props, res_links = resource["properties"], resource["links"]
     shape = _link(resource, "oslc:instanceShape")
-    artifacts: dict[str, dict | None] = {}  # um GET por artefato, mesmo se ligado e embutido
+    # um GET por artefato, mesmo se ligado e embutido; no bundle, vale para todo o download (os mesmos
+    # artefatos são citados por muitos requisitos)
+    artifacts: dict[str, dict | None] = _BUNDLE_ARTIFACTS if links == "bundle" else {}
     own_dir = posixpath.dirname(_file_path(resource, configuration)) if links == "bundle" else ""
 
     def artifact(url: str) -> dict | None:
@@ -392,6 +395,13 @@ def _requirement(project_area_identifier: str, component: str, configuration: st
                                   "last_modified": source["last_modified"], "generated_at": generated["at"]}
 
 
+# artefatos citados já lidos no download do bundle; rm_sync_plan limpa (novo inventário = dados novos)
+_BUNDLE_ARTIFACTS: dict[str, dict | None] = {}
+# downloads em paralelo: o tempo é latência do servidor (~0,2 s por GET), não CPU
+# ponytail: número fixo; ajustar se o servidor reclamar de carga
+WORKERS = 8
+
+
 def _root(dest: str) -> str:
     """Raiz do bundle: `dest` tem de ser absoluto (o cwd do MCP não é o repositório)."""
     if not os.path.isabs(dest):
@@ -426,6 +436,7 @@ def rm_sync_plan(project_area_identifier: str, component: str, configuration: st
     Retorna só o resumo: {pastas: {nome: {total, listados, novo, pendente, atualizado, erro}}, removidos:
     [{id, title, folder}], inconsistentes: [nomes], nao_confirmados: [ids], a_baixar}."""
     root = _root(dest)
+    _BUNDLE_ARTIFACTS.clear()
     rows = bundle.read_sync(root)
     listed: dict[str, dict] = {}
     summary, inconsistent = {}, []
@@ -488,17 +499,25 @@ def rm_download_requirements(project_area_identifier: str, component: str, confi
     queue = [r["id"] for r in sorted(rows.values(), key=lambda r: (r["folder"], int(r["id"])))
              if r["status"].startswith(bundle.QUEUE)]
     ids = requirement_ids or queue[:max(1, limit)]
-    done, errors = 0, []
-    for rid in ids:
-        row = rows.get(rid) or {"id": rid, "title": rid, "folder": "", "path": None, "alm": "", "okf": ""}
+
+    def fetch(rid: str):
         try:
-            meta = _write_requirement(project_area_identifier, component, configuration, rid, root)
+            return _write_requirement(project_area_identifier, component, configuration, rid, root)
+        except Exception as exc:  # um id com erro não derruba o lote
+            return exc
+
+    done, errors = 0, []
+    with ThreadPoolExecutor(WORKERS) as pool:
+        results = list(pool.map(fetch, ids))
+    for rid, meta in zip(ids, results):
+        row = rows.get(rid) or {"id": rid, "title": rid, "folder": "", "path": None, "alm": "", "okf": ""}
+        if not isinstance(meta, Exception):
             row.update(title=meta["title"], folder=row["folder"] or posixpath.dirname(meta["path"]),
                        path=meta["path"], alm=meta["last_modified"] or "", okf=meta["generated_at"],
                        status="atualizado")
             done += 1
-        except Exception as exc:  # um id com erro não derruba o lote
-            message = " ".join(str(exc).replace("|", "/").split())[:200]
+        else:
+            message = " ".join(str(meta).replace("|", "/").split())[:200]
             row["status"] = f"erro: {message}"
             errors.append({"id": rid, "error": message})
         rows[rid] = row
