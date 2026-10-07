@@ -341,6 +341,11 @@ def _cached(url: str, configuration: str | None = None) -> Graph:
     return fetch(url, configuration)[0]
 
 
+def cached(url: str, configuration: str | None = None) -> dict:
+    """get com cache, para recursos que mudam pouco durante a execução (pastas)."""
+    return resource(_cached(url, configuration), URIRef(url))
+
+
 def clear_cache() -> None:
     _cached.cache_clear()
 

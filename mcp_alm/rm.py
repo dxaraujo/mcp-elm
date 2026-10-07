@@ -1,13 +1,16 @@
 """Tools do DOORS Next para as skills (alm-setup e alm-rm): saída com as chaves do alm.json."""
 from __future__ import annotations
 
+import posixpath
 import re
 from datetime import datetime, timezone
+from html import unescape
 from importlib import metadata
+from typing import Literal
 
 from .ibm import common, requirements
 from .infra import oslc
-from .infra.document import document, local_datetime, one_line, to_markdown, to_xhtml, utc_datetime
+from .infra.document import document, local_datetime, one_line, slug, to_markdown, to_xhtml, utc_datetime
 from .infra.http import get_session
 from .server import tool
 
@@ -122,21 +125,37 @@ def _link(resource: dict, predicate: str) -> dict | None:
 
 
 def _summary(resource: dict, configuration: str) -> dict:
-    """Requisito enxuto: {id, title, type, folder, modified (ISO 8601 UTC), url}."""
+    """Requisito enxuto: {id, title, type, folder, modified (ISO 8601 UTC), path, url}."""
     shape, folder = _link(resource, "oslc:instanceShape"), _link(resource, "nav:parent")
     return {"id": resource["id"], "title": resource["title"],
             "type": oslc.shape(shape["url"], configuration)["title"] if shape else None,
             "folder": (folder.get("title") or oslc.title(folder["url"], configuration)) if folder else None,
-            "modified": utc_datetime(resource["properties"].get("dcterms:modified")), "url": resource["url"]}
+            "modified": utc_datetime(resource["properties"].get("dcterms:modified")),
+            "path": _file_path(resource, configuration), "url": resource["url"]}
 
 
-def _artifact_label(url: str, configuration: str) -> str:
-    """URL de artefato -> 'id: título'; a URL se o artefato não puder ser lido (sem permissão, removido...)."""
+def _folder_path(url: str, configuration: str) -> str:
+    """Pasta -> caminho como em rm_list_folders / rm.folders ('01-Req/Funcionais'), sem a pasta 'root'."""
+    folder = oslc.cached(url, configuration)
+    parent = _link(folder, "nav:parent")
+    if parent is None:  # ponytail: raiz; pasta sem nav:parent no servidor cai só no próprio título
+        return "" if folder["title"] == "root" else folder["title"] or ""
+    return posixpath.join(_folder_path(parent["url"], configuration), folder["title"] or "")
+
+
+def _file_path(resource: dict, configuration: str) -> str:
+    """Arquivo do artefato no bundle baixado (alm-download): '<caminho da pasta>/<id>-<slug do título>.md'."""
+    folder = _link(resource, "nav:parent")
+    name = f"{resource['id']}-{slug(one_line(resource['title']) or '')}.md"
+    return posixpath.join(_folder_path(folder["url"], configuration), name) if folder else name
+
+
+def _artifact(url: str, configuration: str) -> dict | None:
+    """Artefato pela URL; None se não puder ser lido (sem permissão, removido...)."""
     try:
-        found = oslc.get(url.split("?")[0], configuration)
+        return oslc.get(url, configuration)
     except RuntimeError:  # AlmHttpError: um artefato ilegível não derruba a leitura do requisito
-        return url.split("?")[0]
-    return f"{found['id']}: {one_line(found['title'])}"
+        return None
 
 
 def _artifact_url(project_area_identifier: str, component: str, configuration: str, requirement_id: str) -> str:
@@ -173,10 +192,11 @@ def _attributes(shape_url: str, configuration: str, attributes: dict, pa: str, c
 
 
 def _xhtml(project_area_identifier: str, component: str, configuration: str, text: str) -> str:
-    """`text` em Markdown (com `![[id]]` para embutir artefatos) ou XHTML -> XHTML."""
+    """`text` em Markdown (![x](alvo) embute, [x](alvo) cita; alvo = id, URL ou arquivo do bundle) ou XHTML."""
     if text.lstrip().startswith("<"):
         return text
-    return to_xhtml(text, lambda rid: _artifact_url(project_area_identifier, component, configuration, rid))
+    return to_xhtml(text, lambda ref: _artifact_url(project_area_identifier, component, configuration, ref)
+                    if ref.isdigit() else get_session().url(ref))
 
 
 @tool
@@ -216,7 +236,8 @@ def rm_list_modified(project_area_identifier: str, component: str, configuration
 
 
 @tool
-def rm_get_requirement(project_area_identifier: str, component: str, configuration: str, requirement_id: str) -> str:
+def rm_get_requirement(project_area_identifier: str, component: str, configuration: str, requirement_id: str,
+                       links: Literal["alm", "bundle"] = "alm") -> str:
     """Requisito pelo id numérico em Markdown + YAML, conforme Google OKF v0.2. Cabeçalho, nesta ordem:
     campos OKF padrão (type, title, description?, resource, tags) + provenance (sources) + trust (generated) +
     extensões RM
@@ -234,24 +255,38 @@ def rm_get_requirement(project_area_identifier: str, component: str, configurati
     - id, folder, creator, contributor; created/modified em horário de Brasília; attributes {nome: valor};
       links {nome: ['id: título', ...]}; embedded (artefatos embutidos no texto, 'id: título'). Nomes de atributo
       e link são os do DOORS Next; só entram os preenchidos; enumerações pelo nome do valor.
-    Corpo: o texto em Markdown; cada artefato embutido aparece como ![[id: título]] no ponto do texto, inalterado.
-    Para gravar, use os mesmos nomes de atributo e link em rm_update_requirement."""
+    Corpo: o texto em Markdown. Artefato embutido = ![id título](alvo); hyperlink para artefato = [id título](alvo).
+    links='alm': alvo = URL do artefato no ALM. links='bundle': alvo = caminho relativo do arquivo do artefato no
+    bundle da alm-download ('../03-Regras/2001-rn-validar-cpf.md', mesmo `path` de rm_search_requirements).
+    Para gravar, use os mesmos nomes de atributo e link em rm_update_requirement; o corpo volta como veio."""
     configuration = _url(STREAM, configuration)
     resource = requirements.get_requirement(project_area_identifier, component, requirement_id,
                                             configuration_url=configuration)
-    props, links = resource["properties"], resource["links"]
+    props, res_links = resource["properties"], resource["links"]
     shape = _link(resource, "oslc:instanceShape")
-    artifacts: dict[str, str] = {}  # um GET por artefato, mesmo se ligado e embutido
+    artifacts: dict[str, dict | None] = {}  # um GET por artefato, mesmo se ligado e embutido
+    own_dir = posixpath.dirname(_file_path(resource, configuration)) if links == "bundle" else ""
 
-    def artifact(url: str) -> str:
+    def artifact(url: str) -> dict | None:
+        url = get_session().url(url.split("?")[0])
         if url not in artifacts:
-            artifacts[url] = _artifact_label(url, configuration)
+            artifacts[url] = _artifact(url, configuration)
         return artifacts[url]
+
+    def ref(url: str) -> tuple[str, str] | None:
+        """Embed/hyperlink no corpo -> ('id título', alvo); None se não for artefato legível do RM."""
+        found = artifact(url) if "/rm/resources/" in url else None
+        if found is None:
+            return None
+        target = (posixpath.relpath(_file_path(found, configuration), own_dir or ".") if links == "bundle"
+                  else found["url"].split("?")[0])
+        return f"{found['id']} {one_line(found['title'])}", target
 
     def label(link: dict) -> str:
         url = link["url"]
         if "/rm/resources/" in url:
-            return artifact(url.split("?")[0])
+            found = artifact(url)
+            return f"{found['id']}: {one_line(found['title'])}" if found else url.split("?")[0]
         if "/jts/users/" in url:
             return url.rsplit("/", 1)[-1]
         return one_line(link.get("title")) or oslc.title(url, configuration) or url
@@ -261,8 +296,8 @@ def rm_get_requirement(project_area_identifier: str, component: str, configurati
         key = prop["predicate"]
         if not prop["title"] or key in SYSTEM or key == EMBEDDING:
             continue
-        if key in links:
-            values = [label(link) for link in links[key]]
+        if key in res_links:
+            values = [label(link) for link in res_links[key]]
             if _kind(prop) == "link":
                 related[prop["title"]] = values
             else:
@@ -270,9 +305,11 @@ def rm_get_requirement(project_area_identifier: str, component: str, configurati
         elif props.get(key) not in (None, ""):
             attributes[prop["title"]] = props[key]
     summary = _summary(resource, configuration)
-    body = to_markdown(oslc.markup(resource["url"], "jazz_rm:primaryText", configuration),
-                       lambda url: artifact(url.split("?")[0]))
-    login = lambda predicate: next((link["url"].rsplit("/", 1)[-1] for link in links.get(predicate, [])), None)
+    html = oslc.markup(resource["url"], "jazz_rm:primaryText", configuration) or ""
+    body = to_markdown(html, ref)
+    embeds = [unescape(m.group(1)) for tag in re.findall(r"<a\s[^>]*>", html) if 'class="embedded"' in tag
+              for m in [re.search(r'href="([^"]+)"', tag)] if m]
+    login = lambda predicate: next((link["url"].rsplit("/", 1)[-1] for link in res_links.get(predicate, [])), None)
     url = resource["url"].split("?")[0]  # URI canônico do artefato
     tags = [t for t in (summary["folder"], summary["type"]) if t]  # OKF tags = [folder, type], sem nulos
     # OKF §5.1/§5.2: a última modificação no ALM é da fonte (sources.last_modified); generated.at é quando o
@@ -298,7 +335,7 @@ def rm_get_requirement(project_area_identifier: str, component: str, configurati
         "created": local_datetime(props.get("dcterms:created")),
         "modified": local_datetime(props.get("dcterms:modified")),
         "attributes": attributes, "links": related,
-        "embedded": list(dict.fromkeys(m.group(1) for m in re.finditer(r"!\[\[([^\]]+)\]\]", body)))}
+        "embedded": list(dict.fromkeys(label({"url": u}) for u in embeds))}
     return document(head, body)
 
 
@@ -307,8 +344,8 @@ def rm_create_requirement(
     project_area_identifier: str, component: str, configuration: str, requirement_type: str, folder: str,
     title: str, text: str, attributes: dict | None = None,
 ) -> dict:
-    """Cria um requisito na pasta e no tipo do alm.json (identifiers). `text`: Markdown (![[id]] embute o
-    artefato id) ou XHTML. `attributes`: {nome do atributo ou link (como em rm_get_requirement): valor};
+    """Cria um requisito na pasta e no tipo do alm.json (identifiers). `text`: Markdown (![x](alvo) embute e
+    [x](alvo) cita o artefato; alvo = id, URL ou arquivo do bundle '<id>-....md'; ![[id]] também vale) ou XHTML. `attributes`: {nome do atributo ou link (como em rm_get_requirement): valor};
     enumeração pelo nome do valor, link pela URL ou id do artefato. Retorna {id, title, url}."""
     pa = project_area_identifier
     configuration, requirement_type = _url(STREAM, configuration), _url(TYPE, requirement_type)
@@ -326,7 +363,7 @@ def rm_update_requirement(
     project_area_identifier: str, component: str, configuration: str, requirement_id: str,
     title: str | None = None, text: str | None = None, attributes: dict | None = None,
 ) -> dict:
-    """Atualiza título, texto (Markdown com ![[id]] ou XHTML; substitui o texto inteiro) e/ou atributos e links
+    """Atualiza título, texto (Markdown como em rm_create_requirement ou XHTML; substitui o texto inteiro) e/ou atributos e links
     ({nome: valor}, nomes como em rm_get_requirement; substituem os valores atuais, então um link novo apaga os
     outros do mesmo tipo: mande a lista completa) do requisito pelo id numérico. Retorna {id, title, url}."""
     if not (title or text is not None or attributes):

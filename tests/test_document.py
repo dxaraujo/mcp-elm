@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
-from mcp_alm.infra.document import (document, local_datetime, one_line, to_ewm_html, to_markdown, to_xhtml,
-                                    utc_datetime)
+from mcp_alm.infra.document import (artifact_ref, document, local_datetime, one_line, slug, to_ewm_html,
+                                    to_markdown, to_xhtml, utc_datetime)
 
 UC_HTML = """<div xmlns="http://www.w3.org/1999/xhtml">
 <h2 dir="ltr" id="_1">Pré-condição:</h2>
@@ -40,9 +40,10 @@ def test_utc_datetime_normalizes_to_utc_iso():
 
 
 def test_word_html_to_markdown_keeps_structure_and_embeds():
-    md = to_markdown(UC_HTML, lambda url: "2001: Regra de validação")
+    md = to_markdown(UC_HTML, lambda url: ("2001 Regra de validação", url))
     assert md == ("## Pré-condição:\n\nesteja diferente de cancelado.\n\n# **Fluxo Básico:**\n\n"
-                  "1. O sistema verifica se o cliente foi identificado: ![[2001: Regra de validação]]\n"
+                  "1. O sistema verifica se o cliente foi identificado: "
+                  "![2001 Regra de validação](https://alm.test/rm/resources/TX_1)\n"
                   "2. O sistema verifica a compatibilidade:")
 
 
@@ -53,8 +54,8 @@ def test_line_break_round_trip():
 
 
 def test_collapses_spaces_around_embed_but_keeps_indentation():
-    md = to_markdown('<ul><li>a,  <a class="embedded" href="u"> </a>  e;<ul><li>b</li></ul></li></ul>', lambda u: "1: X")
-    assert md == "- a, ![[1: X]] e;\n   - b"
+    md = to_markdown('<ul><li>a,  <a class="embedded" href="u"> </a>  e;<ul><li>b</li></ul></li></ul>', lambda u: ("1 X", u))
+    assert md == "- a, ![1 X](u) e;\n   - b"
 
 
 def test_table_to_markdown():
@@ -112,3 +113,42 @@ def test_nested_list_round_trip_is_stable():
 def test_loose_list_keeps_numbering():
     html = "<ol><li><p>Item</p><ul><li>sub A</li></ul></li><li><p>Outro</p></li></ol>"
     assert to_markdown(html) == "1. Item\n   - sub A\n2. Outro"
+
+
+RM = "https://alm.test/rm/resources/TX_"
+REGRA = (f"{RM}2001", "2001 RN - Validar CPF", "../03 Regras/2001-rn-validar-cpf.md")
+
+
+def test_artifact_links_read_in_fixed_pattern():
+    html = (f'<p>Valida: <a class="embedded" href="{REGRA[0]}"> </a> e cita a <a href="{REGRA[0]}">RN 2001</a>; '
+            f'ver <a href="https://site/x">site</a></p>')
+    alm = to_markdown(html, lambda u: (REGRA[1], u) if u.startswith(RM) else None)
+    assert alm == f"Valida: ![{REGRA[1]}]({REGRA[0]}) e cita a [{REGRA[1]}]({REGRA[0]}); ver [site](https://site/x)"
+    bundle = to_markdown(html, lambda u: (REGRA[1], REGRA[2]) if u.startswith(RM) else None)
+    assert f"![{REGRA[1]}](<{REGRA[2]}>)" in bundle and f"[{REGRA[1]}](<{REGRA[2]}>)" in bundle
+
+
+def test_write_accepts_every_artifact_link_form():
+    url = lambda ref: ref if ref.startswith("http") else f"{RM}{ref}"
+    embed = f'<a class="embedded" href="{RM}2001">'
+    for md in ("![[2001]]", "![[2001: RN]]", f"![x]({RM}2001)", "![x](2001)", f"![x](<{REGRA[2]}>)",
+               "![2001 RN Validar](2001 RN Validar.md)"):
+        assert embed in to_xhtml(md, url), md
+    for md in (f"[x]({RM}2001)", "[2001](2001)", f"[x](<{REGRA[2]}>)", "[2001 RN Validar](2001 RN Validar)"):
+        html = to_xhtml(md, url)
+        assert f'<a href="{RM}2001">' in html and "embedded" not in html, md
+    assert to_xhtml("![logo](img.png) [site](https://site/123)", url) == \
+        '<p><img src="img.png" alt="logo" /> <a href="https://site/123">site</a></p>'
+    assert artifact_ref("relatorio-2024.pdf") is None and artifact_ref("2024-relatorio.pdf") is None
+
+
+def test_artifact_links_round_trip():
+    html = f'<p>a <a class="embedded" href="{RM}2001"> </a> b <a href="{RM}2002">x</a></p>'
+    cb = lambda u: (u.rsplit("_", 1)[1] + " T", u)
+    md = to_markdown(html, cb)
+    assert to_markdown(to_xhtml(md, lambda ref: ref), cb) == md
+
+
+def test_slug():
+    assert slug("UC - Validação  de (CPF) / Nome") == "uc-validacao-de-cpf-nome"
+    assert len(slug("a" * 100)) == 60

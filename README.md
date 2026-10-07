@@ -146,11 +146,15 @@ embedded:
 ## Fluxo Básico
 
 1. O usuário informa os dados do cliente.
-2. O sistema valida o documento: ![[2001: RN - Validar CPF do cliente]]
+2. O sistema valida o documento: ![2001 RN - Validar CPF do cliente](https://alm.example.com/rm/resources/TX_exemplo2001)
 ```
 
-O corpo é Markdown nos dois sentidos: `text` (RM) e `description` (WI) aceitam Markdown na gravação. No RM,
-`![[id]]` (formato de embed do Obsidian) embute o artefato; links de requisito em `attributes` aceitam a URL ou o
+O corpo é Markdown nos dois sentidos: `text` (RM) e `description` (WI) aceitam Markdown na gravação. No RM, a
+leitura sai sempre no mesmo padrão: artefato embutido = `![<id> <título>](<alvo>)` e hyperlink para artefato =
+`[<id> <título>](<alvo>)`. O alvo é a URL do ALM ou, com `rm_get_requirement(..., links="bundle")`, o caminho
+relativo do arquivo do artefato no bundle baixado (`../03-Regras/2001-rn-validar-cpf.md`, o mesmo `path` de
+`rm_search_requirements`). Na gravação, `!` = embed e sem `!` = hyperlink, com alvo por URL, id (`2001`) ou
+arquivo cujo nome começa pelo id; `![[id]]` continua aceito. Links de requisito em `attributes` aceitam a URL ou o
 id. No EWM a descrição só tem texto, `<br/>`, `<b>`, `<i>` e `<a>` (listas viram `• ` / `1. `); para citar outro
 WI, escreva "Tarefa 1002" no texto e o EWM cria o link "Menções". `[texto](url)` é hyperlink comum.
 

@@ -56,7 +56,7 @@ mcp_alm/
                    Configuration-Context, leitura de XML e Reportable REST
     oslc.py        RDF (rdflib), qnames, descoberta (rootservices -> catálogo -> provider),
                    query OSLC com paginação, resource shapes, GET/PUT com If-Match
-    document.py    leitura em Markdown + YAML: XHTML <-> Markdown (embeds como ![[id: título]])
+    document.py    leitura em Markdown + YAML: XHTML <-> Markdown (embeds como ![id título](alvo))
   ibm/             tools no padrão IBM Engineering AI Hub 1.3.0
     common.py      usuários, project areas, GC, links de rastreabilidade
     requirements.py DOORS Next
@@ -152,7 +152,7 @@ Decisões registradas:
   de lá. No RM, o cabeçalho mostra todos os atributos e links preenchidos, com os nomes do próprio DOORS Next (o
   alm.json do RM não guarda campos nem links).
 - **Gravação de links substitui os atuais** (item 16): mantido; a skill manda a lista completa.
-- **Embeds só no RM:** `![[id: título]]` (formato de embed do Obsidian). No EWM, citar outro WI é escrever
+- **Embeds só no RM:** `![id título](alvo)` (`![[id]]` aceito na gravação). No EWM, citar outro WI é escrever
   "Tarefa 123" no texto; o EWM cria o link "Menções" sozinho.
 
 # 3. Instalação e configuração
@@ -289,7 +289,8 @@ primeiras.
 Em `attributes`, as chaves são os **nomes** dos atributos e links como `rm_get_requirement` os mostra (os do DOORS
 Next, ex. "Prioridade", "Vincular A"). Valores de enumeração vão pelo **nome** ("Alta"); links pela URL ou pelo id do
 artefato (`"2001"` ou `"2001: título"`); lista = vários valores. O MCP converte e valida, listando os válidos em caso
-de erro. Em `text`, `![[2001]]` embute o artefato 2001 no ponto do texto.
+de erro. Em `text`, `![x](2001)` (ou `![[2001]]`) embute o artefato 2001 no ponto do texto e `[x](2001)` cria um
+hyperlink para ele; o alvo também pode ser a URL ou o arquivo do bundle (`../03-Regras/2001-rn-x.md`).
 
 ## 5.3 Tools IBM — Common
 
@@ -425,7 +426,7 @@ O usuário está autenticado.
 ## Fluxo Básico
 
 1. O usuário informa os dados do cliente.
-2. O sistema valida o documento: ![[2001: RN - Validar CPF do cliente]]
+2. O sistema valida o documento: ![2001 RN - Validar CPF do cliente](https://alm.example.com/rm/resources/TX_exemplo2001)
 3. O sistema grava o cliente.
 ```
 
@@ -435,7 +436,7 @@ O usuário está autenticado.
 | `attributes` | só os de `fields` (alm.json), com o nome de lá | todos os preenchidos, com o nome do DOORS Next |
 | `links` | só os de `link_types` (alm.json), como `id: título` | todos os preenchidos, com o nome do DOORS Next, como `id: título` |
 | `embedded` | — | artefatos embutidos no texto, como `id: título` |
-| Corpo | descrição + `## Comentários` | texto; cada embed vira `![[id: título]]` no ponto em que aparece |
+| Corpo | descrição + `## Comentários` | texto; embed vira `![id título](alvo)` e hyperlink para artefato `[id título](alvo)` |
 
 Valores: datas em Brasília (`AAAA-MM-DD HH:MM`) em `created`/`modified`, mas `sources[].last_modified` e `generated.at` (OKF) são ISO 8601 UTC
 (`...Z`); enumerações e iterações pelo nome; links como `id: título`; no WI, pessoas pelo nome e durações como
@@ -445,7 +446,7 @@ Valores: datas em Brasília (`AAAA-MM-DD HH:MM`) em `created`/`modified`, mas `s
 
 | | No servidor | Leitura | Gravação |
 |---|---|---|---|
-| RM | XHTML; embed = `<a class="embedded">` | Markdown; embed vira `![[2001: título]]` | Markdown; `![[2001]]` (título opcional) vira embed |
+| RM | XHTML; embed = `<a class="embedded">` | Markdown; embed vira `![2001 título](alvo)`, hyperlink para artefato `[2001 título](alvo)`; alvo = URL do ALM ou, com `links="bundle"`, caminho relativo do arquivo | Markdown; `![x](alvo)` ou `![[2001]]` vira embed, `[x](alvo)` hyperlink; alvo = URL, id ou arquivo `<id>-....md` |
 | WI | texto com `<br/>`, `<b>`, `<i>`, `<a>`; "•" digitado | `<br/><br/>` = parágrafo, `<br/>` = `\` no fim da linha | títulos → negrito, listas → linhas `• ` / `1. ` |
 
 `[texto](url)` é hyperlink comum nos dois. No WI não há embed: "Tarefa 1002" no texto é texto puro, e o EWM cria
@@ -805,7 +806,7 @@ allowed-tools: Read, mcp__alm__rm_search_requirements, mcp__alm__rm_list_modifie
 ### Ler
 - `rm_get_requirement(requirement_id=<número>)`. Retorno em Markdown + YAML: mostre-o como está.
 - `attributes` e `links` vêm com os nomes do DOORS Next; `embedded` lista os artefatos embutidos no texto.
-- `![[2001: RN - ...]]` no texto = o artefato 2001 está **embutido** naquele passo.
+- `![2001 RN - ...](...)` no texto = o artefato 2001 está **embutido** naquele passo; `[2001 RN - ...](...)` = hyperlink.
 ### Gravar atributos e links
 Use os **nomes do cabeçalho** como chave; enumeração pelo nome do valor; link pelo id.
 
@@ -815,10 +816,10 @@ Exemplo — "liga o caso de uso 2010 à regra 2003 por Vincular A":
    (2002 já estava ligado; 2003 é o novo).
 ### Embutir um artefato no texto
 1. Leia com `rm_get_requirement` e pegue o corpo (o que vem depois do cabeçalho YAML).
-2. Acrescente `![[2003]]` no passo desejado, mantendo os `![[...]]` existentes.
+2. Acrescente `![2003](2003)` no passo desejado, mantendo os embeds `![...](...)` existentes.
 3. Confirme e mande o corpo inteiro em `rm_update_requirement(..., text=<corpo>)` (substitui o texto).
 ### Criar
-1. Tipo e pasta pelo alm.json (pergunte se faltar). 2. Monte `text` em Markdown; `![[id]]` embute um artefato.
+1. Tipo e pasta pelo alm.json (pergunte se faltar). 2. Monte `text` em Markdown; `![x](id)` embute um artefato.
 3. Atributos pelo nome; enumerações pelo nome do valor; links pelo id. 4. Confirme.
 5. `rm_create_requirement(...)`. Em erro após criar, busque pelo título antes de repetir.
 ### Rastrear com work item

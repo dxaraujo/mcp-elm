@@ -1,23 +1,33 @@
 """Documento Markdown + YAML das tools de leitura (rm_get_requirement, ccm_get_workitem).
 
-Cabeçalho YAML com os campos, corpo em Markdown. Artefatos embutidos no texto do DOORS Next viram
-`![[id: título]]` (embed do Obsidian) na leitura e voltam a ser embed na gravação; `[texto](url)` continua sendo
-hyperlink comum.
+Cabeçalho YAML com os campos, corpo em Markdown. Na leitura, artefato embutido no texto do DOORS Next vira
+`![id título](alvo)` e hyperlink para artefato vira `[id título](alvo)` (alvo = URL do ALM ou caminho do arquivo);
+na gravação, o `!` volta a ser embed e o resto, hyperlink. A gravação também aceita o legado `![[id]]` e alvos por
+id (`2001`) ou por arquivo (`../03-Regras/2001-x.md`).
 """
 from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from datetime import datetime, timedelta, timezone
+from html import escape, unescape
 from html.parser import HTMLParser
 from typing import Callable
+from urllib.parse import unquote
 
 from markdown_it import MarkdownIt
 
 # ponytail: fuso fixo de Brasília (como a UI mostra); tornar configurável se houver servidor em outro fuso
 BRT = timezone(timedelta(hours=-3))
-# ![[id]] ou ![[id: título]]
+# ![[id]] ou ![[id: título]] (legado, aceito na gravação)
 EMBED = re.compile(r"!\[\[(\d+)(?::[^\]]*)?\]\]")
+# alvo de link com espaço sem <...> ('[2001 REG Nome](2001 REG Nome.md)'): o CommonMark não o reconhece
+SPACED_TARGET = re.compile(r"\]\(([^()<>\"\n]*\s[^()<>\"\n]*)\)")
+# 'id' ou 'id<separador>...' no último segmento do alvo (arquivo do bundle ou id puro)
+ARTIFACT_FILE = re.compile(r"(\d+)(?:[ _:-].*)?")
+# (rótulo, alvo) de um artefato do RM pela URL; None se a URL não for de artefato
+Artifact = Callable[[str], "tuple[str, str] | None"]
 # como o editor do DOORS Next grava um artefato embutido
 EMBED_HTML = ('<span class="com-ibm-rdm-editor-EmbeddedResourceDecorator minimised">'
               '<a class="embedded" href="{url}"> </a></span>')
@@ -48,6 +58,36 @@ def utc_datetime(value) -> str | None:
 def one_line(text: str | None) -> str | None:
     """Primeira linha, sem espaços repetidos nem espaço não separável (títulos do DOORS Next, commits)."""
     return " ".join(next((l for l in text.splitlines() if l.strip()), "").split()) if text else text
+
+
+def slug(text: str) -> str:
+    """Título -> nome de arquivo: sem acentos, minúsculas, '-' no lugar do resto, até 60 caracteres."""
+    plain = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode().lower()
+    return re.sub(r"[^a-z0-9]+", "-", plain).strip("-")[:60].rstrip("-")
+
+
+def md_link(label: str, target: str, embed: bool = False) -> str:
+    """[rótulo](alvo) ou ![rótulo](alvo); alvo com espaço ou parêntese vai entre <...>."""
+    label = re.sub(r"([\[\]])", r"\\\1", label)
+    target = f"<{target}>" if re.search(r"[\s()]", target) else target
+    return f"{'!' if embed else ''}[{label}]({target})"
+
+
+def artifact_ref(target: str) -> str | None:
+    """Alvo de link escrito pelo usuário -> URL do artefato no ALM ou id; None se não for artefato do RM.
+    Aceita URL do ALM ('/rm/resources/'), id ('2001') e arquivo cujo nome começa pelo id
+    ('../03-Regras/2001-x.md', '2001 REG Nome.md', '2001 REG Nome')."""
+    target = unquote(unescape(target)).strip()
+    if "/rm/resources/" in target:
+        return target.split("?")[0]
+    if re.match(r"[a-z][a-z0-9+.-]*:|#", target, re.I):  # http:, mailto:, âncora: não é artefato
+        return None
+    name = target.rstrip("/").rsplit("/", 1)[-1]
+    name = name[:-3] if name.lower().endswith(".md") else name
+    if re.search(r"\.[A-Za-z0-9]{2,4}$", name):  # outro tipo de arquivo (imagem, pdf...)
+        return None
+    m = ARTIFACT_FILE.fullmatch(name)
+    return m.group(1) if m else None
 
 
 # --- YAML (só o que o cabeçalho usa: dict, list, str, número, bool, None)
@@ -97,11 +137,11 @@ def document(head: dict, body: str) -> str:
 # --- XHTML -> Markdown
 
 class _ToMarkdown(HTMLParser):
-    def __init__(self, embed_label: Callable[[str], str]):
+    def __init__(self, artifact: Artifact | None):
         super().__init__(convert_charrefs=True)
-        self.embed_label, self.out, self.lists = embed_label, [], []
+        self.artifact, self.out, self.lists = artifact, [], []
         self.href: str | None = None
-        self.in_embed = False
+        self.in_embed = False  # dentro de um <a> já escrito por inteiro (embed ou artefato): ignora o texto
         self.row_cells: int | None = None
         self.rows = 0
         self.item_start = False  # logo depois do marcador do item: <p> não abre parágrafo
@@ -137,7 +177,12 @@ class _ToMarkdown(HTMLParser):
             self.row_cells = (self.row_cells or 0) + 1
             self.out.append(" ")
         elif tag == "a" and "embedded" in (a.get("class") or "").split():
-            self.out.append(f"![[{self.embed_label(a.get('href', ''))}]]")
+            href = a.get("href", "")
+            label, target = (self.artifact and self.artifact(href)) or (href, href)
+            self.out.append(md_link(label, target, embed=True))
+            self.in_embed, self.item_start = True, False
+        elif tag == "a" and a.get("href") and self.artifact and (found := self.artifact(a["href"])):
+            self.out.append(md_link(*found))  # padrão fixo: o texto do link é trocado por 'id título'
             self.in_embed, self.item_start = True, False
         elif tag == "a" and a.get("href"):
             self.href = a["href"]
@@ -186,9 +231,10 @@ class _ToMarkdown(HTMLParser):
         return re.sub(r"\n{3,}", "\n\n", md).strip()
 
 
-def to_markdown(html: str | None, embed_label: Callable[[str], str] = str) -> str:
-    """XHTML -> Markdown; artefato embutido vira ![[rótulo]] (`embed_label(url)` dá o rótulo 'id: título')."""
-    parser = _ToMarkdown(embed_label)
+def to_markdown(html: str | None, artifact: Artifact | None = None) -> str:
+    """XHTML -> Markdown. Com `artifact(url) -> (rótulo, alvo) | None`, artefato embutido vira ![rótulo](alvo) e
+    hyperlink para artefato vira [rótulo](alvo); outros links ficam [texto](href)."""
+    parser = _ToMarkdown(artifact)
     parser.feed(html or "")
     return parser.markdown()
 
@@ -198,9 +244,25 @@ def to_markdown(html: str | None, embed_label: Callable[[str], str] = str) -> st
 _md = MarkdownIt("commonmark", {"html": True, "xhtmlOut": True}).enable("table")
 
 
-def to_xhtml(markdown: str, embed_url: Callable[[str], str]) -> str:
-    """Markdown -> XHTML; `![[id]]` vira o embed do DOORS Next (`embed_url(id)` dá a URL do artefato)."""
-    return _md.render(EMBED.sub(lambda m: EMBED_HTML.format(url=embed_url(m.group(1))), markdown)).strip()
+def to_xhtml(markdown: str, artifact_url: Callable[[str], str]) -> str:
+    """Markdown -> XHTML. `![x](alvo)` e o legado `![[id]]` viram o embed do DOORS Next; `[x](alvo)` de artefato
+    vira hyperlink para a URL dele. `artifact_url(id ou URL)` dá a URL do artefato; alvos aceitos em `artifact_ref`.
+    Imagem e link que não são de artefato ficam como estão."""
+    def embed(ref: str) -> str:
+        return EMBED_HTML.format(url=escape(artifact_url(ref)))
+
+    def image(m: re.Match) -> str:
+        ref = artifact_ref(m.group(1))
+        return embed(ref) if ref else m.group(0)
+
+    def link(m: re.Match) -> str:
+        ref = artifact_ref(m.group(1))
+        return f'<a href="{escape(artifact_url(ref))}"' if ref else m.group(0)
+
+    markdown = SPACED_TARGET.sub(r"](<\1>)", EMBED.sub(lambda m: embed(m.group(1)), markdown))
+    html = _md.render(markdown).strip()
+    html = re.sub(r'<img src="([^"]*)"[^>]*>', image, html)
+    return re.sub(r'<a href="([^"]*)"', link, html)
 
 
 def to_ewm_html(markdown: str) -> str:

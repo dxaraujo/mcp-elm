@@ -101,7 +101,7 @@ def req_srv(srv):
 def test_search_filters_and_summary(req_srv):
     found = rm.rm_search_requirements("_PA1", C, S, text="login", folder=F, requirement_type=T)
     assert found == [{"id": "123", "title": "Login", "type": "Requisito", "folder": "01-Requisitos",
-                      "modified": "2024-10-01T13:45:10Z", "url": R1}]
+                      "modified": "2024-10-01T13:45:10Z", "path": "01-Requisitos/123-login.md", "url": R1}]
     q = parse_qs(urlsplit(next(c.url for c in req_srv.calls if c.url.startswith(QUERY + "?"))).query)
     assert q["oslc.where"] == [f"nav:parent=<{FOLDER}> and oslc:instanceShape=<{SHAPE}>"]
     assert q["oslc.searchTerms"] == ['"login"']
@@ -162,7 +162,7 @@ links:
 embedded:
   - "123: Login"
 ---
-Passo 1: ![[123: Login]]
+Passo 1: ![123 Login]({R1})
 """
     # description/verified/status/stale_after não têm fonte neste requisito: ausentes do cabeçalho
     assert "description:" not in doc
@@ -233,4 +233,25 @@ def test_update_multi_value_enum_member_login_and_unreadable_link(req_srv):
 def test_unreadable_artifact_does_not_break_read(req_srv):
     gone = f"{SERVER}/rm/resources/TX_GONE"
     req_srv.routes[("GET", gone)] = (403, {}, b"forbidden")
-    assert rm._artifact_label(gone, STREAM) == gone
+    assert rm._artifact(gone, STREAM) is None
+
+
+def test_get_requirement_bundle_links_are_relative_file_paths(req_srv):
+    root, regras = f"{SERVER}/rm/folders/FR_ROOT", f"{SERVER}/rm/folders/FR_3"
+    r2 = f"{SERVER}/rm/resources/TX_2"
+    nav = 'xmlns:nav="http://jazz.net/ns/rm/navigation#"'
+    req_srv.routes[("GET", root)] = (200, {}, f'<rdf:RDF {RDF}><rdf:Description rdf:about="{root}">'
+                                              '<dcterms:title>root</dcterms:title></rdf:Description></rdf:RDF>')
+    for url, title in ((FOLDER, "01-Requisitos"), (regras, "03 Regras")):
+        req_srv.routes[("GET", url)] = (200, {}, f'''<rdf:RDF {RDF} {nav}><rdf:Description rdf:about="{url}">
+            <dcterms:title>{title}</dcterms:title><nav:parent rdf:resource="{root}"/></rdf:Description></rdf:RDF>''')
+    req_srv.routes[("GET", r2)] = (200, {}, f'''<rdf:RDF {RDF} {nav}><rdf:Description rdf:about="{r2}">
+        <dcterms:identifier>2</dcterms:identifier><dcterms:title>RN - Validar CPF</dcterms:title>
+        <nav:parent rdf:resource="{regras}"/></rdf:Description></rdf:RDF>''')
+    req_srv.routes[("GET", R1)] = (200, {"ETag": '"1"'}, req_srv.routes[("GET", R1)][2].replace(
+        f'href="{R1}"> </a>', f'href="{r2}"> </a> e <a href="/rm/resources/TX_2">RN 2</a>'))
+    doc = rm.rm_get_requirement("_PA1", C, S, "123", links="bundle")
+    target = "<../03 Regras/2-rn-validar-cpf.md>"
+    assert f"Passo 1: ![2 RN - Validar CPF]({target}) e [2 RN - Validar CPF]({target})" in doc
+    assert '- "2: RN - Validar CPF"' in doc.split("embedded:")[1]
+    assert f"![2 RN - Validar CPF]({r2})" in rm.rm_get_requirement("_PA1", C, S, "123")
