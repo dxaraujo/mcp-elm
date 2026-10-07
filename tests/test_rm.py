@@ -255,3 +255,30 @@ def test_get_requirement_bundle_links_are_relative_file_paths(req_srv):
     assert f"Passo 1: ![2 RN - Validar CPF]({target}) e [2 RN - Validar CPF]({target})" in doc
     assert '- "2: RN - Validar CPF"' in doc.split("embedded:")[1]
     assert f"![2 RN - Validar CPF]({r2})" in rm.rm_get_requirement("_PA1", C, S, "123")
+
+
+def test_list_folder_only_direct_members(req_srv):
+    assert rm.rm_list_folder("_PA1", C, S, F) == [
+        {"id": "123", "title": "Login", "modified": "2024-10-01T13:45:10Z"}]
+    q = parse_qs(urlsplit(next(c.url for c in req_srv.calls if c.url.startswith(QUERY + "?"))).query)
+    assert q["oslc.where"] == [f"nav:parent=<{FOLDER}>"] and q["oslc.select"] == [rm.MODIFIED_SELECT]
+    assert "oslc.searchTerms" not in q
+
+
+def test_count_folder_falls_back_to_listing(req_srv):
+    assert rm.rm_count_folder("_PA1", C, S, F) == {"folder": F, "count": 1}  # fixture sem oslc:totalCount
+
+
+def test_download_requirements_writes_bundle_file_and_replaces_old(req_srv, tmp_path, monkeypatch):
+    old = tmp_path / "antiga" / "123-titulo-velho.md"
+    old.parent.mkdir()
+    old.write_text("velho")
+    [item] = rm.rm_download_requirements("_PA1", C, S, ["123"], str(tmp_path))
+    assert item["path"] == "01-Requisitos/123-login.md" and item["replaced"] == ["antiga/123-titulo-velho.md"]
+    assert item["last_modified"] == "2024-10-01T13:45:10Z" and not old.exists()
+    text = (tmp_path / item["path"]).read_text(encoding="utf-8")
+    assert text.startswith("---") and f'at: "{item["generated_at"]}"' in text
+    monkeypatch.setattr(rm, "_requirement", lambda *a: (_ for _ in ()).throw(RuntimeError("HTTP 404")))
+    assert rm.rm_download_requirements("_PA1", C, S, ["999"], str(tmp_path)) == [{"id": "999", "error": "HTTP 404"}]
+    with pytest.raises(ValueError):
+        rm.rm_download_requirements("_PA1", C, S, ["123"], "relativo")

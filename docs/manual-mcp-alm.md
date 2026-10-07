@@ -281,8 +281,11 @@ primeiras.
 | `rm_list_folders` | `component`, `configuration` | `[{name ('01-Requisitos/Funcionais'), identifier ('FR_...')}]` (sem a raiz) |
 | `rm_list_requirement_types` | `component`, `configuration` | `[{name, identifier ('OT_...')}]` |
 | `rm_search_requirements` | `text?`, `folder?`, `requirement_type?` (≥1) | `[{id, title, type, folder, modified, url}]` (≤1000; `modified` em ISO 8601 UTC) |
+| `rm_count_folder` | `folder` | `{folder, count}` (só a pasta, sem subpastas; `oslc:totalCount` do servidor) |
+| `rm_list_folder` | `folder` | `[{id, title, modified}]` (só a pasta, sem teto, ordenado por id; `modified` em ISO 8601 UTC) |
 | `rm_list_modified` | `requirement_ids` (lista; um id = consulta individual) | `[{id, title, modified}]` (`modified` em ISO 8601 UTC; id inexistente não volta) |
 | `rm_get_requirement` | `requirement_id` (numérico) | documento Markdown + YAML (ver 5.7) |
+| `rm_download_requirements` | `requirement_ids` (lista), `dest` (caminho absoluto da raiz do bundle) | grava `<dest>/<pasta>/<id>-<slug>.md` (documento de `rm_get_requirement(links="bundle")`), apaga `<id>-*.md` antigos; `[{id, path, last_modified, generated_at, replaced?}]` ou `{id, error}` por id |
 | `rm_create_requirement` | `requirement_type`, `folder`, `title`, `text` (Markdown ou XHTML), `attributes{nome: valor}?` | `{id, title, url}` |
 | `rm_update_requirement` | `requirement_id`, `title?`, `text?` (substitui o texto inteiro), `attributes?` (substituem os valores atuais) | `{id, title, url}` |
 
@@ -789,7 +792,8 @@ description: >-
   (RF), não funcionais (RNF), histórias de usuário (HU), casos de uso (UC), regras, mensagens e
   especificações, embutir artefatos no texto e ligá-los entre si ou a work items. Use para
   "requisito", "RF-123", "criar HU", "regra do caso de uso".
-allowed-tools: Read, mcp__alm__rm_search_requirements, mcp__alm__rm_list_modified, mcp__alm__rm_get_requirement,
+allowed-tools: Read, mcp__alm__rm_search_requirements, mcp__alm__rm_count_folder, mcp__alm__rm_list_folder,
+  mcp__alm__rm_list_modified, mcp__alm__rm_get_requirement, mcp__alm__rm_download_requirements,
   mcp__alm__rm_create_requirement, mcp__alm__rm_update_requirement,
   mcp__alm__link_workitem_and_requirement
 ---
@@ -803,6 +807,10 @@ allowed-tools: Read, mcp__alm__rm_search_requirements, mcp__alm__rm_list_modifie
 ### Buscar
 - Por texto: `rm_search_requirements(text=...)`; filtre o resultado por `type`/`folder` localmente.
 - Por pasta/tipo (sem texto): `folder=rm.folders[nome]`, `requirement_type=rm.requirements-types[nome]`.
+### Baixar / sincronizar uma pasta
+- Inventário: `rm_list_folder(folder=...)` (todos os ids, sem teto) e `rm_count_folder` para conferir o total.
+- Baixe só os ids cujo `modified` > `generated.at` do arquivo local com `rm_download_requirements(ids, dest)`
+  (grava direto no disco, em lotes); subpastas: repita por pasta de `rm.folders`.
 ### Ler
 - `rm_get_requirement(requirement_id=<número>)`. Retorno em Markdown + YAML: mostre-o como está.
 - `attributes` e `links` vêm com os nomes do DOORS Next; `embedded` lista os artefatos embutidos no texto.

@@ -269,11 +269,12 @@ def query(
     select: str | None = DEFAULT_SELECT,
     search_terms: str | None = None,
     order_by: str | None = None,
-    limit: int = 100,
+    limit: int | None = 100,
     configuration: str | None = None,
 ) -> list[dict]:
-    """Executa uma query OSLC seguindo a paginação até `limit` resultados (máx. MAX_LIMIT)."""
-    limit = max(1, min(limit, MAX_LIMIT))
+    """Executa uma query OSLC seguindo a paginação até `limit` resultados (máx. MAX_LIMIT); `limit=None` segue
+    todas as páginas, sem teto. Membro repetido entre páginas (paginação instável) entra uma vez só."""
+    limit = float("inf") if limit is None else max(1, min(limit, MAX_LIMIT))
     params = {"oslc.paging": "true", "oslc.pageSize": str(min(limit, 100)), "oslc.prefix": _prefix_header()}
     for key, value in (("oslc.where", where), ("oslc.select", select), ("oslc.orderBy", order_by)):
         if value:
@@ -282,17 +283,35 @@ def query(
         params["oslc.searchTerms"] = literal(search_terms)
 
     results: list[dict] = []
+    seen: set = set()
     url, first = query_base, True
     while url and len(results) < limit:
         resp = get_session().request("GET", url, params=params if first else None, configuration=configuration)
         g = parse(resp.content, resp.url)
         for member in _members(g, query_base):
+            if member in seen:
+                continue
+            seen.add(member)
             results.append(resource(g, member))
             if len(results) >= limit:
                 break
         next_page = next(g.objects(None, OSLC.nextPage), None)
         url, first = (str(next_page) if next_page else None), False
     return results
+
+
+def count(query_base: str, *, where: str | None = None, configuration: str | None = None) -> int:
+    """Total de resultados da query pelo oslc:totalCount do servidor (uma página de 1 item); sem totalCount,
+    conta seguindo todas as páginas."""
+    params = {"oslc.paging": "true", "oslc.pageSize": "1", "oslc.select": "dcterms:identifier",
+              "oslc.prefix": _prefix_header()}
+    if where:
+        params["oslc.where"] = where
+    resp = get_session().request("GET", query_base, params=params, configuration=configuration)
+    total = next(parse(resp.content, resp.url).objects(None, OSLC.totalCount), None)
+    if total is not None:
+        return int(total)
+    return len(query(query_base, where=where, select="dcterms:identifier", limit=None, configuration=configuration))
 
 
 def _members(g: Graph, query_base: str) -> list:

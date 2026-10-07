@@ -245,3 +245,31 @@ def test_non_rdf_response_is_value_error(fake):
     fake.routes = {("GET", f"{SERVER}/x"): (200, {}, b"<html><body>")}
     with pytest.raises(ValueError, match="XML"):
         get_xml("/x")
+
+
+def _page(ids, next_page=None, total=None):
+    """Página de query com membros 'R<id>', oslc:nextPage e oslc:totalCount opcionais."""
+    members = "".join(f'<rdfs:member><rdf:Description rdf:about="{SERVER}/r/{i}"><dcterms:identifier>{i}'
+                      f'</dcterms:identifier></rdf:Description></rdfs:member>' for i in ids)
+    info = (f'<oslc:ResponseInfo rdf:about="{QUERY}?info">'
+            + (f'<oslc:nextPage rdf:resource="{next_page}"/>' if next_page else "")
+            + (f'<oslc:totalCount>{total}</oslc:totalCount>' if total is not None else "") + '</oslc:ResponseInfo>')
+    return 200, {}, (f'<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" '
+                     f'xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#" xmlns:dcterms="http://purl.org/dc/terms/" '
+                     f'xmlns:oslc="http://open-services.net/ns/core#"><rdf:Description rdf:about="{QUERY}">'
+                     f'{members}</rdf:Description>{info}</rdf:RDF>').encode()
+
+
+def test_query_without_limit_follows_all_pages_and_skips_repeated(fake):
+    fake.routes = {("GET", QUERY): _page(range(1000), f"{QUERY}?page=2"),
+                   ("GET", f"{QUERY}?page=2"): _page([999, 1000])}  # 999 repetido entre páginas
+    assert [r["id"] for r in oslc.query(QUERY, limit=None)] == [str(i) for i in range(1001)]
+    assert len(oslc.query(QUERY, limit=5000)) == 1000  # com limite, o teto MAX_LIMIT continua
+
+
+def test_count_uses_total_count_or_pages(fake):
+    fake.routes = {("GET", QUERY): _page([1], total=1500)}
+    assert oslc.count(QUERY, where="x=1") == 1500
+    assert parse_qs(urlsplit(fake.calls[0].url).query)["oslc.pageSize"] == ["1"]
+    fake.routes = {("GET", QUERY): _page([1, 2])}  # sem totalCount: conta pelas páginas
+    assert oslc.count(QUERY) == 2

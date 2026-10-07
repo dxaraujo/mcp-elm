@@ -1,6 +1,8 @@
 """Tools do DOORS Next para as skills (alm-setup e alm-rm): saída com as chaves do alm.json."""
 from __future__ import annotations
 
+import glob
+import os
 import posixpath
 import re
 from datetime import datetime, timezone
@@ -235,6 +237,35 @@ def rm_list_modified(project_area_identifier: str, component: str, configuration
              "modified": utc_datetime(r["properties"].get("dcterms:modified"))} for r in found]
 
 
+def _folder_query(project_area_identifier: str, configuration: str, folder: str) -> tuple[str, str]:
+    """(query base, oslc.where) dos requisitos diretamente na pasta (nav:parent; subpastas ficam de fora)."""
+    return (requirements.requirements_base(project_area_identifier, configuration),
+            oslc.where_eq("nav:parent", _url(FOLDER, folder)))
+
+
+@tool
+def rm_count_folder(project_area_identifier: str, component: str, configuration: str, folder: str) -> dict:
+    """Quantos requisitos estão diretamente na pasta (identifier de rm.folders; subpastas não entram, chame uma
+    vez por pasta de rm_list_folders): {folder, count}. O número vem do servidor (oslc:totalCount), sem teto.
+    Serve para conferir download/sync: count != len(rm_list_folder) indica listagem inconsistente no servidor."""
+    configuration = _url(STREAM, configuration)
+    base, where = _folder_query(project_area_identifier, configuration, folder)
+    return {"folder": folder, "count": oslc.count(base, where=where, configuration=configuration)}
+
+
+@tool
+def rm_list_folder(project_area_identifier: str, component: str, configuration: str, folder: str) -> list[dict]:
+    """Todos os requisitos diretamente na pasta (identifier de rm.folders; subpastas não entram), sem teto:
+    [{id, title, modified}] ordenado por id, modified em ISO 8601 UTC (como rm_list_modified). Inventário para
+    download/sync: compare com rm_count_folder e com o generated.at dos arquivos baixados."""
+    configuration = _url(STREAM, configuration)
+    base, where = _folder_query(project_area_identifier, configuration, folder)
+    found = oslc.query(base, where=where, select=MODIFIED_SELECT, limit=None, configuration=configuration)
+    return sorted(({"id": r["id"], "title": one_line(r["title"]),
+                    "modified": utc_datetime(r["properties"].get("dcterms:modified"))} for r in found),
+                  key=lambda r: int(r["id"]))
+
+
 @tool
 def rm_get_requirement(project_area_identifier: str, component: str, configuration: str, requirement_id: str,
                        links: Literal["alm", "bundle"] = "alm") -> str:
@@ -259,6 +290,12 @@ def rm_get_requirement(project_area_identifier: str, component: str, configurati
     links='alm': alvo = URL do artefato no ALM. links='bundle': alvo = caminho relativo do arquivo do artefato no
     bundle da alm-download ('../03-Regras/2001-rn-validar-cpf.md', mesmo `path` de rm_search_requirements).
     Para gravar, use os mesmos nomes de atributo e link em rm_update_requirement; o corpo volta como veio."""
+    return _requirement(project_area_identifier, component, configuration, requirement_id, links)[0]
+
+
+def _requirement(project_area_identifier: str, component: str, configuration: str, requirement_id: str,
+                 links: str) -> tuple[str, dict]:
+    """(documento de rm_get_requirement, {path, last_modified, generated_at}) para gravar no bundle."""
     configuration = _url(STREAM, configuration)
     resource = requirements.get_requirement(project_area_identifier, component, requirement_id,
                                             configuration_url=configuration)
@@ -336,7 +373,42 @@ def rm_get_requirement(project_area_identifier: str, component: str, configurati
         "modified": local_datetime(props.get("dcterms:modified")),
         "attributes": attributes, "links": related,
         "embedded": list(dict.fromkeys(label({"url": u}) for u in embeds))}
-    return document(head, body)
+    return document(head, body), {"path": _file_path(resource, configuration),
+                                  "last_modified": source["last_modified"], "generated_at": generated["at"]}
+
+
+@tool
+def rm_download_requirements(project_area_identifier: str, component: str, configuration: str,
+                             requirement_ids: list[str], dest: str) -> list[dict]:
+    """Grava cada requisito no bundle da alm-download sem passar o conteúdo pela conversa: o mesmo documento de
+    rm_get_requirement(links='bundle') em '<dest>/<caminho da pasta>/<id>-<slug>.md'. `dest`: caminho ABSOLUTO da
+    raiz do bundle (o cwd do MCP não é o repositório). Apaga outros '<id>-*.md' em dest (título/pasta mudou).
+    Erro num id não para o lote. Retorna por id {id, path, last_modified, generated_at, replaced?: [antigos]} ou
+    {id, error}; path relativo a dest, com '/'."""
+    if not os.path.isabs(dest):
+        raise ValueError(f"dest precisa ser caminho absoluto: {dest}")
+    root = os.path.realpath(dest)
+    result = []
+    for rid in requirement_ids:
+        try:
+            doc, meta = _requirement(project_area_identifier, component, configuration, rid, "bundle")
+            target = os.path.realpath(os.path.join(root, meta["path"]))
+            if not target.startswith(root + os.sep):
+                raise ValueError(f"caminho fora de dest: {meta['path']}")
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            with open(target, "w", encoding="utf-8") as f:
+                f.write(doc)
+            old = [p for p in glob.glob(os.path.join(glob.escape(root), "**", f"{rid}-*.md"), recursive=True)
+                   if os.path.realpath(p) != target]
+            for p in old:
+                os.remove(p)
+            item = {"id": rid, **meta}
+            if old:
+                item["replaced"] = sorted(os.path.relpath(p, root).replace(os.sep, "/") for p in old)
+            result.append(item)
+        except Exception as exc:  # um id com erro não derruba o lote
+            result.append({"id": rid, "error": str(exc)[:200]})
+    return result
 
 
 @tool
