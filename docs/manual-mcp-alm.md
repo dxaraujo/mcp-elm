@@ -94,8 +94,7 @@ Dependências: `mcp[cli]>=2.2`, `markdown-it-py>=3`, `requests>=2.31`, `rdflib>=
   com `{dcterms:title}` e trazem o nome do estado, prioridade e iteração sem chamadas extras.
 - **Mensagens de erro acionáveis**: ex. `Estado 'X' não existe no workflow. Estados: A, B, C.` ou
   `Valor 'Y' inválido para 'Prioridade'. Válidos: ...`. A skill pode instruir a IA a corrigir e repetir.
-- **Validação antes da escrita**: `rm_create_requirement` valida os atributos contra o shape antes do POST;
-  `ccm_create_iteration_plan` valida `plan_type` localmente.
+- **Validação antes da escrita**: `ccm_create_iteration_plan` valida `plan_type` localmente.
 - **Transição de estado pelo nome**: `ccm_update_workitem(state="Pronto")` descobre a ação do workflow que leva ao
   estado e confirma que o estado mudou.
 - **Testes offline**: servidor Jazz falso com fixtures reais; `uv run pytest` roda em menos de 1 s (139 testes).
@@ -111,15 +110,15 @@ Dependências: `mcp[cli]>=2.2`, `markdown-it-py>=3`, `requests>=2.31`, `rdflib>=
 | 5 | Token do guard (`PLAN_GUARD_TOKEN`) fixo no código | mitigado: o servidor devolve o token atual e a tool repete uma vez | nenhuma |
 | 6 | Fuso fixo de Brasília (UTC−3) nas datas de iteração | datas deslocadas em servidores de outro fuso | informar datas `AAAA-MM-DD` |
 | 7 | Lista de usuários (`contributors`) carregada uma vez por processo | usuário novo só aparece após reiniciar o MCP | orientar reinício do cliente |
-| 8 | `rm_create_requirement` com `attributes` faz duas gravações (POST + PUT) | se o PUT falhar, o requisito já existe sem os atributos | em erro, buscar pelo título antes de recriar |
+| 8 | **Removido.** `rm_create_requirement`/`rm_update_requirement` não gravam mais atributos nem links (o ALM não os usa) | — | — |
 | 9 | `rm_search_requirements`: DOORS Next responde 400 com `text` + `folder`/`requirement_type` | busca combinada falha | buscar só pelo texto e filtrar o resultado por `type`/`folder` |
 | 10 | `rm_*` aceita só id de **stream** em `configuration` | não lê baselines pelas tools de skill | usar `get_requirement` com `configuration_url` de baseline |
 | 11 | Team Area do work item vem da categoria (Filed Against) | não dá para escolher o time diretamente via OSLC | escolher a categoria ligada ao time |
 | 12 | `search_workitems`: só AND (OR com uma expressão), sem `termExpressions` | filtros complexos falham | preferir `ccm_list_workitems` |
 | 13 | Senha em texto puro em `alm.properties` | risco de vazamento | `chmod 600` no arquivo; nunca versionar |
 | 14 | **Corrigido.** O EWM codifica acentos nos nomes de atributo do shape (`classifica%C3%A7%C3%A3o`), mas não nos dados do work item (`classificação`) | campos personalizados com acento não eram lidos nem gravados pelo nome | `oslc.qname` decodifica os nomes; testado lendo e gravando um campo com acento |
-| 15 | Links entre requisitos ("Vincular A", "Elaborado por"...) não têm tool própria: são gravados por `attributes` em `rm_create_requirement`/`rm_update_requirement`, com o nome do link e o id do destino | o DOORS Next não atualiza `modified` quando só o link muda | — |
-| 16 | **Limitação aceita** (pouco usado). Na alteração, `attributes` **substitui** os valores: gravar um link apaga os outros links do mesmo tipo | perda de rastreabilidade se a skill mandar só o link novo | a skill lê o requisito e manda a lista completa (links atuais + o novo) |
+| 15 | Links entre requisitos ("Vincular A", "Elaborado por"...) são **só de leitura** (`links` do cabeçalho) | não há tool para gravá-los | — |
+| 16 | **Removido** junto com `attributes` | — | — |
 | 17 | **Corrigido.** `rm_get_requirement` devolvia os links de requisito como URL e os de work item como título | inconsistência para a skill | links saem como `id: título`; na gravação, URL ou id |
 | 18 | **Corrigido.** `rm_get_requirement` removia todo o HTML do texto: perdia títulos, listas e **artefatos embutidos**, e juntava palavras quebradas pelo Word ("difer ente") | a IA não via o artefato embutido; regravar o texto apagava embeds e formatação | leitura e gravação em Markdown com `![[id: título]]`; estilos visuais do Word (fonte, cor) não voltam na regravação |
 | 19 | **Testado e confirmado na UI.** Embeds do DOORS Next são relações no texto, não atributos. `![[id]]` é gravado como o editor do DOORS Next grava | — | — |
@@ -149,10 +148,10 @@ Decisões registradas:
   padrão do alm.json e com os links do próprio artefato.
 
 - **Nomes:** o MCP não traduz nada. No CCM, o cabeçalho mostra só os campos e links mapeados no alm.json, com o nome
-  de lá. No RM, o cabeçalho mostra todos os atributos e links preenchidos, com os nomes do próprio DOORS Next (o
+  de lá. No RM, o cabeçalho mostra os links preenchidos (só leitura), com os nomes do próprio DOORS Next (o
   alm.json do RM não guarda campos nem links).
-- **Gravação de links substitui os atuais** (item 16): mantido; a skill manda a lista completa.
-- **Embeds só no RM:** `[id título](alvo)` no corpo + o artefato na lista `embedded` do cabeçalho. No EWM, citar outro WI é escrever
+- **Embeds só no RM:** `[id título](alvo)` no corpo + o artefato na lista `embedded` do cabeçalho (no bundle da
+  alm-sync, a regra fixa da seção 5.7 dispensa a lista). No EWM, citar outro WI é escrever
   "Tarefa 123" no texto; o EWM cria o link "Menções" sozinho.
 
 # 3. Instalação e configuração
@@ -285,15 +284,13 @@ primeiras.
 | `rm_list_folder` | `folder` | `[{id, title, modified}]` (só a pasta, sem teto, ordenado por id; `modified` em ISO 8601 UTC) |
 | `rm_list_modified` | `requirement_ids` (lista; um id = consulta individual) | `[{id, title, modified}]` (`modified` em ISO 8601 UTC; id inexistente não volta) |
 | `rm_get_requirement` | `requirement_id` (numérico) | documento Markdown + YAML (ver 5.7) |
-| `rm_sync_plan` | `folders` (rm.folders `{nome: FR_}`), `dest` (caminho absoluto da raiz do bundle) | lista as pastas, regrava `<dest>/sync.md` (novo/pendente/atualizado/modificado), apaga os removidos; `modificado` (arquivo a subir para o ALM) continua até o ALM mudar; `{pastas: {nome: {total, listados, novo, pendente, atualizado, modificado, erro}}, removidos, inconsistentes, nao_confirmados, a_baixar}` |
-| `rm_download_requirements` | `dest`, `requirement_ids?` (sem = próximos da fila do `sync.md`), `limit?` (50) | grava `<dest>/<pasta>/<id>-<slug>.md` (documento de `rm_get_requirement(links="bundle")`), apaga `<id>-*.md` antigo, atualiza `sync.md` (`atualizado`, ou `modificado` se um link da UI web virou arquivo do bundle) e, com a fila vazia, `index.md`; `{baixados, erros, restantes}` |
-| `rm_create_requirement` | `requirement_type`, `folder`, `title`, `text` (Markdown ou XHTML), `attributes{nome: valor}?` | `{id, title, url}` |
-| `rm_update_requirement` | `requirement_id`, `title?`, `text?` (substitui o texto inteiro), `attributes?` (substituem os valores atuais) | `{id, title, url}` |
+| `rm_sync_plan` | `folders` (rm.folders `{nome: FR_}`), `dest` (caminho absoluto da raiz do bundle) | lista as pastas, regrava `<dest>/sync.md` (estados na seção 5.7), apaga os removidos; `{pastas: {nome: {total, listados, <estado>: n}}, removidos, inconsistentes, nao_confirmados, a_baixar, a_subir, conflitos: [{id, title, folder, path}]}` |
+| `rm_download_requirements` | `dest`, `requirement_ids?` (sem = próximos `novo`/`desatualizado`/`erro` do `sync.md`; com ids, também `conflito`), `limit?` (50) | grava `<dest>/<pasta>/<id>-<slug>.md` (documento de `rm_get_requirement(links="bundle")`), apaga `<id>-*.md` antigo, atualiza `sync.md` (`sincronizado`, ou `atualizado` se o md ficou diferente do ALM pela regra embed/link) e, com a fila vazia, `index.md`; `{baixados, erros, restantes}` |
+| `rm_upload_requirements` | `dest`, `requirement_ids?` (sem = próximos `atualizado`, só se o ALM não mudou desde o download; com ids, sobe sem checar), `limit?` (50) | sobe título e corpo do md (artefato do bundle = embed, o resto = link), rebaixa o requisito (`sincronizado`); ALM mudou = `conflito` e nada sobe; `{enviados, erros, conflitos, restantes}` |
+| `rm_create_requirement` | `requirement_type`, `folder`, `title`, `text` (Markdown ou XHTML), `embedded?` | `{id, title, url}` |
+| `rm_update_requirement` | `requirement_id`, `title?`, `text?` (substitui o texto inteiro), `embedded?` | `{id, title, url}` |
 
-Em `attributes`, as chaves são os **nomes** dos atributos e links como `rm_get_requirement` os mostra (os do DOORS
-Next, ex. "Prioridade", "Vincular A"). Valores de enumeração vão pelo **nome** ("Alta"); links pela URL ou pelo id do
-artefato (`"2001"` ou `"2001: título"`); lista = vários valores. O MCP converte e valida, listando os válidos em caso
-de erro. Em `text`, `[x](2001)` cita o artefato 2001 no ponto do texto: vira embed se `"2001"` está em `embedded`
+Em `text`, `[x](2001)` cita o artefato 2001 no ponto do texto: vira embed se `"2001"` está em `embedded`
 (parâmetro, no formato do cabeçalho) e hyperlink se não está; o alvo também pode ser a URL (inclusive link da UI web
 com `artifactURI`) ou o arquivo do bundle (`../03-Regras/2001-rn-x.md`).
 
@@ -387,7 +384,7 @@ Iniciado.
 O cabeçalho do requisito segue o Google OKF v0.2: campos OKF padrão (`type`, `title`, `description?`, `resource`,
 `tags` = [pasta]), depois `sources` (OKF §5.1: a fonte no DOORS Next; `author` = quem criou, `last_modified` =
 última modificação no ALM, `last_modified_by` = quem modificou por último), `generated` (OKF §5.2: `at` = quando o
-documento foi gerado) e, por fim, as extensões RM (`id`, `created`, `attributes`, `links`, `embedded`).
+documento foi gerado) e, por fim, as extensões RM (`id`, `created`, `links`, `embedded`).
 `verified`/`status`/`stale_after` só aparecem com um sinal real do artefato.
 
 ```markdown
@@ -408,9 +405,6 @@ generated:
   at: "2026-01-11T19:20:00Z"
 id: 2010
 created: "2026-01-05T13:00:00Z"
-attributes:
-  Prioridade: Alta
-  Status: Aprovado
 links:
   Vincular A:
     - "2002: RN - Cliente deve ser maior de idade"
@@ -433,9 +427,9 @@ O usuário está autenticado.
 | Parte | Work item | Requisito |
 |---|---|---|
 | Cabeçalho fixo | id, type, title, state, url, creator, created, modified, closed | OKF v0.2: type, title, description?, resource, tags [pasta], sources[{id, resource, author, last_modified, last_modified_by}], generated{by, at}; extensões: id, created |
-| `attributes` | só os de `fields` (alm.json), com o nome de lá | todos os preenchidos, com o nome do DOORS Next |
-| `links` | só os de `link_types` (alm.json), como `id: título` | todos os preenchidos, com o nome do DOORS Next, como `id: título` |
-| `embedded` | — | artefatos embutidos no texto que existem no destino dos links, como `id: título` |
+| `attributes` | só os de `fields` (alm.json), com o nome de lá | — |
+| `links` | só os de `link_types` (alm.json), como `id: título` | todos os preenchidos, com o nome do DOORS Next, como `id: título` (só leitura) |
+| `embedded` | — | artefatos embutidos no texto, como `id: título` (fora do bundle) |
 | Corpo | descrição + `## Comentários` | texto; todo artefato (embed ou hyperlink) vira `[id título](alvo)` |
 
 Valores: no WI, datas em Brasília (`AAAA-MM-DD HH:MM`); no RM, todas as datas (`created`, `sources[].last_modified`, `generated.at`) em ISO 8601 UTC
@@ -446,14 +440,63 @@ Valores: no WI, datas em Brasília (`AAAA-MM-DD HH:MM`); no RM, todas as datas (
 
 | | No servidor | Leitura | Gravação |
 |---|---|---|---|
-| RM | XHTML; embed = `<a class="embedded">` | Markdown; artefato vira `[2001 título](alvo)` e, se embutido, entra em `embedded`; embed quebrado ou fora do destino vira `[URL](URL)`; alvo = URL do ALM ou, com `links="bundle"`, caminho relativo do arquivo | Markdown; `[x](alvo)` vira embed se o artefato está em `embedded`, senão hyperlink; alvo = URL, link da UI web, id ou arquivo `<id>-....md` |
+| RM | XHTML; embed = `<a class="embedded">` | Markdown; artefato vira `[2001 título](URL do ALM)` e, se embutido, entra em `embedded`; ilegível vira `[URL](URL)`. Com `links="bundle"`: artefato do bundle = embed com alvo no arquivo, o resto = link com alvo na URL, sem `embedded` | Markdown; `[x](alvo)` vira embed se o artefato está em `embedded`, senão hyperlink; alvo = URL, link da UI web, id ou arquivo `<id>-....md` |
 | WI | texto com `<br/>`, `<b>`, `<i>`, `<a>`; "•" digitado | `<br/><br/>` = parágrafo, `<br/>` = `\` no fim da linha | títulos → negrito, listas → linhas `• ` / `1. ` |
 
 `[texto](url)` é hyperlink comum nos dois. No WI não há embed: "Tarefa 1002" no texto é texto puro, e o EWM cria
 sozinho o link "Menções" ao salvar. Ler → gravar → ler não muda o corpo (testado no servidor nos dois apps).
 
 **Para gravar** no WI, a skill procura a chave no mapa do alm.json: `fields["Estimativa"]` → `rtc_cm:estimate`.
-Pessoa vai pelo login (`members`) e duração em ms (`4h` = `14400000`). No RM, usa os nomes do cabeçalho.
+Pessoa vai pelo login (`members`) e duração em ms (`4h` = `14400000`). No RM, só título e texto são gravados.
+
+**Bundle da alm-sync (`sync.md`).** Estados de cada artefato:
+
+| Estado | Quando | Ação |
+|---|---|---|
+| `novo` | id ainda não baixado | download |
+| `sincronizado` | md == ALM | — |
+| `desatualizado` | `modified` do ALM ≠ `Última atualização ALM` | download |
+| `atualizado` | md alterado (sha256 ≠ `Hash`) e ALM sem mudança | upload |
+| `conflito` | md alterado **e** ALM mudou | a skill pergunta ao usuário: md ou ALM |
+| `erro: <msg>` | falha no download | download de novo |
+
+Mudar de pasta = remoção na antiga e criação na nova: o arquivo é apagado e a linha volta a `novo` (com edição local,
+vira `conflito` e o arquivo fica).
+
+```markdown
+---
+type: Relatório de Sincronismo
+title: Sincronismo ALM → OKF
+description: Situação de cada artefato do DOORS Next baixado neste bundle.
+generated:
+  by: "process:alm-mcp/1.0.14"
+  at: "2026-10-07T12:00:00Z"
+---
+| Artefato | Pasta | Última atualização ALM | Hash | Status |
+|---|---|---|---|---|
+| [123 — Login](</01-Requisitos/123-login.md>) | 01-Requisitos | 2026-10-01T13:45:10Z | 9f2c…e1 | sincronizado |
+| [124 — Logout](</01-Requisitos/124-logout.md>) | 01-Requisitos | 2026-10-01T15:00:00Z | 77ab…04 | conflito |
+| 125 — Sessão | 01-Requisitos |  |  | novo |
+| 126 — Token | 01-Requisitos |  |  | erro: HTTP 404 |
+```
+
+`Última atualização ALM` = `modified` do ALM no último download/upload (o `rm_sync_plan` não a sobrescreve);
+`Hash` = sha256 completo do arquivo gravado (abreviado no exemplo). Linhas por (pasta, id).
+
+No corpo do md do bundle a regra é fixa: **artefato do bundle (id no `sync.md`) é sempre embed; o resto é sempre
+link**. O download grava `[id título](../03-Regras/2001-x.md)` para artefato do bundle e `[id título](URL do ALM)`
+para os de fora. Se o ALM estiver diferente da regra, a linha fica `atualizado` e o upload corrige. O md do bundle não
+tem `embedded`, e o `links:` do cabeçalho não sobe. Formatos sugeridos ao escrever no md:
+
+| Referência | Formato | Upload |
+|---|---|---|
+| embed (artefato do bundle) | `[<id>](<id>)` | embed |
+| link para artefato de outra PA | `[<id>](<URL do ALM>)` | `<a href>` para o artefato |
+| link externo | `[<texto descritivo>](<url>)` | `<a href>` como está |
+
+No upload, `artifact_ref` resolve o alvo: URL com `/rm/resources/` (ou link da UI web com `artifactURI`) = artefato
+pela URL; `http:`/`mailto:`/`#` = link externo; o resto, pelo id no início do nome (`2001`, `../03-Regras/2001-x.md`,
+`2001 REG Nome`). Id é procurado na PA do bundle, então artefato de outra PA vai pela URL.
 
 # 6. O arquivo de projeto `alm/pa_<project_area>.json`
 
@@ -791,7 +834,7 @@ description: >-
   "requisito", "RF-123", "criar HU", "regra do caso de uso".
 allowed-tools: Read, mcp__alm__rm_search_requirements, mcp__alm__rm_count_folder, mcp__alm__rm_list_folder,
   mcp__alm__rm_list_modified, mcp__alm__rm_get_requirement, mcp__alm__rm_sync_plan, mcp__alm__rm_download_requirements,
-  mcp__alm__rm_create_requirement, mcp__alm__rm_update_requirement,
+  mcp__alm__rm_upload_requirements, mcp__alm__rm_create_requirement, mcp__alm__rm_update_requirement,
   mcp__alm__link_workitem_and_requirement
 ---
 
@@ -805,19 +848,18 @@ allowed-tools: Read, mcp__alm__rm_search_requirements, mcp__alm__rm_count_folder
 - Por texto: `rm_search_requirements(text=...)`; filtre o resultado por `type`/`folder` localmente.
 - Por pasta/tipo (sem texto): `folder=rm.folders[nome]`, `requirement_type=rm.requirements-types[nome]`.
 ### Baixar / sincronizar a documentação
-- `rm_sync_plan(folders=rm.folders, dest)` → resumo; depois `rm_download_requirements(dest)` até `restantes = 0`.
+1. `rm_sync_plan(folders=rm.folders, dest)` → resumo.
+2. `rm_download_requirements(dest)` até `restantes = 0`.
+3. Para cada item de `conflitos`, **pergunte ao usuário qual versão fica (md ou ALM)**. Se for ALM,
+   `rm_download_requirements(dest, requirement_ids=[id])`; se for md, `rm_upload_requirements(dest, requirement_ids=[id])`.
+4. `rm_upload_requirements(dest)` até `restantes = 0`.
+- No md do bundle: embed `[<id>](<id>)`, link para artefato de outra PA `[<id>](<URL do ALM>)`, link externo
+  `[<texto descritivo>](<url>)`.
 - Inventário avulso de uma pasta: `rm_list_folder(folder=...)` e `rm_count_folder`.
 ### Ler
 - `rm_get_requirement(requirement_id=<número>)`. Retorno em Markdown + YAML: mostre-o como está.
-- `attributes` e `links` vêm com os nomes do DOORS Next; `embedded` lista os artefatos embutidos no texto.
+- `links` vem com os nomes do DOORS Next (só leitura); `embedded` lista os artefatos embutidos no texto.
 - `[2001 RN - ...](...)` no texto = o artefato 2001 está **embutido** naquele passo se `2001` está em `embedded`; senão é hyperlink.
-### Gravar atributos e links
-Use os **nomes do cabeçalho** como chave; enumeração pelo nome do valor; link pelo id.
-
-Exemplo — "liga o caso de uso 2010 à regra 2003 por Vincular A":
-1. Leia o 2010 e veja os links atuais em `links["Vincular A"]` (a gravação **substitui** os atuais).
-2. Confirme e chame `rm_update_requirement(..., "2010", attributes={"Vincular A": ["2002", "2003"]})`
-   (2002 já estava ligado; 2003 é o novo).
 ### Embutir um artefato no texto
 1. Leia com `rm_get_requirement` e pegue o corpo (o que vem depois do cabeçalho YAML).
 2. Acrescente `[2003](2003)` no passo desejado e `"2003"` à lista `embedded` do cabeçalho.
@@ -825,8 +867,7 @@ Exemplo — "liga o caso de uso 2010 à regra 2003 por Vincular A":
    (substitui o texto; sem `embedded`, todo link vira hyperlink).
 ### Criar
 1. Tipo e pasta pelo alm.json (pergunte se faltar). 2. Monte `text` em Markdown; `[x](id)` com o id em `embedded` embute um artefato.
-3. Atributos pelo nome; enumerações pelo nome do valor; links pelo id. 4. Confirme.
-5. `rm_create_requirement(...)`. Em erro após criar, busque pelo título antes de repetir.
+3. Confirme. 4. `rm_create_requirement(...)`. Em erro após criar, busque pelo título antes de repetir.
 ### Rastrear com work item
 - `link_workitem_and_requirement(workitem_url, requirement_url, link_type="implements")`
   (urls vêm do retorno de ccm_* e rm_*).
@@ -977,8 +1018,7 @@ add_comment_to_workitem("1234", "Iniciado o desenvolvimento.")
 rm_create_requirement("_PA_RM", "_COMP", "_STREAM",
     requirement_type=rm.requirements-types["Requisito"],
     folder=rm.folders["01-Requisitos/Requisitos Funcionais"], title="Exportar relatório em PDF",
-    text="O sistema deve permitir exportar o relatório em PDF.\n\nRegra: [2001](2001)", embedded=["2001"],
-    attributes={"Prioridade": "Alta"})
+    text="O sistema deve permitir exportar o relatório em PDF.\n\nRegra: [2001](2001)", embedded=["2001"])
 get_workitem("1234") → url
 link_workitem_and_requirement(workitem_url, requirement_url, "implements")
 ```

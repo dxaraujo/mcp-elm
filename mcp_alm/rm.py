@@ -14,7 +14,8 @@ from typing import Literal
 from . import bundle
 from .ibm import common, requirements
 from .infra import oslc
-from .infra.document import document, one_line, resource_url, slug, to_markdown, to_xhtml, utc_datetime
+from .infra.document import (artifact_ref, document, link_targets, one_line, read_document, resource_url, slug,
+                              to_markdown, to_xhtml, utc_datetime)
 from .infra.http import get_session
 from .server import tool
 
@@ -30,7 +31,7 @@ MODIFIED_SELECT = "dcterms:identifier,dcterms:title,dcterms:modified"
 LIST_PASSES = 3
 # paginação estável na listagem de pasta
 BY_ID = "+dcterms:identifier"
-# propriedades que já têm lugar próprio na saída (não entram em attributes)
+# propriedades que já têm lugar próprio na saída (não entram em links)
 CORE = {"dcterms:title", "dcterms:identifier", "dcterms:description", "jazz_rm:primaryText", "nav:parent",
         "oslc:instanceShape"}
 # preenchidos pelo servidor: não são campos que a skill grava
@@ -44,7 +45,6 @@ RESOURCE_TYPES = {"oslc:Resource", "oslc:AnyResource", "oslc:LocalResource", ""}
 PERSON = "http://xmlns.com/foaf/0.1/Person"
 # link que o DOORS Next deriva dos embeds do texto: já aparece em `embedded`
 EMBEDDING = "http://www.ibm.com/xmlns/rdm/types/Embedding"
-ARTIFACT_ID = re.compile(r"(\d+)(?::.*)?")
 
 
 def _generator() -> str:
@@ -173,34 +173,6 @@ def _artifact_url(project_area_identifier: str, component: str, configuration: s
                                         configuration_url=configuration)["url"].split("?")[0]
 
 
-def _attributes(shape_url: str, configuration: str, attributes: dict, pa: str, component: str) -> dict:
-    """{nome do atributo (como em rm_get_requirement) ou predicado: valor} -> {predicado: valor}. Enumeração pelo
-    nome do valor; link pela URL ou pelo id do artefato ('341864' ou '341864: título'); lista = vários valores."""
-    props = [p for p in oslc.shape(shape_url, configuration)["properties"] if p["title"]]
-    by_name = {p["title"]: p for p in props} | {p["predicate"]: p for p in props}
-    out = {}
-    for name, value in attributes.items():
-        prop = by_name.get(name)
-        if prop is None:
-            valid = ", ".join(sorted({p["title"] for p in props if p["predicate"] not in SYSTEM}))
-            raise ValueError(f"Atributo '{name}' não existe no tipo. Válidos: {valid}.")
-        values = value if isinstance(value, list) else [value]
-        if prop["allowed_values"]:
-            allowed = {oslc.title(u, configuration): u for u in prop["allowed_values"]}
-            invalid = [v for v in values if v not in allowed]
-            if invalid:
-                raise ValueError(f"Valor '{invalid[0]}' inválido para '{prop['title']}'. Válidos: "
-                                 f"{', '.join(sorted(str(t) for t in allowed))}.")
-            values = [allowed[v] for v in values]
-        elif _kind(prop) == "link":
-            values = [_artifact_url(pa, component, configuration, m.group(1))
-                      if isinstance(v, str) and (m := ARTIFACT_ID.fullmatch(v)) else v for v in values]
-        elif _kind(prop) == "member":  # login (como rm_get_requirement mostra) -> URL do usuário
-            values = [v if str(v).startswith(("http://", "https://")) else common.user_url(v) for v in values]
-        out[prop["predicate"]] = values if isinstance(value, list) else values[0]
-    return out
-
-
 def _xhtml(project_area_identifier: str, component: str, configuration: str, text: str,
            embedded: list[str] | None) -> str:
     """`text` em Markdown ([x](alvo) cita o artefato, ou embute se ele está em `embedded`; alvo = id, URL ou arquivo
@@ -289,7 +261,7 @@ def rm_get_requirement(project_area_identifier: str, component: str, configurati
                        links: Literal["alm", "bundle"] = "alm") -> str:
     """Requisito pelo id numérico em Markdown + YAML, conforme Google OKF v0.2. Cabeçalho, nesta ordem:
     campos OKF (type, title, description?, resource, tags) + provenance (sources) + trust (generated) + extensões RM
-    (id, created, attributes, links, embedded).
+    (id, created, links, embedded).
     - type, title: tipo e título do requisito; description: resumo (dcterms:description), só se preenchido.
     - resource: URI canônico do artefato; tags: [pasta].
     - sources (OKF §5.1): [{id: doors-next, resource, author, last_modified, last_modified_by}]: author =
@@ -298,22 +270,23 @@ def rm_get_requirement(project_area_identifier: str, component: str, configurati
     - generated {by, at} (OKF §5.2): by = 'process:alm-mcp/<versão>'; at = quando este documento foi gerado.
       Timestamps em ISO 8601 UTC ('...Z'): last_modified > generated.at => o documento está desatualizado.
     - verified/status/stale_after: só com sinal real do artefato (o DOORS Next não os define); nunca inventados.
-    - id; created (UTC); attributes {nome: valor}; links {nome: ['id: título', ...]}; embedded ['id: título', ...]
-      = artefatos embutidos no texto que existem no destino dos links. Nomes de atributo e link são os do DOORS
-      Next; só entram os preenchidos; enumerações pelo nome do valor.
-    Corpo: o texto em Markdown; todo artefato citado ou embutido é [id título](alvo) (é embed se está em
-    `embedded`). Embed ou link para artefato que não existe ou não está no destino fica [texto](URL do ALM).
-    links='alm': alvo = URL do artefato no ALM. links='bundle': alvo = caminho relativo do arquivo do artefato no
-    bundle da alm-download ('../03-Regras/2001-rn-validar-cpf.md', mesmo `path` de rm_search_requirements).
-    Para gravar, use os mesmos nomes de atributo e link e o `embedded` do cabeçalho em rm_update_requirement."""
+    - id; created (UTC); links {nome: ['id: título', ...]} (só leitura: relacionamentos OSLC, nomes do DOORS Next);
+      embedded ['id: título', ...] = artefatos embutidos no texto (só com links='alm').
+    Corpo: o texto em Markdown; todo artefato citado ou embutido é [id título](alvo). Artefato ilegível fica
+    [texto](URL do ALM).
+    links='alm': alvo = URL do artefato no ALM; é embed se está em `embedded` (mande-o em rm_update_requirement).
+    links='bundle' (bundle da alm-sync): artefato do bundle = embed, alvo = caminho relativo do arquivo
+    ('../03-Regras/2001-rn-validar-cpf.md', mesmo `path` de rm_search_requirements); o resto (outra PA, fora das
+    pastas) = link, alvo = URL do ALM. Sem `embedded` no cabeçalho: a regra já diz o que é embed."""
     return _requirement(project_area_identifier, component, configuration, requirement_id, links)[0]
 
 
 def _requirement(project_area_identifier: str, component: str, configuration: str, requirement_id: str,
                  links: str, bundle_ids: set[str] | None = None) -> tuple[str, dict]:
     """(documento de rm_get_requirement, {path, title, last_modified, generated_at, modified}) para gravar no bundle.
-    `bundle_ids`: ids do inventário do bundle; artefato fora dele não vira caminho nem embed. modified = algum link
-    foi normalizado (link da UI web -> arquivo do bundle): o arquivo difere do texto no ALM."""
+    `bundle_ids`: ids do inventário do bundle (None = todo artefato legível); no bundle, artefato dele vira o
+    arquivo (embed) e o resto, a URL (link). modified = algum link foi normalizado (link da UI web, embed fora do
+    bundle ou hyperlink para artefato do bundle): o arquivo difere do texto no ALM e precisa subir."""
     configuration = _url(STREAM, configuration)
     resource = requirements.get_requirement(project_area_identifier, component, requirement_id,
                                             configuration_url=configuration)
@@ -331,16 +304,22 @@ def _requirement(project_area_identifier: str, component: str, configuration: st
             artifacts[url] = _artifact(url, configuration)
         return artifacts[url]
 
+    html = oslc.markup(resource["url"], "jazz_rm:primaryText", configuration) or ""
+    embeds = [unescape(m.group(1)) for tag in re.findall(r"<a\s[^>]*>", html) if 'class="embedded"' in tag
+              for m in [re.search(r'href="([^"]+)"', tag)] if m]
+
     def ref(href: str) -> tuple[str, str] | None:
-        """Embed/hyperlink no corpo -> ('id título', alvo); None se não for artefato legível do RM (ou, com
-        `bundle_ids`, se não estiver no bundle)."""
+        """Embed/hyperlink no corpo -> ('id título', alvo); None se não for artefato legível do RM."""
         nonlocal normalized
         url = resource_url(href)
         found = artifact(url) if "/rm/resources/" in url else None
-        if found is None or (bundle_ids is not None and found["id"] not in bundle_ids):
+        if found is None:
             return None
         normalized |= url != href
-        target = (posixpath.relpath(_file_path(found, configuration), own_dir or ".") if links == "bundle"
+        in_bundle = links == "bundle" and (bundle_ids is None or found["id"] in bundle_ids)
+        if links == "bundle":
+            normalized |= in_bundle != (href in embeds)  # artefato do bundle = embed; o resto = link
+        target = (posixpath.relpath(_file_path(found, configuration), own_dir or ".") if in_bundle
                   else found["url"].split("?")[0])
         return f"{found['id']} {one_line(found['title'])}", target
 
@@ -353,26 +332,15 @@ def _requirement(project_area_identifier: str, component: str, configuration: st
             return url.rsplit("/", 1)[-1]
         return one_line(link.get("title")) or oslc.title(url, configuration) or url
 
-    attributes, related = {}, {}
+    related = {}
     for prop in oslc.shape(shape["url"], configuration)["properties"] if shape else []:
         key = prop["predicate"]
-        if not prop["title"] or key in SYSTEM or key == EMBEDDING:
-            continue
-        if key in res_links:
-            values = [label(link) for link in res_links[key]]
-            if _kind(prop) == "link":
-                related[prop["title"]] = values
-            else:
-                attributes[prop["title"]] = values[0] if len(values) == 1 else values
-        elif props.get(key) not in (None, ""):
-            attributes[prop["title"]] = props[key]
+        if prop["title"] and key not in SYSTEM and key != EMBEDDING and key in res_links and _kind(prop) == "link":
+            related[prop["title"]] = [label(link) for link in res_links[key]]
     summary = _summary(resource, configuration)
-    html = oslc.markup(resource["url"], "jazz_rm:primaryText", configuration) or ""
     body = to_markdown(html, ref)
-    embeds = [unescape(m.group(1)) for tag in re.findall(r"<a\s[^>]*>", html) if 'class="embedded"' in tag
-              for m in [re.search(r'href="([^"]+)"', tag)] if m]
-    # mesmo critério do corpo: embed fora do bundle (quebrado, de outra PA) virou link e não entra na lista
-    embedded = list(dict.fromkeys(label({"url": u}) for u in embeds if ref(u)))
+    # no bundle a regra (artefato do bundle = embed) dispensa a lista; ilegível virou link e não entra
+    embedded = [] if links == "bundle" else list(dict.fromkeys(label({"url": u}) for u in embeds if ref(u)))
     login = lambda predicate: next((link["url"].rsplit("/", 1)[-1] for link in res_links.get(predicate, [])), None)
     actor = lambda predicate: f"human:{user}" if (user := login(predicate)) else None
     url = resource["url"].split("?")[0]  # URI canônico do artefato
@@ -393,7 +361,7 @@ def _requirement(project_area_identifier: str, component: str, configuration: st
         "sources": [{k: v for k, v in source.items() if v}], "generated": generated,
         # extensões RM
         "id": int(resource["id"]), "created": utc_datetime(props.get("dcterms:created")),
-        "attributes": attributes or None, "links": related or None, "embedded": embedded or None}
+        "links": related or None, "embedded": embedded or None}
     return document(head, body), {"path": _file_path(resource, configuration), "title": head["title"],
                                   "last_modified": source["last_modified"], "generated_at": generated["at"],
                                   "modified": normalized}
@@ -415,7 +383,8 @@ def _root(dest: str) -> str:
 
 def _write_requirement(pa: str, component: str, configuration: str, rid: str, root: str,
                        bundle_ids: set[str] | None) -> dict:
-    """Grava o requisito em '<root>/<pasta>/<id>-<slug>.md' e apaga outros '<id>-*.md' (título/pasta mudou)."""
+    """Grava o requisito em '<root>/<pasta>/<id>-<slug>.md' e apaga outros '<id>-*.md' (título/pasta mudou).
+    Devolve o meta de _requirement mais o `hash` do arquivo gravado."""
     doc, meta = _requirement(pa, component, configuration, rid, "bundle", bundle_ids)
     target = os.path.realpath(os.path.join(root, meta["path"]))
     if not target.startswith(root + os.sep):
@@ -426,7 +395,32 @@ def _write_requirement(pa: str, component: str, configuration: str, rid: str, ro
     for old in glob.glob(os.path.join(glob.escape(root), "**", f"{rid}-*.md"), recursive=True):
         if os.path.realpath(old) != target:
             os.remove(old)
-    return meta
+    return {**meta, "hash": bundle.file_hash(target)}
+
+
+def _downloaded(row: dict, meta: dict) -> None:
+    """Linha do sync.md depois de gravar o arquivo: data do ALM e hash deste momento; 'atualizado' se o md ficou
+    diferente do ALM (link normalizado) e precisa subir."""
+    row.update(title=meta["title"], folder=row["folder"] or posixpath.dirname(meta["path"]), path=meta["path"],
+               alm=meta["last_modified"] or "", hash=meta["hash"],
+               status="atualizado" if meta["modified"] else "sincronizado")
+
+
+def _message(exc: Exception) -> str:
+    return " ".join(str(exc).replace("|", "/").split())[:200]
+
+
+def _in_order(rows: dict[str, dict], statuses: tuple[str, ...]) -> list[str]:
+    return [r["id"] for r in sorted(rows.values(), key=lambda r: (r["folder"], int(r["id"])))
+            if r["status"].startswith(statuses)]
+
+
+def _remove(root: str, path: str | None) -> None:
+    if path and os.path.realpath(os.path.join(root, path)).startswith(root + os.sep):
+        try:
+            os.remove(os.path.join(root, path))
+        except FileNotFoundError:
+            pass
 
 
 @tool
@@ -434,12 +428,18 @@ def rm_sync_plan(project_area_identifier: str, component: str, configuration: st
                  dest: str) -> dict:
     """Inventário do bundle da alm-sync sem passar a lista pela conversa. `folders`: rm.folders inteiro
     {nome: identifier}; `dest`: caminho ABSOLUTO da raiz do bundle (rm.download.path). Lista cada pasta
-    (rm_count_folder + rm_list_folder), compara com o sync.md de dest e o regrava: id novo = 'novo'; mudou de
-    pasta = 'pendente (movido)'; modified > Generated OKF = 'pendente'; 'erro' volta para 'pendente'; 'modificado'
-    (arquivo a subir para o ALM) continua 'modificado' se o ALM não mudou depois; senão 'atualizado'. Artefato do sync.md que não está em nenhuma pasta = removido: o arquivo é APAGADO e a linha sai
-    (não apaga nada se alguma pasta vier com count != listados: índice instável, ids em nao_confirmados).
-    Retorna só o resumo: {pastas: {nome: {total, listados, novo, pendente, atualizado, modificado, erro}}, removidos:
-    [{id, title, folder}], inconsistentes: [nomes], nao_confirmados: [ids], a_baixar}."""
+    (rm_count_folder + rm_list_folder), compara com o sync.md de dest e o regrava. Estados:
+    'novo' (não baixado), 'sincronizado' (md == ALM), 'desatualizado' (o ALM mudou desde o último download:
+    modified != 'Última atualização ALM'), 'atualizado' (o md mudou: sha256 != Hash; sobe com
+    rm_upload_requirements), 'conflito' (md e ALM mudaram), 'erro: ...'. Mudou de pasta = removido da antiga e
+    novo na nova (o arquivo é apagado; se ele tem edição local, vira 'conflito' e fica). Artefato do sync.md que não
+    está em nenhuma pasta = removido: o arquivo é APAGADO e a linha sai (não apaga nada se alguma pasta vier com
+    count != listados: índice instável, ids em nao_confirmados).
+    Fluxo da alm-sync: 1) rm_sync_plan; 2) rm_download_requirements até restantes = 0; 3) para cada item de
+    `conflitos`, PERGUNTE AO USUÁRIO qual versão fica: ALM -> rm_download_requirements(requirement_ids=[id]);
+    md -> rm_upload_requirements(requirement_ids=[id]); 4) rm_upload_requirements até restantes = 0.
+    Retorna só o resumo: {pastas: {nome: {total, listados, <estado>: n}}, removidos: [{id, title, folder}],
+    inconsistentes: [nomes], nao_confirmados: [ids], a_baixar, a_subir, conflitos: [{id, title, folder, path}]}."""
     root = _root(dest)
     _BUNDLE_ARTIFACTS.clear()
     rows = bundle.read_sync(root)
@@ -455,29 +455,26 @@ def rm_sync_plan(project_area_identifier: str, component: str, configuration: st
         summary[name] = {"total": total, "listados": len(items)}
     for rid, item in listed.items():
         row = rows.get(rid)
-        if row is None:
-            status = "novo"
+        if row is None or not row["hash"]:
+            rows[rid] = {"id": rid, "title": item["title"], "folder": item["folder"], "path": None, "alm": "",
+                         "hash": "", "status": "novo"}
+            continue
+        local = (row["status"] in ("atualizado", "conflito")
+                 or bool(row["path"]) and bundle.file_hash(os.path.join(root, row["path"])) != row["hash"])
+        if row["folder"] != item["folder"] and not local:
+            _remove(root, row["path"])
+            row.update(path=None, alm="", hash="", status="novo")
         elif row["folder"] != item["folder"]:
-            status = "pendente (movido)"
-        elif not row["okf"]:
-            status = "novo"
-        elif row["status"] == "modificado" and (item["modified"] or "") <= row["okf"]:
-            status = "modificado"  # o arquivo tem mudança a subir e o ALM não mudou depois
-        elif row["status"].startswith(("erro", "pendente")) or (item["modified"] or "") > row["okf"]:
-            status = "pendente"
+            row["status"] = "conflito"
         else:
-            status = "atualizado"
-        rows[rid] = {"id": rid, "title": item["title"], "folder": item["folder"],
-                     "path": row["path"] if row else None, "alm": item["modified"] or "",
-                     "okf": row["okf"] if row else "", "status": status}
+            alm = (item["modified"] or "") != row["alm"] or row["status"].startswith(("erro", "desatualizado"))
+            row["status"] = ("conflito" if local and alm else "atualizado" if local
+                             else "desatualizado" if alm else "sincronizado")
+        row.update(title=item["title"], folder=item["folder"])
     gone = [r for rid, r in rows.items() if rid not in listed]
     removed = [] if inconsistent else gone
     for r in removed:
-        if r["path"] and os.path.realpath(os.path.join(root, r["path"])).startswith(root + os.sep):
-            try:
-                os.remove(os.path.join(root, r["path"]))
-            except FileNotFoundError:
-                pass
+        _remove(root, r["path"])
         del rows[r["id"]]
     bundle.write_sync(root, rows, _generator())
     if removed or not os.path.exists(os.path.join(root, bundle.INDEX)):
@@ -489,7 +486,9 @@ def rm_sync_plan(project_area_identifier: str, component: str, configuration: st
             counts[key] = counts.get(key, 0) + 1
     return {"pastas": summary, "removidos": [{k: r[k] for k in ("id", "title", "folder")} for r in removed],
             "inconsistentes": inconsistent, "nao_confirmados": [] if removed else [r["id"] for r in gone],
-            "a_baixar": sum(r["status"].startswith(bundle.QUEUE) for r in rows.values())}
+            "a_baixar": len(_in_order(rows, bundle.QUEUE)), "a_subir": len(_in_order(rows, bundle.UPLOAD)),
+            "conflitos": [{k: rows[rid][k] for k in ("id", "title", "folder", "path")}
+                          for rid in _in_order(rows, ("conflito",))]}
 
 
 @tool
@@ -498,16 +497,15 @@ def rm_download_requirements(project_area_identifier: str, component: str, confi
     """Baixa para o bundle da alm-sync sem passar o conteúdo pela conversa: o mesmo documento de
     rm_get_requirement(links='bundle') em '<dest>/<caminho da pasta>/<id>-<slug>.md' (apaga '<id>-*.md' antigo
     se o título ou a pasta mudou). `dest`: caminho ABSOLUTO da raiz do bundle. Sem `requirement_ids`, pega as
-    próximas `limit` linhas novo/pendente/erro do sync.md (a fila de rm_sync_plan); com ids, baixa esses.
-    Linha baixada = 'atualizado', ou 'modificado' se algum link foi normalizado (link da UI web -> arquivo do
-    bundle): o arquivo difere do ALM e precisa subir (rm_update_requirement).
+    próximas `limit` linhas novo/desatualizado/erro do sync.md (a fila de rm_sync_plan); com ids, baixa esses,
+    inclusive 'conflito' (o usuário escolheu a versão do ALM: a edição do md é sobrescrita).
+    Linha baixada = 'sincronizado', ou 'atualizado' se o md ficou diferente do ALM (link da UI web, embed de
+    artefato fora do bundle ou hyperlink para artefato do bundle normalizados): sobe com rm_upload_requirements.
     Atualiza as linhas no sync.md a cada chamada (retomada) e regera o index.md quando a fila zera. Erro num id
     não para o lote. Retorna {baixados, erros: [{id, error}], restantes}: chame de novo até restantes = 0."""
     root = _root(dest)
     rows = bundle.read_sync(root)
-    queue = [r["id"] for r in sorted(rows.values(), key=lambda r: (r["folder"], int(r["id"])))
-             if r["status"].startswith(bundle.QUEUE)]
-    ids = requirement_ids or queue[:max(1, limit)]
+    ids = requirement_ids or _in_order(rows, bundle.QUEUE)[:max(1, limit)]
     bundle_ids = set(rows) or None  # sem inventário (sync.md vazio): não filtra pelo bundle
 
     def fetch(rid: str):
@@ -520,56 +518,108 @@ def rm_download_requirements(project_area_identifier: str, component: str, confi
     with ThreadPoolExecutor(WORKERS) as pool:
         results = list(pool.map(fetch, ids))
     for rid, meta in zip(ids, results):
-        row = rows.get(rid) or {"id": rid, "title": rid, "folder": "", "path": None, "alm": "", "okf": ""}
+        row = rows.get(rid) or {"id": rid, "title": rid, "folder": "", "path": None, "alm": "", "hash": ""}
         if not isinstance(meta, Exception):
-            row.update(title=meta["title"], folder=row["folder"] or posixpath.dirname(meta["path"]),
-                       path=meta["path"], alm=meta["last_modified"] or "", okf=meta["generated_at"],
-                       status="modificado" if meta["modified"] else "atualizado")
+            _downloaded(row, meta)
             done += 1
         else:
-            message = " ".join(str(meta).replace("|", "/").split())[:200]
-            row["status"] = f"erro: {message}"
-            errors.append({"id": rid, "error": message})
+            row["status"] = f"erro: {_message(meta)}"
+            errors.append({"id": rid, "error": _message(meta)})
         rows[rid] = row
     bundle.write_sync(root, rows, _generator())
-    remaining = sum(r["status"].startswith(bundle.QUEUE) for r in rows.values())
+    remaining = len(_in_order(rows, bundle.QUEUE))
     if remaining == 0:
         bundle.write_index(root, rows)
     return {"baixados": done, "erros": errors, "restantes": remaining}
 
 
+def _bundle_embeds(configuration: str, body: str, bundle_ids: set[str]) -> list[str]:
+    """Ids dos artefatos do bundle citados no corpo (alvo id, arquivo ou URL): no upload viram embed; o resto, link."""
+    ids = []
+    for target in link_targets(body):
+        ref = artifact_ref(target)
+        if ref and not ref.isdigit():
+            found = _artifact(get_session().url(ref), configuration)
+            ref = found and found["id"]
+        if ref in bundle_ids:
+            ids.append(ref)
+    return list(dict.fromkeys(ids))
+
+
+@tool
+def rm_upload_requirements(project_area_identifier: str, component: str, configuration: str, dest: str,
+                           requirement_ids: list[str] | None = None, limit: int = 50) -> dict:
+    """Sobe para o ALM os md editados do bundle da alm-sync (rode depois de rm_download_requirements zerar).
+    Sem `requirement_ids`, pega as próximas `limit` linhas 'atualizado' do sync.md e só sobe se o ALM não mudou
+    desde o download (senão a linha vira 'conflito' e nada sobe); com ids, sobe esses sem checar (o usuário
+    escolheu a versão do md num conflito). Envia title (cabeçalho) e o corpo: artefato do bundle vira embed e o
+    resto, link (`links` do cabeçalho não sobe). Formatos no corpo: embed [<id>](<id>); link para artefato de outra
+    PA [<id>](<URL do ALM>); link externo [<texto descritivo>](<url>). Depois rebaixa o requisito (linha
+    'sincronizado'). Erro num id não para o lote e mantém a linha como está.
+    Retorna {enviados, erros: [{id, error}], conflitos: [ids], restantes}: chame de novo até restantes = 0."""
+    pa, root = project_area_identifier, _root(dest)
+    rows = bundle.read_sync(root)
+    ids = requirement_ids or _in_order(rows, bundle.UPLOAD)[:max(1, limit)]
+    stream = _url(STREAM, configuration)
+
+    def push(rid: str):
+        try:
+            row = rows[rid]
+            if not requirement_ids:
+                current = requirements.get_requirement(pa, component, rid, configuration_url=stream)
+                if utc_datetime(current["properties"].get("dcterms:modified")) != row["alm"]:
+                    return "conflito"
+            with open(os.path.join(root, row["path"]), encoding="utf-8") as f:
+                head, body = read_document(f.read())
+            rm_update_requirement(pa, component, configuration, rid, title=head.get("title"), text=body,
+                                  embedded=_bundle_embeds(stream, body, set(rows)))
+            return _write_requirement(pa, component, configuration, rid, root, set(rows))
+        except Exception as exc:  # um id com erro não derruba o lote
+            return exc
+
+    done, errors, conflicts = 0, [], []
+    with ThreadPoolExecutor(WORKERS) as pool:
+        results = list(pool.map(push, ids))
+    for rid, result in zip(ids, results):
+        if result == "conflito":
+            rows[rid]["status"] = "conflito"
+            conflicts.append(rid)
+        elif isinstance(result, Exception):  # a linha fica como está: a edição do md não se perde
+            errors.append({"id": rid, "error": _message(result)})
+        else:
+            _downloaded(rows[rid], result)
+            done += 1
+    bundle.write_sync(root, rows, _generator())
+    return {"enviados": done, "erros": errors, "conflitos": conflicts,
+            "restantes": len(_in_order(rows, bundle.UPLOAD))}
+
+
 @tool
 def rm_create_requirement(
     project_area_identifier: str, component: str, configuration: str, requirement_type: str, folder: str,
-    title: str, text: str, attributes: dict | None = None, embedded: list[str] | None = None,
+    title: str, text: str, embedded: list[str] | None = None,
 ) -> dict:
     """Cria um requisito na pasta e no tipo do alm.json (identifiers). `text`: Markdown ([x](alvo) cita o artefato;
     alvo = id, URL ou arquivo do bundle '<id>-....md') ou XHTML. `embedded`: artefatos ('id' ou 'id: título') cujos
-    links no texto viram embed; os demais viram hyperlink. `attributes`: {nome do atributo ou link (como em rm_get_requirement): valor};
-    enumeração pelo nome do valor, link pela URL ou id do artefato. Retorna {id, title, url}."""
+    links no texto viram embed; os demais viram hyperlink. Retorna {id, title, url}."""
     pa = project_area_identifier
     configuration, requirement_type = _url(STREAM, configuration), _url(TYPE, requirement_type)
-    values = _attributes(requirement_type, configuration, attributes or {}, pa, component)  # valida antes do POST
     created = requirements.create_requirement(_area_url(pa), _url(COMPONENT, component), requirement_type, title, "",
                                               _xhtml(pa, component, configuration, text, embedded),
                                               configuration_url=configuration, folder_url=_url(FOLDER, folder))
-    if values:  # ponytail: 2ª gravação para os atributos; montar tudo no POST se virar gargalo
-        created = oslc.update(created["url"], values, configuration=configuration)
     return {"id": created["id"], "title": created["title"], "url": created["url"]}
 
 
 @tool
 def rm_update_requirement(
     project_area_identifier: str, component: str, configuration: str, requirement_id: str,
-    title: str | None = None, text: str | None = None, attributes: dict | None = None,
-    embedded: list[str] | None = None,
+    title: str | None = None, text: str | None = None, embedded: list[str] | None = None,
 ) -> dict:
-    """Atualiza título, texto (Markdown como em rm_create_requirement ou XHTML; substitui o texto inteiro) e/ou atributos e links
-    ({nome: valor}, nomes como em rm_get_requirement; substituem os valores atuais, então um link novo apaga os
-    outros do mesmo tipo: mande a lista completa) do requisito pelo id numérico. Com `text`, mande o `embedded` do
-    cabeçalho de rm_get_requirement para manter os embeds; sem ele todo link vira hyperlink. Retorna {id, title, url}."""
-    if not (title or text is not None or attributes):
-        raise ValueError("Informe title, text e/ou attributes.")
+    """Atualiza título e/ou texto (Markdown como em rm_create_requirement ou XHTML; substitui o texto inteiro) do
+    requisito pelo id numérico. Com `text`, mande o `embedded` do cabeçalho de rm_get_requirement para manter os
+    embeds; sem ele todo link vira hyperlink. Retorna {id, title, url}."""
+    if not (title or text is not None):
+        raise ValueError("Informe title e/ou text.")
     pa, configuration = project_area_identifier, _url(STREAM, configuration)
     resource = requirements.get_requirement(pa, component, requirement_id, configuration_url=configuration)
     changes: dict = {}
@@ -577,10 +627,5 @@ def rm_update_requirement(
         changes["dcterms:title"] = title
     if text is not None:
         changes["jazz_rm:primaryText"] = requirements.xhtml(_xhtml(pa, component, configuration, text, embedded))
-    if attributes:
-        shape = _link(resource, "oslc:instanceShape")
-        if shape is None:
-            raise LookupError(f"Requisito {requirement_id} não informa o tipo (oslc:instanceShape).")
-        changes |= _attributes(shape["url"], configuration, attributes, pa, component)
     updated = oslc.update(resource["url"], changes, configuration=configuration)
     return {"id": updated["id"], "title": updated["title"], "url": updated["url"]}

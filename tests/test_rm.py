@@ -1,3 +1,5 @@
+import os
+
 import pytest
 
 from mcp_alm import bundle, rm
@@ -150,8 +152,6 @@ generated:
   at: "2026-10-06T13:00:00Z"
 id: 123
 created: "2024-09-23T20:30:48Z"
-attributes:
-  Prioridade: Alta
 links:
   Vincular A:
     - "123: Login"
@@ -174,21 +174,9 @@ def test_get_requirement_description_present_when_source_exists(req_srv):
     assert "description: Resumo do requisito." in doc
 
 
-def test_create_requirement_validates_attributes_before_post(req_srv):
-    with pytest.raises(ValueError, match="Prioridade"):
-        rm.rm_create_requirement("_PA1", C, S, T, F, "t", "x", {"Inexistente": "1"})
-    with pytest.raises(ValueError, match="Alta"):
-        rm.rm_create_requirement("_PA1", C, S, T, F, "t", "x", {"Prioridade": "Baixa"})
-    assert not any(c.method == "POST" for c in req_srv.calls)
-
-
-def test_create_requirement_with_attribute(req_srv):
-    sent = {}
+def test_create_requirement(req_srv):
     req_srv.routes[("POST", FACTORY)] = (201, {"Location": R1}, b"")
-    req_srv.routes[("PUT", R1)] = lambda req: (sent.update(body=req.body), (200, {}, b""))[1]
-    assert rm.rm_create_requirement("_PA1", C, S, T, F, "Login", "texto",
-                                    {"Prioridade": "Alta"}) == {"id": "123", "title": "Login", "url": R1}
-    assert ALTA.encode() in sent["body"]
+    assert rm.rm_create_requirement("_PA1", C, S, T, F, "Login", "texto") == {"id": "123", "title": "Login", "url": R1}
 
 
 def test_update_requirement_title_text(req_srv):
@@ -203,26 +191,13 @@ def test_update_requirement_title_text(req_srv):
 def test_update_requirement_markdown_embed_and_link_by_id(req_srv):
     sent = {}
     req_srv.routes[("PUT", R1)] = lambda req: (sent.update(body=req.body.decode()), (200, {}, b""))[1]
-    rm.rm_update_requirement("_PA1", C, S, "123", text="1. Passo [123 Login](123)", attributes={"Vincular A": "123: Login"},
-                             embedded=["123: Login"])
+    rm.rm_update_requirement("_PA1", C, S, "123", text="1. Passo [123 Login](123)", embedded=["123: Login"])
     assert f'class="embedded" href="{R1}"' in sent["body"] and "<ol>" in sent["body"]
-    assert f'rdf:resource="{R1}"' in sent["body"].split("Link")[1]
 
 
 def test_search_requires_a_filter():
     with pytest.raises(ValueError, match="ao menos um filtro"):
         rm.rm_search_requirements("_PA1", C, S)
-
-
-def test_update_multi_value_enum_member_login_and_unreadable_link(req_srv):
-    sent = {}
-    req_srv.routes[("PUT", R1)] = lambda req: (sent.update(body=req.body.decode()), (200, {}, b""))[1]
-    rm.rm_update_requirement("_PA1", C, S, "123", attributes={"Prioridade": ["Alta"]})
-    assert f'rdf:resource="{ALTA}"' in sent["body"]
-    with pytest.raises(ValueError, match="Baixa"):
-        rm.rm_update_requirement("_PA1", C, S, "123", attributes={"Prioridade": ["Alta", "Baixa"]})
-    rm.rm_update_requirement("_PA1", C, S, "123", attributes={"Revisor": "joao"})
-    assert f'rdf:resource="{SERVER}/jts/users/joao"' in sent["body"]
 
 
 def test_unreadable_artifact_does_not_break_read(req_srv):
@@ -250,19 +225,25 @@ def test_get_requirement_bundle_links_are_relative_file_paths(req_srv):
     doc = rm.rm_get_requirement("_PA1", C, S, "123", links="bundle")
     target = "<../03 Regras/2-rn-validar-cpf.md>"
     assert f"Passo 1: [2 RN - Validar CPF]({target}) e [2 RN - Validar CPF]({target})" in doc
-    assert '- "2: RN - Validar CPF"' in doc.split("embedded:")[1]
+    assert "embedded:" not in doc  # no bundle a regra diz o que é embed
     assert f"[2 RN - Validar CPF]({r2})" in rm.rm_get_requirement("_PA1", C, S, "123")
-    # fora do inventário do bundle: embed e link ficam com a URL e o 2 sai de `embedded`
+    # fora do inventário do bundle: sempre link para a URL; o embed virou link, então o md difere do ALM
     doc, meta = rm._requirement("_PA1", C, S, "123", "bundle", {"123"})
-    assert f"Passo 1: [{r2}]({r2}) e [RN 2](/rm/resources/TX_2)" in doc and "embedded:" not in doc
-    assert meta["modified"] is False
-    # link copiado da UI web para artefato do bundle: vira o arquivo e o documento fica 'modified'
+    assert f"Passo 1: [2 RN - Validar CPF]({r2}) e [2 RN - Validar CPF]({r2})" in doc and meta["modified"] is True
+    # do bundle e já embed: nada a normalizar
+    only_embed = req_srv.routes[("GET", R1)][2].replace(' e <a href="/rm/resources/TX_2">RN 2</a>', "")
+    req_srv.routes[("GET", R1)] = (200, {"ETag": '"1"'}, only_embed)
+    assert rm._requirement("_PA1", C, S, "123", "bundle", {"123", "2"})[1]["modified"] is False
+    # hyperlink para artefato do bundle vira embed: o md difere do ALM
+    req_srv.routes[("GET", R1)] = (200, {"ETag": '"1"'}, only_embed.replace(
+        "</p>", ' e <a href="/rm/resources/TX_2">RN 2</a></p>', 1))
+    assert rm._requirement("_PA1", C, S, "123", "bundle", {"123", "2"})[1]["modified"] is True
+    # embed com link copiado da UI web: vira o arquivo e o documento fica 'modified'
     web = (f"{SERVER}/rm/web#action=com.ibm.rdm.web.pages.showArtifactPage&amp;artifactURI="
            f"{SERVER.replace(':', '%3A').replace('/', '%2F')}%2Frm%2Fresources%2FTX_2")
-    req_srv.routes[("GET", R1)] = (200, {"ETag": '"1"'}, req_srv.routes[("GET", R1)][2].replace(
-        'href="/rm/resources/TX_2"', f'href="{web}"'))
+    req_srv.routes[("GET", R1)] = (200, {"ETag": '"1"'}, only_embed.replace(f'href="{r2}"', f'href="{web}"'))
     doc, meta = rm._requirement("_PA1", C, S, "123", "bundle", {"123", "2"})
-    assert f"e [2 RN - Validar CPF]({target})" in doc and meta["modified"] is True
+    assert f"Passo 1: [2 RN - Validar CPF]({target})" in doc and meta["modified"] is True
 
 
 def test_list_folder_only_direct_members(req_srv):
@@ -289,9 +270,9 @@ def test_download_requirements_writes_file_and_updates_sync(req_srv, tmp_path, m
     assert not old.exists()
     [row] = bundle.read_sync(str(tmp_path)).values()
     assert row["path"] == "01-Requisitos/123-login.md" and row["folder"] == "01-Requisitos"
-    assert row["status"] == "atualizado" and row["alm"] == "2024-10-01T13:45:10Z"
-    text = (tmp_path / row["path"]).read_text(encoding="utf-8")
-    assert text.startswith("---") and f'at: "{row["okf"]}"' in text
+    assert row["status"] == "sincronizado" and row["alm"] == "2024-10-01T13:45:10Z"
+    assert row["hash"] == bundle.file_hash(str(tmp_path / row["path"]))
+    assert (tmp_path / row["path"]).read_text(encoding="utf-8").startswith("---")
     assert "01-Requisitos/123-login.md" in (tmp_path / "index.md").read_text(encoding="utf-8")
     monkeypatch.setattr(rm, "_requirement", lambda *a: (_ for _ in ()).throw(RuntimeError("HTTP 404")))
     assert rm.rm_download_requirements("_PA1", C, S, str(tmp_path), ["999"])["erros"] == [
@@ -301,8 +282,8 @@ def test_download_requirements_writes_file_and_updates_sync(req_srv, tmp_path, m
         rm.rm_download_requirements("_PA1", C, S, "relativo", ["123"])
 
 
-def _row(rid, folder, okf="2024-01-01T00:00:00Z", status="atualizado", path=None):
-    return {"id": rid, "title": f"T{rid}", "folder": folder, "path": path, "alm": okf, "okf": okf, "status": status}
+def _row(rid, folder, alm="2024-01-01T00:00:00Z", status="sincronizado", path=None, hash="h"):
+    return {"id": rid, "title": f"T{rid}", "folder": folder, "path": path, "alm": alm, "hash": hash, "status": status}
 
 
 def test_sync_plan_classifies_removes_and_queues(tmp_path, monkeypatch):
@@ -310,34 +291,86 @@ def test_sync_plan_classifies_removes_and_queues(tmp_path, monkeypatch):
     (tmp_path / "A").mkdir()
     (tmp_path / "A" / "4-t4.md").write_text("x")
     bundle.write_sync(dest, {"1": _row("1", "A"), "2": _row("2", "A"), "3": _row("3", "A"),
-                             "4": _row("4", "A", path="A/4-t4.md"), "5": _row("5", "B", okf="", status="novo")}, "t")
-    lists = {"FR_A": [{"id": "1", "title": "T1", "modified": "2023-01-01T00:00:00Z"},   # atualizado
-                      {"id": "2", "title": "T2", "modified": "2025-01-01T00:00:00Z"},   # pendente
+                             "4": _row("4", "A", path="A/4-t4.md"),
+                             "5": _row("5", "B", alm="", hash="", status="novo")}, "t")
+    lists = {"FR_A": [{"id": "1", "title": "T1", "modified": "2024-01-01T00:00:00Z"},   # sincronizado
+                      {"id": "2", "title": "T2", "modified": "2025-01-01T00:00:00Z"},   # desatualizado
                       {"id": "6", "title": "T6", "modified": "2025-01-01T00:00:00Z"}],  # novo
-             "FR_B": [{"id": "3", "title": "T3", "modified": "2023-01-01T00:00:00Z"},   # movido
+             "FR_B": [{"id": "3", "title": "T3", "modified": "2024-01-01T00:00:00Z"},   # movido: novo
                       {"id": "5", "title": "T5", "modified": "2023-01-01T00:00:00Z"}]}  # segue novo
     monkeypatch.setattr(rm, "rm_list_folder", lambda pa, c, s, f: lists[f])
     monkeypatch.setattr(rm, "rm_count_folder", lambda pa, c, s, f: {"folder": f, "count": len(lists[f])})
-    out = rm.rm_sync_plan("_PA1", C, S, {"A": "FR_A", "B": "FR_B"}, dest)
+    plan = lambda: rm.rm_sync_plan("_PA1", C, S, {"A": "FR_A", "B": "FR_B"}, dest)
+    out = plan()
     assert out["removidos"] == [{"id": "4", "title": "T4", "folder": "A"}] and not (tmp_path / "A" / "4-t4.md").exists()
-    assert out["pastas"]["A"] == {"total": 3, "listados": 3, "atualizado": 1, "pendente": 1, "novo": 1}
-    assert out["a_baixar"] == 4 and out["inconsistentes"] == [] and out["nao_confirmados"] == []
+    assert out["pastas"]["A"] == {"total": 3, "listados": 3, "sincronizado": 1, "desatualizado": 1, "novo": 1}
+    assert out["a_baixar"] == 4 and out["a_subir"] == 0 and out["conflitos"] == [] and out["nao_confirmados"] == []
     rows = bundle.read_sync(dest)
-    assert rows["3"]["status"] == "pendente (movido)" and rows["3"]["folder"] == "B" and "4" not in rows
+    assert rows["3"]["status"] == "novo" and rows["3"]["folder"] == "B" and "4" not in rows
+
+    def write(pa, c, s, rid, root, ids):  # grava como o download e devolve o meta
+        path = os.path.join(root, "X", f"{rid}-t.md")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            f.write(f"doc {rid}")
+        modified = next(i["modified"] for items in lists.values() for i in items if i["id"] == rid)
+        return {"path": f"X/{rid}-t.md", "title": f"T{rid}", "last_modified": modified,
+                "generated_at": "2026-01-01T00:00:00Z", "modified": rid == "2", "hash": bundle.file_hash(path)}
+    monkeypatch.setattr(rm, "_write_requirement", write)
     # fila: a download sem ids pega os da fila e só eles
-    monkeypatch.setattr(rm, "_write_requirement", lambda pa, c, s, rid, root, ids: {
-        "path": f"X/{rid}-t.md", "title": f"T{rid}", "last_modified": "2025-01-01T00:00:00Z",
-        "generated_at": "2026-01-01T00:00:00Z", "modified": rid == "2"})
     assert rm.rm_download_requirements("_PA1", C, S, dest, limit=3) == {"baixados": 3, "erros": [], "restantes": 1}
     assert rm.rm_download_requirements("_PA1", C, S, dest)["restantes"] == 0
     rows = bundle.read_sync(dest)
-    assert rows["2"]["status"] == "modificado" and rows["6"]["status"] == "atualizado"
-    # 'modificado' segue até o ALM mudar; ALM mais novo ganha e volta para a fila
-    out = rm.rm_sync_plan("_PA1", C, S, {"A": "FR_A", "B": "FR_B"}, dest)
-    assert bundle.read_sync(dest)["2"]["status"] == "modificado" and out["pastas"]["A"]["modificado"] == 1
+    assert rows["2"]["status"] == "atualizado" and rows["6"]["status"] == "sincronizado"
+    # md editado -> atualizado; 'atualizado' segue até subir
+    (tmp_path / "X" / "6-t.md").write_text("editado")
+    out = plan()
+    rows = bundle.read_sync(dest)
+    assert rows["2"]["status"] == rows["6"]["status"] == "atualizado" and out["a_subir"] == 2 and out["a_baixar"] == 0
+    # o ALM também mudou -> conflito: fora das filas e na lista para perguntar ao usuário
     lists["FR_A"][1]["modified"] = "2027-01-01T00:00:00Z"
-    rm.rm_sync_plan("_PA1", C, S, {"A": "FR_A", "B": "FR_B"}, dest)
-    assert bundle.read_sync(dest)["2"]["status"] == "pendente"
+    out = plan()
+    assert out["conflitos"] == [{"id": "2", "title": "T2", "folder": "A", "path": "X/2-t.md"}]
+    assert out["a_baixar"] == 0 and out["a_subir"] == 1
+    # mudou de pasta sem edição local: arquivo apagado e 'novo'; com edição local: 'conflito' e o arquivo fica
+    lists["FR_A"].append(lists["FR_B"].pop())   # 5 -> A
+    lists["FR_B"].append(lists["FR_A"].pop(2))  # 6 -> B
+    plan()
+    rows = bundle.read_sync(dest)
+    assert rows["5"]["status"] == "novo" and rows["5"]["folder"] == "A" and not (tmp_path / "X" / "5-t.md").exists()
+    assert rows["6"]["status"] == "conflito" and rows["6"]["folder"] == "B" and (tmp_path / "X" / "6-t.md").exists()
+
+
+def test_upload_round_trip_embed_and_links(req_srv, tmp_path):
+    dest, sent = str(tmp_path), {}
+    req_srv.routes[("PUT", R1)] = lambda req: (sent.update(body=req.body.decode()), (200, {}, b""))[1]
+    rm.rm_download_requirements("_PA1", C, S, dest, ["123"])
+    path = tmp_path / "01-Requisitos" / "123-login.md"
+    doc = path.read_text(encoding="utf-8")
+    assert "Passo 1: [123 Login](123-login.md)" in doc  # artefato do bundle: embed
+    path.write_text(doc.replace("title: Login", 'title: "Login: novo"') + "\nVer [9](https://alm.test/rm/resources/TX_9)"
+                    " e [Portal](https://www.gov.br/portal).\n", encoding="utf-8")
+    assert rm.rm_sync_plan("_PA1", C, S, {"01-Requisitos": F}, dest)["a_subir"] == 1
+    assert rm.rm_upload_requirements("_PA1", C, S, dest) == {"enviados": 1, "erros": [], "conflitos": [], "restantes": 0}
+    body = sent["body"]
+    assert "Login: novo" in body and f'class="embedded" href="{R1}"' in body
+    assert 'href="https://alm.test/rm/resources/TX_9"' in body and 'href="https://www.gov.br/portal"' in body
+    assert bundle.read_sync(dest)["123"]["status"] == "sincronizado"  # rebaixado depois de subir
+
+
+def test_upload_marks_conflict_when_alm_changed(req_srv, tmp_path):
+    dest = str(tmp_path)
+    rm.rm_download_requirements("_PA1", C, S, dest, ["123"])
+    path = tmp_path / "01-Requisitos" / "123-login.md"
+    path.write_text(path.read_text(encoding="utf-8") + "\nmais\n", encoding="utf-8")
+    rows = bundle.read_sync(dest)
+    rows["123"].update(status="atualizado", alm="2020-01-01T00:00:00Z")  # o ALM mudou depois do download
+    bundle.write_sync(dest, rows, "t")
+    assert rm.rm_upload_requirements("_PA1", C, S, dest)["conflitos"] == ["123"]
+    assert not any(c.method == "PUT" for c in req_srv.calls)
+    # o usuário escolheu o md: com id explícito sobe sem checar
+    req_srv.routes[("PUT", R1)] = (200, {}, b"")
+    assert rm.rm_upload_requirements("_PA1", C, S, dest, ["123"])["enviados"] == 1
 
 
 def test_sync_plan_does_not_remove_when_listing_is_inconsistent(tmp_path, monkeypatch):

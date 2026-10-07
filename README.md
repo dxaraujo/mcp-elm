@@ -91,7 +91,7 @@ Saída com as chaves do alm.json (`alm/pa_*.json`; a skill grava o arquivo, o MC
 | alm-setup (ccm) | whoami, list_project_areas("CCM"), ccm_list_team_areas, ccm_list_members, ccm_list_workitem_types, ccm_list_workitem_fields, ccm_list_link_types, ccm_list_iterations, ccm_list_iteration_plans, ccm_create_iteration, ccm_create_iteration_plan |
 | alm-setup (rm) | list_project_areas("RM"), get_project_area(include_associations), rm_get_configuration, rm_list_members, rm_list_folders, rm_list_requirement_types |
 | alm-ccm | ccm_list_workitems, ccm_get_workitem, ccm_list_field_values, ccm_create_workitem, ccm_update_workitem, ccm_list_workitem_states (+ add_comment_to_workitem, link_*) |
-| alm-rm | rm_search_requirements, rm_count_folder, rm_list_folder, rm_list_modified, rm_sync_plan, rm_download_requirements, rm_get_requirement, rm_create_requirement, rm_update_requirement (+ link_workitem_and_requirement) |
+| alm-rm | rm_search_requirements, rm_count_folder, rm_list_folder, rm_list_modified, rm_sync_plan, rm_download_requirements, rm_upload_requirements, rm_get_requirement, rm_create_requirement, rm_update_requirement (+ link_workitem_and_requirement) |
 | alm-qm | search_testartifact, get_testartifact, get_testartifact_schema, get_qm_component, get_qm_component_configuration |
 | alm-gc | whoami, get_user, list_project_areas, get_project_area, get_global_configuration, search_global_configuration, list_linked_*, link_* |
 
@@ -103,8 +103,8 @@ nomes:
 - **Work item:** o cabeçalho traz só os campos e links mapeados no alm.json, com o nome de lá. A skill passa
   `fields=workitem-types[tipo].fields` e `link_types=ccm.link-types` e, para gravar, procura a chave no mesmo mapa
   (`fields["Estimativa"]` → `rtc_cm:estimate`).
-- **Requisito:** o cabeçalho traz todos os atributos e links preenchidos, com os nomes do DOORS Next, e `embedded`
-  (artefatos embutidos no texto). A gravação usa os mesmos nomes. O alm.json do RM guarda só tipos e pastas.
+- **Requisito:** o cabeçalho traz os links preenchidos, com os nomes do DOORS Next (só leitura: não são gravados), e
+  `embedded` (artefatos embutidos no texto). A gravação é só de título e texto. O alm.json do RM guarda só tipos e pastas.
 
 O cabeçalho do requisito segue o [Google OKF v0.2](https://okf.md/): primeiro os campos OKF padrão (`type`,
 `title`, `description?`, `resource`, `tags` = [pasta]), depois `sources` (a fonte no DOORS Next: `author` = quem
@@ -112,7 +112,8 @@ criou, `last_modified` = última modificação no ALM e `last_modified_by` = que
 fim, as extensões RM. `sources[0].last_modified` > `generated.at` indica cópia desatualizada; `rm_list_modified`
 devolve essa data para um ou vários ids sem ler o conteúdo. Para download/sync de uma pasta, use
 `rm_count_folder` (total pelo servidor) e `rm_list_folder` (todos os `{id, title, modified}`, sem teto) como
-inventário: só a pasta, sem subpastas; `count` diferente do tamanho da lista indica listagem inconsistente. Para o bundle da alm-sync, o MCP cuida de tudo sem passar listas nem conteúdo pela conversa: `rm_sync_plan(folders, dest)` lista as pastas, regrava `sync.md` (fila: novo/pendente/erro; `modificado` = arquivo a subir para o ALM) e apaga os removidos; `rm_download_requirements(dest)` baixa os próximos da fila, atualiza `sync.md` e, ao zerar, `index.md`. Ambos devolvem só um resumo. Extensões RM: `id`, `created` (UTC), `attributes`, `links` e `embedded`, só quando preenchidos. `verified`, `status` e
+inventário: só a pasta, sem subpastas; `count` diferente do tamanho da lista indica listagem inconsistente. Para o bundle da alm-sync, o MCP cuida de tudo sem passar listas nem conteúdo pela conversa
+(ver [Sincronismo do bundle](#sincronismo-do-bundle-alm-sync)). Extensões RM: `id`, `created` (UTC), `links` e `embedded`, só quando preenchidos. `verified`, `status` e
 `stale_after` só aparecem quando o artefato traz um sinal real (requisitos do DOORS Next não os definem).
 
 Exemplo (dados fictícios):
@@ -135,8 +136,6 @@ generated:
   at: "2026-01-11T19:20:00Z"
 id: 2010
 created: "2026-01-05T13:00:00Z"
-attributes:
-  Prioridade: Alta
 links:
   Vincular A:
     - "2002: RN - Cliente deve ser maior de idade"
@@ -150,15 +149,66 @@ embedded:
 ```
 
 O corpo é Markdown nos dois sentidos: `text` (RM) e `description` (WI) aceitam Markdown na gravação. No RM, a
-leitura sai sempre no mesmo padrão: todo artefato, embutido ou hyperlink, é `[<id> <título>](<alvo>)`; o que é
-embed está na lista `embedded` do cabeçalho (só artefatos que existem no destino: embed quebrado ou de outra PA sai
-como link e fica fora da lista). O alvo é a URL do ALM ou, com `rm_get_requirement(..., links="bundle")`, o caminho
-relativo do arquivo do artefato no bundle baixado (`../03-Regras/2001-rn-validar-cpf.md`, o mesmo `path` de
-`rm_search_requirements`). Na gravação, o link cujo artefato está em `embedded` (parâmetro de
+leitura sai sempre no mesmo padrão: todo artefato, embutido ou hyperlink, é `[<id> <título>](<alvo>)`, com o alvo =
+URL do ALM; o que é embed está na lista `embedded` do cabeçalho (artefato ilegível sai como link e fica fora da
+lista). Na gravação, o link cujo artefato está em `embedded` (parâmetro de
 `rm_create_requirement`/`rm_update_requirement`) vira embed e o resto, hyperlink; alvo por URL (inclusive link da UI
-web com `artifactURI`), id (`2001`) ou arquivo cujo nome começa pelo id. Links de requisito em `attributes` aceitam a URL ou o
-id. No EWM a descrição só tem texto, `<br/>`, `<b>`, `<i>` e `<a>` (listas viram `• ` / `1. `); para citar outro
+web com `artifactURI`), id (`2001`) ou arquivo cujo nome começa pelo id. No EWM a descrição só tem texto, `<br/>`, `<b>`, `<i>` e `<a>` (listas viram `• ` / `1. `); para citar outro
 WI, escreva "Tarefa 1002" no texto e o EWM cria o link "Menções". `[texto](url)` é hyperlink comum.
+
+### Sincronismo do bundle (alm-sync)
+
+O bundle é uma pasta de md, um por requisito (`<pasta>/<id>-<slug>.md`), com `sync.md` (situação de cada artefato) e
+`index.md`. O sincronismo baixa primeiro e depois sobe o que foi editado no md:
+
+1. `rm_sync_plan(folders, dest)`: lista as pastas, regrava `sync.md`, apaga os removidos e devolve um resumo com
+   `a_baixar`, `a_subir` e `conflitos`;
+2. `rm_download_requirements(dest)` até `restantes = 0`;
+3. para cada item de `conflitos`, a skill **pergunta ao usuário qual versão fica**. Se for o ALM, chama
+   `rm_download_requirements(dest, requirement_ids=[id])`; se for o md, chama `rm_upload_requirements(dest, requirement_ids=[id])`;
+4. `rm_upload_requirements(dest)` até `restantes = 0` (sobe título e corpo e rebaixa o requisito).
+
+| Estado | Quando | Ação |
+|---|---|---|
+| `novo` | id ainda não baixado | download |
+| `sincronizado` | md == ALM | — |
+| `desatualizado` | `modified` do ALM ≠ `Última atualização ALM` | download |
+| `atualizado` | md alterado (sha256 ≠ `Hash`) e ALM sem mudança | upload |
+| `conflito` | md alterado **e** ALM mudou | perguntar ao usuário: md ou ALM |
+| `erro: <msg>` | falha no download | download de novo |
+
+Mudar de pasta é tratado como remoção na antiga e criação na nova: o arquivo é apagado e a linha volta a `novo`
+(com edição local no md, vira `conflito` e o arquivo fica).
+
+```markdown
+---
+type: Relatório de Sincronismo
+title: Sincronismo ALM → OKF
+description: Situação de cada artefato do DOORS Next baixado neste bundle.
+generated:
+  by: "process:alm-mcp/1.0.14"
+  at: "2026-10-07T12:00:00Z"
+---
+| Artefato | Pasta | Última atualização ALM | Hash | Status |
+|---|---|---|---|---|
+| [123 — Login](</01-Requisitos/123-login.md>) | 01-Requisitos | 2026-10-01T13:45:10Z | 9f2c…e1 | sincronizado |
+| 125 — Sessão | 01-Requisitos |  |  | novo |
+```
+
+`Última atualização ALM` é o `modified` do ALM no último download/upload, e `Hash` é o sha256 completo do arquivo
+gravado (abreviado no exemplo).
+
+No corpo do md do bundle vale uma regra fixa: **artefato do bundle (id no `sync.md`) é sempre embed; o resto é
+sempre link**. Por isso o md do bundle não tem `embedded`, e o `links:` do cabeçalho é só de leitura. O download
+grava o artefato do bundle como `[id título](../03-Regras/2001-x.md)` e o de fora como `[id título](URL do ALM)`.
+Se o ALM estiver diferente da regra (um embed de fora ou um hyperlink para o bundle), a linha fica `atualizado` e o
+upload corrige. Formatos sugeridos para escrever no md:
+
+| Referência | Formato |
+|---|---|
+| embed (artefato do bundle) | `[<id>](<id>)` |
+| link para artefato de outra PA | `[<id>](<URL do ALM>)` |
+| link externo | `[<texto descritivo>](<url>)` |
 
 Um plano do alm.json vira filtro de `ccm_list_workitems` com `iteration=iterations[it].identifier` e
 `team_areas=[iterations[it].plans[nome].team-area]` (plano sem `team-area`: omita `team_areas`).
@@ -177,8 +227,7 @@ Um plano do alm.json vira filtro de `ccm_list_workitems` com `iteration=iteratio
   filtrados pelo id (`com.ibm.team.workitem.taskWorkflow.state.s2`, `task`).
 - `get_workitem_schema`: `include=approvals` não é suportado.
 - `search_testartifact`: `customAttributeFilters`, `categoryFilters` e `linkFilters` não são suportados.
-- `rm_update_requirement`: `attributes` substitui os valores atuais do atributo (links incluídos: mande a lista
-  completa) e `text` substitui o texto inteiro. `ccm_update_workitem`: `description` substitui a descrição inteira.
+- `rm_update_requirement`: `text` substitui o texto inteiro; atributos e links não são gravados. `ccm_update_workitem`: `description` substitui a descrição inteira.
 - `rm_search_requirements`: exige ao menos um filtro (`text`, `folder` ou `requirement_type`). O DOORS Next
   responde HTTP 400 quando `text` vem junto com `folder`/`requirement_type`: busque só pelo texto e filtre o
   resultado pelo `type`/`folder`.

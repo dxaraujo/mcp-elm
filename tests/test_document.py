@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
-from mcp_alm.infra.document import (artifact_ref, document, local_datetime, one_line, slug, to_ewm_html,
-                                    to_markdown, to_xhtml, utc_datetime)
+from mcp_alm.infra.document import (artifact_ref, document, link_targets, local_datetime, one_line, read_document,
+                                    slug, to_ewm_html, to_markdown, to_xhtml, utc_datetime)
 
 UC_HTML = """<div xmlns="http://www.w3.org/1999/xhtml">
 <h2 dir="ltr" id="_1">Pré-condição:</h2>
@@ -11,6 +11,14 @@ UC_HTML = """<div xmlns="http://www.w3.org/1999/xhtml">
 <li><span>O sistema verifica a compatibilidade: </span> <span>  </span></li>
 <li id="_3"> </li></ol>
 <p> </p></div>"""
+
+
+def test_read_document_is_the_pair_of_document():
+    text = document({"title": "UC - A: b", "id": 1, "links": {"Pai": ["2: X"]}, "tags": ["01-Req", "x: y"],
+                     "sources": [{"id": "dn", "at": "2024"}]}, "corpo [2](2)")
+    assert read_document(text) == ({"title": "UC - A: b", "id": "1", "tags": ["01-Req", "x: y"]}, "corpo [2](2)\n")
+    assert read_document("sem cabeçalho") == ({}, "sem cabeçalho")
+    assert link_targets("[a](2) e [b](<2 REG X.md>) e [c](https://x/y)") == ["2", "2%20REG%20X.md", "https://x/y"]
 
 
 def test_yaml_header_quotes_only_what_needs_it():

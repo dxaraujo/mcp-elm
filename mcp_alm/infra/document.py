@@ -139,6 +139,27 @@ def document(head: dict, body: str) -> str:
     return "---\n" + "\n".join(_yaml(head)) + "\n---\n" + body.strip() + "\n"
 
 
+def read_document(text: str) -> tuple[dict, str]:
+    """Par de `document()`: (chaves de topo do cabeçalho, corpo). Lê escalares e listas de escalares; mapas
+    aninhados (links, sources...) ficam de fora. Sem cabeçalho: ({}, texto)."""
+    if not text.startswith("---\n") or (end := text.find("\n---\n", 3)) < 0:
+        return {}, text
+    head: dict = {}
+    key = None
+    for line in text[4:end].splitlines():
+        if not line.startswith(" "):
+            key, _, value = line.partition(":")
+            value = value.strip()
+            head[key] = (json.loads(value) if value.startswith('"') else value) if value else []
+        elif key and isinstance(head[key], list) and line.lstrip().startswith("- "):
+            value = line.lstrip()[2:]
+            head[key].append(json.loads(value) if value.startswith('"') else value)
+        elif key:
+            head.pop(key, None)  # mapa aninhado
+            key = None
+    return head, text[end + 5:]
+
+
 # --- XHTML -> Markdown
 
 class _ToMarkdown(HTMLParser):
@@ -246,6 +267,11 @@ def to_markdown(html: str | None, artifact: Artifact | None = None) -> str:
 # --- Markdown -> XHTML
 
 _md = MarkdownIt("commonmark", {"html": True, "xhtmlOut": True}).enable("table")
+
+
+def link_targets(markdown: str) -> list[str]:
+    """Alvos dos links do Markdown, como `to_xhtml` os vê (para passar a `artifact_ref`)."""
+    return re.findall(r'<a href="([^"]*)"', _md.render(SPACED_TARGET.sub(r"](<\1>)", markdown)))
 
 
 def to_xhtml(markdown: str, artifact_url: Callable[[str], str], embedded: Iterable[str] = ()) -> str:
