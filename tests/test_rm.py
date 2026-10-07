@@ -1,6 +1,6 @@
 import pytest
 
-from mcp_alm import rm
+from mcp_alm import bundle, rm
 from mcp_alm.ibm import requirements
 
 from conftest import SERVER, fixture, xml_ok
@@ -240,8 +240,10 @@ def test_get_requirement_bundle_links_are_relative_file_paths(req_srv):
     root, regras = f"{SERVER}/rm/folders/FR_ROOT", f"{SERVER}/rm/folders/FR_3"
     r2 = f"{SERVER}/rm/resources/TX_2"
     nav = 'xmlns:nav="http://jazz.net/ns/rm/navigation#"'
-    req_srv.routes[("GET", root)] = (200, {}, f'<rdf:RDF {RDF}><rdf:Description rdf:about="{root}">'
-                                              '<dcterms:title>root</dcterms:title></rdf:Description></rdf:RDF>')
+    # como no servidor real, a raiz também tem nav:parent: o caminho ainda começa abaixo dela
+    req_srv.routes[("GET", root)] = (200, {}, f'<rdf:RDF {RDF} {nav}><rdf:Description rdf:about="{root}">'
+                                              f'<dcterms:title>root</dcterms:title><nav:parent rdf:resource="{SERVER}/rm/folders/FR_TOP"/>'
+                                              '</rdf:Description></rdf:RDF>')
     for url, title in ((FOLDER, "01-Requisitos"), (regras, "03 Regras")):
         req_srv.routes[("GET", url)] = (200, {}, f'''<rdf:RDF {RDF} {nav}><rdf:Description rdf:about="{url}">
             <dcterms:title>{title}</dcterms:title><nav:parent rdf:resource="{root}"/></rdf:Description></rdf:RDF>''')
@@ -272,19 +274,66 @@ def test_count_folder_falls_back_to_listing(req_srv):
     assert paged[-1]["oslc.orderBy"] == [rm.BY_ID]  # a contagem de reserva também pagina ordenada
 
 
-def test_download_requirements_writes_bundle_file_and_replaces_old(req_srv, tmp_path, monkeypatch):
+def test_download_requirements_writes_file_and_updates_sync(req_srv, tmp_path, monkeypatch):
     old = tmp_path / "antiga" / "123-titulo-velho.md"
     old.parent.mkdir()
     old.write_text("velho")
-    [item] = rm.rm_download_requirements("_PA1", C, S, ["123"], str(tmp_path))
-    assert item["path"] == "01-Requisitos/123-login.md" and item["replaced"] == ["antiga/123-titulo-velho.md"]
-    assert item["last_modified"] == "2024-10-01T13:45:10Z" and not old.exists()
-    text = (tmp_path / item["path"]).read_text(encoding="utf-8")
-    assert text.startswith("---") and f'at: "{item["generated_at"]}"' in text
+    assert rm.rm_download_requirements("_PA1", C, S, str(tmp_path), ["123"]) == {
+        "baixados": 1, "erros": [], "restantes": 0}
+    assert not old.exists()
+    [row] = bundle.read_sync(str(tmp_path)).values()
+    assert row["path"] == "01-Requisitos/123-login.md" and row["folder"] == "01-Requisitos"
+    assert row["status"] == "atualizado" and row["alm"] == "2024-10-01T13:45:10Z"
+    text = (tmp_path / row["path"]).read_text(encoding="utf-8")
+    assert text.startswith("---") and f'at: "{row["okf"]}"' in text
+    assert "01-Requisitos/123-login.md" in (tmp_path / "index.md").read_text(encoding="utf-8")
     monkeypatch.setattr(rm, "_requirement", lambda *a: (_ for _ in ()).throw(RuntimeError("HTTP 404")))
-    assert rm.rm_download_requirements("_PA1", C, S, ["999"], str(tmp_path)) == [{"id": "999", "error": "HTTP 404"}]
+    assert rm.rm_download_requirements("_PA1", C, S, str(tmp_path), ["999"])["erros"] == [
+        {"id": "999", "error": "HTTP 404"}]
+    assert bundle.read_sync(str(tmp_path))["999"]["status"] == "erro: HTTP 404"
     with pytest.raises(ValueError):
-        rm.rm_download_requirements("_PA1", C, S, ["123"], "relativo")
+        rm.rm_download_requirements("_PA1", C, S, "relativo", ["123"])
+
+
+def _row(rid, folder, okf="2024-01-01T00:00:00Z", status="atualizado", path=None):
+    return {"id": rid, "title": f"T{rid}", "folder": folder, "path": path, "alm": okf, "okf": okf, "status": status}
+
+
+def test_sync_plan_classifies_removes_and_queues(tmp_path, monkeypatch):
+    dest = str(tmp_path)
+    (tmp_path / "A").mkdir()
+    (tmp_path / "A" / "4-t4.md").write_text("x")
+    bundle.write_sync(dest, {"1": _row("1", "A"), "2": _row("2", "A"), "3": _row("3", "A"),
+                             "4": _row("4", "A", path="A/4-t4.md"), "5": _row("5", "B", okf="", status="novo")}, "t")
+    lists = {"FR_A": [{"id": "1", "title": "T1", "modified": "2023-01-01T00:00:00Z"},   # atualizado
+                      {"id": "2", "title": "T2", "modified": "2025-01-01T00:00:00Z"},   # pendente
+                      {"id": "6", "title": "T6", "modified": "2025-01-01T00:00:00Z"}],  # novo
+             "FR_B": [{"id": "3", "title": "T3", "modified": "2023-01-01T00:00:00Z"},   # movido
+                      {"id": "5", "title": "T5", "modified": "2023-01-01T00:00:00Z"}]}  # segue novo
+    monkeypatch.setattr(rm, "rm_list_folder", lambda pa, c, s, f: lists[f])
+    monkeypatch.setattr(rm, "rm_count_folder", lambda pa, c, s, f: {"folder": f, "count": len(lists[f])})
+    out = rm.rm_sync_plan("_PA1", C, S, {"A": "FR_A", "B": "FR_B"}, dest)
+    assert out["removidos"] == [{"id": "4", "title": "T4", "folder": "A"}] and not (tmp_path / "A" / "4-t4.md").exists()
+    assert out["pastas"]["A"] == {"total": 3, "listados": 3, "atualizado": 1, "pendente": 1, "novo": 1}
+    assert out["a_baixar"] == 4 and out["inconsistentes"] == [] and out["nao_confirmados"] == []
+    rows = bundle.read_sync(dest)
+    assert rows["3"]["status"] == "pendente (movido)" and rows["3"]["folder"] == "B" and "4" not in rows
+    # fila: a download sem ids pega os da fila e só eles
+    monkeypatch.setattr(rm, "_write_requirement", lambda pa, c, s, rid, root: {
+        "path": f"X/{rid}-t.md", "title": f"T{rid}", "last_modified": "2025-01-01T00:00:00Z",
+        "generated_at": "2026-01-01T00:00:00Z"})
+    assert rm.rm_download_requirements("_PA1", C, S, dest, limit=3) == {"baixados": 3, "erros": [], "restantes": 1}
+    assert rm.rm_download_requirements("_PA1", C, S, dest)["restantes"] == 0
+
+
+def test_sync_plan_does_not_remove_when_listing_is_inconsistent(tmp_path, monkeypatch):
+    dest = str(tmp_path)
+    bundle.write_sync(dest, {"1": _row("1", "A"), "2": _row("2", "A")}, "t")
+    monkeypatch.setattr(rm, "rm_list_folder", lambda *a: [{"id": "1", "title": "T1", "modified": "2023-01-01T00:00:00Z"}])
+    monkeypatch.setattr(rm, "rm_count_folder", lambda *a: {"folder": "FR_A", "count": 2})
+    out = rm.rm_sync_plan("_PA1", C, S, {"A": "FR_A"}, dest)
+    assert out["removidos"] == [] and out["inconsistentes"] == ["A"] and out["nao_confirmados"] == ["2"]
+    assert "2" in bundle.read_sync(dest)
 
 
 def test_list_folder_unions_passes_until_total_count(req_srv, monkeypatch):

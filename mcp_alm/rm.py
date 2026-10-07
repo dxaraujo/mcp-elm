@@ -10,6 +10,7 @@ from html import unescape
 from importlib import metadata
 from typing import Literal
 
+from . import bundle
 from .ibm import common, requirements
 from .infra import oslc
 from .infra.document import document, local_datetime, one_line, slug, to_markdown, to_xhtml, utc_datetime
@@ -143,9 +144,11 @@ def _summary(resource: dict, configuration: str) -> dict:
 def _folder_path(url: str, configuration: str) -> str:
     """Pasta -> caminho como em rm_list_folders / rm.folders ('01-Req/Funcionais'), sem a pasta 'root'."""
     folder = oslc.cached(url, configuration)
+    if folder["title"] == "root":  # a raiz pode ter nav:parent no servidor: o caminho começa abaixo dela
+        return ""
     parent = _link(folder, "nav:parent")
-    if parent is None:  # ponytail: raiz; pasta sem nav:parent no servidor cai só no próprio título
-        return "" if folder["title"] == "root" else folder["title"] or ""
+    if parent is None:  # ponytail: pasta sem nav:parent no servidor cai só no próprio título
+        return folder["title"] or ""
     return posixpath.join(_folder_path(parent["url"], configuration), folder["title"] or "")
 
 
@@ -385,42 +388,125 @@ def _requirement(project_area_identifier: str, component: str, configuration: st
         "modified": local_datetime(props.get("dcterms:modified")),
         "attributes": attributes, "links": related,
         "embedded": list(dict.fromkeys(label({"url": u}) for u in embeds))}
-    return document(head, body), {"path": _file_path(resource, configuration),
+    return document(head, body), {"path": _file_path(resource, configuration), "title": head["title"],
                                   "last_modified": source["last_modified"], "generated_at": generated["at"]}
 
 
-@tool
-def rm_download_requirements(project_area_identifier: str, component: str, configuration: str,
-                             requirement_ids: list[str], dest: str) -> list[dict]:
-    """Grava cada requisito no bundle da alm-download sem passar o conteúdo pela conversa: o mesmo documento de
-    rm_get_requirement(links='bundle') em '<dest>/<caminho da pasta>/<id>-<slug>.md'. `dest`: caminho ABSOLUTO da
-    raiz do bundle (o cwd do MCP não é o repositório). Apaga outros '<id>-*.md' em dest (título/pasta mudou).
-    Erro num id não para o lote. Retorna por id {id, path, last_modified, generated_at, replaced?: [antigos]} ou
-    {id, error}; path relativo a dest, com '/'."""
+def _root(dest: str) -> str:
+    """Raiz do bundle: `dest` tem de ser absoluto (o cwd do MCP não é o repositório)."""
     if not os.path.isabs(dest):
         raise ValueError(f"dest precisa ser caminho absoluto: {dest}")
-    root = os.path.realpath(dest)
-    result = []
-    for rid in requirement_ids:
+    return os.path.realpath(dest)
+
+
+def _write_requirement(pa: str, component: str, configuration: str, rid: str, root: str) -> dict:
+    """Grava o requisito em '<root>/<pasta>/<id>-<slug>.md' e apaga outros '<id>-*.md' (título/pasta mudou)."""
+    doc, meta = _requirement(pa, component, configuration, rid, "bundle")
+    target = os.path.realpath(os.path.join(root, meta["path"]))
+    if not target.startswith(root + os.sep):
+        raise ValueError(f"caminho fora de dest: {meta['path']}")
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    with open(target, "w", encoding="utf-8") as f:
+        f.write(doc)
+    for old in glob.glob(os.path.join(glob.escape(root), "**", f"{rid}-*.md"), recursive=True):
+        if os.path.realpath(old) != target:
+            os.remove(old)
+    return meta
+
+
+@tool
+def rm_sync_plan(project_area_identifier: str, component: str, configuration: str, folders: dict[str, str],
+                 dest: str) -> dict:
+    """Inventário do bundle da alm-sync sem passar a lista pela conversa. `folders`: rm.folders inteiro
+    {nome: identifier}; `dest`: caminho ABSOLUTO da raiz do bundle (rm.download.path). Lista cada pasta
+    (rm_count_folder + rm_list_folder), compara com o sync.md de dest e o regrava: id novo = 'novo'; mudou de
+    pasta = 'pendente (movido)'; modified > Generated OKF = 'pendente'; 'erro' volta para 'pendente'; senão
+    'atualizado'. Artefato do sync.md que não está em nenhuma pasta = removido: o arquivo é APAGADO e a linha sai
+    (não apaga nada se alguma pasta vier com count != listados: índice instável, ids em nao_confirmados).
+    Retorna só o resumo: {pastas: {nome: {total, listados, novo, pendente, atualizado, erro}}, removidos:
+    [{id, title, folder}], inconsistentes: [nomes], nao_confirmados: [ids], a_baixar}."""
+    root = _root(dest)
+    rows = bundle.read_sync(root)
+    listed: dict[str, dict] = {}
+    summary, inconsistent = {}, []
+    for name, identifier in folders.items():
+        total = rm_count_folder(project_area_identifier, component, configuration, identifier)["count"]
+        items = rm_list_folder(project_area_identifier, component, configuration, identifier)
+        if total != len(items):
+            inconsistent.append(name)
+        for item in items:
+            listed[item["id"]] = {**item, "folder": name}
+        summary[name] = {"total": total, "listados": len(items)}
+    for rid, item in listed.items():
+        row = rows.get(rid)
+        if row is None:
+            status = "novo"
+        elif row["folder"] != item["folder"]:
+            status = "pendente (movido)"
+        elif not row["okf"]:
+            status = "novo"
+        elif row["status"].startswith(("erro", "pendente")) or (item["modified"] or "") > row["okf"]:
+            status = "pendente"
+        else:
+            status = "atualizado"
+        rows[rid] = {"id": rid, "title": item["title"], "folder": item["folder"],
+                     "path": row["path"] if row else None, "alm": item["modified"] or "",
+                     "okf": row["okf"] if row else "", "status": status}
+    gone = [r for rid, r in rows.items() if rid not in listed]
+    removed = [] if inconsistent else gone
+    for r in removed:
+        if r["path"] and os.path.realpath(os.path.join(root, r["path"])).startswith(root + os.sep):
+            try:
+                os.remove(os.path.join(root, r["path"]))
+            except FileNotFoundError:
+                pass
+        del rows[r["id"]]
+    bundle.write_sync(root, rows, _generator())
+    if removed or not os.path.exists(os.path.join(root, bundle.INDEX)):
+        bundle.write_index(root, rows)
+    for r in rows.values():
+        if r["folder"] in summary:
+            counts = summary[r["folder"]]
+            key = r["status"].split(" ")[0].rstrip(":")
+            counts[key] = counts.get(key, 0) + 1
+    return {"pastas": summary, "removidos": [{k: r[k] for k in ("id", "title", "folder")} for r in removed],
+            "inconsistentes": inconsistent, "nao_confirmados": [] if removed else [r["id"] for r in gone],
+            "a_baixar": sum(r["status"].startswith(bundle.QUEUE) for r in rows.values())}
+
+
+@tool
+def rm_download_requirements(project_area_identifier: str, component: str, configuration: str, dest: str,
+                             requirement_ids: list[str] | None = None, limit: int = 50) -> dict:
+    """Baixa para o bundle da alm-sync sem passar o conteúdo pela conversa: o mesmo documento de
+    rm_get_requirement(links='bundle') em '<dest>/<caminho da pasta>/<id>-<slug>.md' (apaga '<id>-*.md' antigo
+    se o título ou a pasta mudou). `dest`: caminho ABSOLUTO da raiz do bundle. Sem `requirement_ids`, pega as
+    próximas `limit` linhas novo/pendente/erro do sync.md (a fila de rm_sync_plan); com ids, baixa esses.
+    Atualiza as linhas no sync.md a cada chamada (retomada) e regera o index.md quando a fila zera. Erro num id
+    não para o lote. Retorna {baixados, erros: [{id, error}], restantes}: chame de novo até restantes = 0."""
+    root = _root(dest)
+    rows = bundle.read_sync(root)
+    queue = [r["id"] for r in sorted(rows.values(), key=lambda r: (r["folder"], int(r["id"])))
+             if r["status"].startswith(bundle.QUEUE)]
+    ids = requirement_ids or queue[:max(1, limit)]
+    done, errors = 0, []
+    for rid in ids:
+        row = rows.get(rid) or {"id": rid, "title": rid, "folder": "", "path": None, "alm": "", "okf": ""}
         try:
-            doc, meta = _requirement(project_area_identifier, component, configuration, rid, "bundle")
-            target = os.path.realpath(os.path.join(root, meta["path"]))
-            if not target.startswith(root + os.sep):
-                raise ValueError(f"caminho fora de dest: {meta['path']}")
-            os.makedirs(os.path.dirname(target), exist_ok=True)
-            with open(target, "w", encoding="utf-8") as f:
-                f.write(doc)
-            old = [p for p in glob.glob(os.path.join(glob.escape(root), "**", f"{rid}-*.md"), recursive=True)
-                   if os.path.realpath(p) != target]
-            for p in old:
-                os.remove(p)
-            item = {"id": rid, **meta}
-            if old:
-                item["replaced"] = sorted(os.path.relpath(p, root).replace(os.sep, "/") for p in old)
-            result.append(item)
+            meta = _write_requirement(project_area_identifier, component, configuration, rid, root)
+            row.update(title=meta["title"], folder=row["folder"] or posixpath.dirname(meta["path"]),
+                       path=meta["path"], alm=meta["last_modified"] or "", okf=meta["generated_at"],
+                       status="atualizado")
+            done += 1
         except Exception as exc:  # um id com erro não derruba o lote
-            result.append({"id": rid, "error": str(exc)[:200]})
-    return result
+            message = " ".join(str(exc).replace("|", "/").split())[:200]
+            row["status"] = f"erro: {message}"
+            errors.append({"id": rid, "error": message})
+        rows[rid] = row
+    bundle.write_sync(root, rows, _generator())
+    remaining = sum(r["status"].startswith(bundle.QUEUE) for r in rows.values())
+    if remaining == 0:
+        bundle.write_index(root, rows)
+    return {"baixados": done, "erros": errors, "restantes": remaining}
 
 
 @tool

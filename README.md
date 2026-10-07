@@ -91,7 +91,7 @@ Saída com as chaves do alm.json (`alm/pa_*.json`; a skill grava o arquivo, o MC
 | alm-setup (ccm) | whoami, list_project_areas("CCM"), ccm_list_team_areas, ccm_list_members, ccm_list_workitem_types, ccm_list_workitem_fields, ccm_list_link_types, ccm_list_iterations, ccm_list_iteration_plans, ccm_create_iteration, ccm_create_iteration_plan |
 | alm-setup (rm) | list_project_areas("RM"), get_project_area(include_associations), rm_get_configuration, rm_list_members, rm_list_folders, rm_list_requirement_types |
 | alm-ccm | ccm_list_workitems, ccm_get_workitem, ccm_list_field_values, ccm_create_workitem, ccm_update_workitem, ccm_list_workitem_states (+ add_comment_to_workitem, link_*) |
-| alm-rm | rm_search_requirements, rm_count_folder, rm_list_folder, rm_list_modified, rm_download_requirements, rm_get_requirement, rm_create_requirement, rm_update_requirement (+ link_workitem_and_requirement) |
+| alm-rm | rm_search_requirements, rm_count_folder, rm_list_folder, rm_list_modified, rm_sync_plan, rm_download_requirements, rm_get_requirement, rm_create_requirement, rm_update_requirement (+ link_workitem_and_requirement) |
 | alm-qm | search_testartifact, get_testartifact, get_testartifact_schema, get_qm_component, get_qm_component_configuration |
 | alm-gc | whoami, get_user, list_project_areas, get_project_area, get_global_configuration, search_global_configuration, list_linked_*, link_* |
 
@@ -112,7 +112,7 @@ modificação no ALM) e `generated` (quem gerou e **quando o documento foi gerad
 fim, as extensões RM. `sources[0].last_modified` > `generated.at` indica cópia desatualizada; `rm_list_modified`
 devolve essa data para um ou vários ids sem ler o conteúdo. Para download/sync de uma pasta, use
 `rm_count_folder` (total pelo servidor) e `rm_list_folder` (todos os `{id, title, modified}`, sem teto) como
-inventário: só a pasta, sem subpastas; `count` diferente do tamanho da lista indica listagem inconsistente. `rm_download_requirements(ids, dest)` grava cada id direto no bundle (`dest` absoluto, mesmo documento de `rm_get_requirement(links="bundle")`) e devolve só `{id, path, last_modified, generated_at, replaced?}`: o conteúdo não passa pela conversa. `url` é mantido como alias de compatibilidade de `resource` (mesmo valor). `verified`, `status` e
+inventário: só a pasta, sem subpastas; `count` diferente do tamanho da lista indica listagem inconsistente. Para o bundle da alm-sync, o MCP cuida de tudo sem passar listas nem conteúdo pela conversa: `rm_sync_plan(folders, dest)` lista as pastas, regrava `sync.md` (fila: novo/pendente/erro) e apaga os removidos; `rm_download_requirements(dest)` baixa os próximos da fila, atualiza `sync.md` e, ao zerar, `index.md`. Ambos devolvem só um resumo. `url` é mantido como alias de compatibilidade de `resource` (mesmo valor). `verified`, `status` e
 `stale_after` só aparecem quando o artefato traz um sinal real (requisitos do DOORS Next não os definem).
 
 Exemplo (dados fictícios):
