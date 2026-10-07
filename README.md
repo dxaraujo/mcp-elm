@@ -174,6 +174,7 @@ O bundle é uma pasta de md, um por requisito (`<pasta>/<id>-<slug>.md`), com `s
 | `sincronizado` | md == ALM | — |
 | `desatualizado` | `modified` do ALM ≠ `Última atualização ALM` | download |
 | `atualizado` | md alterado (sha256 ≠ `Hash`) e ALM sem mudança | upload |
+| `normalizado` | md **não** alterado (hash igual), mas o ALM foge da regra embed/link do bundle (diferença invisível no md) | upload |
 | `conflito` | md alterado **e** ALM mudou | perguntar ao usuário: md ou ALM |
 | `erro: <msg>` | falha no download | download de novo |
 
@@ -201,7 +202,7 @@ gravado (abreviado no exemplo).
 No corpo do md do bundle vale uma regra fixa: **artefato do bundle (id no `sync.md`) é sempre embed; o resto é
 sempre link**. Por isso o md do bundle não tem `embedded`, e o `links:` do cabeçalho é só de leitura. O download
 grava o artefato do bundle como `[id título](../03-Regras/2001-x.md)` e o de fora como `[id título](URL do ALM)`.
-Se o ALM estiver diferente da regra (um embed de fora ou um hyperlink para o bundle), a linha fica `atualizado` e o
+Se o ALM estiver diferente da regra (um embed de fora ou um hyperlink para o bundle), a linha fica `normalizado` e o
 upload corrige. Formatos sugeridos para escrever no md:
 
 | Referência | Formato |

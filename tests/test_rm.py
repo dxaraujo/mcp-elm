@@ -321,17 +321,19 @@ def test_sync_plan_classifies_removes_and_queues(tmp_path, monkeypatch):
     assert rm.rm_download_requirements("_PA1", C, S, dest, limit=3) == {"baixados": 3, "erros": [], "restantes": 1}
     assert rm.rm_download_requirements("_PA1", C, S, dest)["restantes"] == 0
     rows = bundle.read_sync(dest)
-    assert rows["2"]["status"] == "atualizado" and rows["6"]["status"] == "sincronizado"
-    # md editado -> atualizado; 'atualizado' segue até subir
+    assert rows["2"]["status"] == "normalizado" and rows["6"]["status"] == "sincronizado"
+    # md editado -> atualizado; 'normalizado' segue até subir
     (tmp_path / "X" / "6-t.md").write_text("editado")
     out = plan()
     rows = bundle.read_sync(dest)
-    assert rows["2"]["status"] == rows["6"]["status"] == "atualizado" and out["a_subir"] == 2 and out["a_baixar"] == 0
-    # o ALM também mudou -> conflito: fora das filas e na lista para perguntar ao usuário
-    lists["FR_A"][1]["modified"] = "2027-01-01T00:00:00Z"
+    assert rows["2"]["status"] == "normalizado" and rows["6"]["status"] == "atualizado"
+    assert out["a_subir"] == 2 and out["a_baixar"] == 0
+    # o ALM também mudou -> md editado vira conflito (pergunta ao usuário); normalizado só rebaixa
+    lists["FR_A"][1]["modified"] = lists["FR_A"][2]["modified"] = "2027-01-01T00:00:00Z"
     out = plan()
-    assert out["conflitos"] == [{"id": "2", "title": "T2", "folder": "A", "path": "X/2-t.md"}]
-    assert out["a_baixar"] == 0 and out["a_subir"] == 1
+    assert out["conflitos"] == [{"id": "6", "title": "T6", "folder": "A", "path": "X/6-t.md"}]
+    assert bundle.read_sync(dest)["2"]["status"] == "desatualizado"
+    assert out["a_baixar"] == 1 and out["a_subir"] == 0
     # mudou de pasta sem edição local: arquivo apagado e 'novo'; com edição local: 'conflito' e o arquivo fica
     lists["FR_A"].append(lists["FR_B"].pop())   # 5 -> A
     lists["FR_B"].append(lists["FR_A"].pop(2))  # 6 -> B

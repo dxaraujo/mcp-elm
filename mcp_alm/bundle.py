@@ -13,7 +13,7 @@ SYNC, INDEX = "sync.md", "index.md"
 HEADER = "| Artefato | Pasta | Última atualização ALM | Hash | Status |"
 # linhas a baixar e a subir para o ALM
 QUEUE = ("novo", "desatualizado", "erro")
-UPLOAD = ("atualizado",)
+UPLOAD = ("atualizado", "normalizado")
 _CELL = re.compile(r"(?<!\\)\|")
 _LINKED = re.compile(r"\[(\d+) — (.*)\]\(</(.*)>\)")
 _PLAIN = re.compile(r"(\d+) — (.*)")
@@ -60,7 +60,9 @@ def _order(rows: dict[str, dict]) -> list[dict]:
 
 def write_sync(dest: str, rows: dict[str, dict], by: str) -> None:
     head = {"type": "Relatório de Sincronismo", "title": "Sincronismo ALM → OKF",
-            "description": "Situação de cada artefato do DOORS Next baixado neste bundle.",
+            "description": "Situação de cada artefato do DOORS Next baixado neste bundle. 'normalizado': o md"
+                           " não foi editado; é o ALM que foge da regra do bundle (artefato do bundle = embed, o"
+                           " resto = link), invisível no md, e o upload corrige.",
             "generated": {"by": by, "at": utc_datetime(datetime.now(timezone.utc))}}
     table = [HEADER, "|---|---|---|---|---|"] + [
         f"| {_label(r)} | {_esc(r['folder'])} | {r['alm']} | {r['hash']} | {r['status']} |" for r in _order(rows)]

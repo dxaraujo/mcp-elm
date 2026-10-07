@@ -285,8 +285,8 @@ primeiras.
 | `rm_list_modified` | `requirement_ids` (lista; um id = consulta individual) | `[{id, title, modified}]` (`modified` em ISO 8601 UTC; id inexistente não volta) |
 | `rm_get_requirement` | `requirement_id` (numérico) | documento Markdown + YAML (ver 5.7) |
 | `rm_sync_plan` | `folders` (rm.folders `{nome: FR_}`), `dest` (caminho absoluto da raiz do bundle) | lista as pastas, regrava `<dest>/sync.md` (estados na seção 5.7), apaga os removidos; `{pastas: {nome: {total, listados, <estado>: n}}, removidos, inconsistentes, nao_confirmados, a_baixar, a_subir, conflitos: [{id, title, folder, path}]}` |
-| `rm_download_requirements` | `dest`, `requirement_ids?` (sem = próximos `novo`/`desatualizado`/`erro` do `sync.md`; com ids, também `conflito`), `limit?` (50) | grava `<dest>/<pasta>/<id>-<slug>.md` (documento de `rm_get_requirement(links="bundle")`), apaga `<id>-*.md` antigo, atualiza `sync.md` (`sincronizado`, ou `atualizado` se o md ficou diferente do ALM pela regra embed/link) e, com a fila vazia, `index.md`; `{baixados, erros, restantes}` |
-| `rm_upload_requirements` | `dest`, `requirement_ids?` (sem = próximos `atualizado`, só se o ALM não mudou desde o download; com ids, sobe sem checar), `limit?` (50) | sobe título e corpo do md (artefato do bundle = embed, o resto = link), rebaixa o requisito (`sincronizado`); ALM mudou = `conflito` e nada sobe; `{enviados, erros, conflitos, restantes}` |
+| `rm_download_requirements` | `dest`, `requirement_ids?` (sem = próximos `novo`/`desatualizado`/`erro` do `sync.md`; com ids, também `conflito`), `limit?` (50) | grava `<dest>/<pasta>/<id>-<slug>.md` (documento de `rm_get_requirement(links="bundle")`), apaga `<id>-*.md` antigo, atualiza `sync.md` (`sincronizado`, ou `normalizado` se o md ficou diferente do ALM pela regra embed/link) e, com a fila vazia, `index.md`; `{baixados, erros, restantes}` |
+| `rm_upload_requirements` | `dest`, `requirement_ids?` (sem = próximos `atualizado`/`normalizado`, só se o ALM não mudou desde o download; com ids, sobe sem checar), `limit?` (50) | sobe título e corpo do md (artefato do bundle = embed, o resto = link), rebaixa o requisito (`sincronizado`); ALM mudou = `conflito` e nada sobe; `{enviados, erros, conflitos, restantes}` |
 | `rm_create_requirement` | `requirement_type`, `folder`, `title`, `text` (Markdown ou XHTML), `embedded?` | `{id, title, url}` |
 | `rm_update_requirement` | `requirement_id`, `title?`, `text?` (substitui o texto inteiro), `embedded?` | `{id, title, url}` |
 
@@ -457,6 +457,7 @@ Pessoa vai pelo login (`members`) e duração em ms (`4h` = `14400000`). No RM, 
 | `sincronizado` | md == ALM | — |
 | `desatualizado` | `modified` do ALM ≠ `Última atualização ALM` | download |
 | `atualizado` | md alterado (sha256 ≠ `Hash`) e ALM sem mudança | upload |
+| `normalizado` | md **não** alterado (hash igual), mas o ALM foge da regra embed/link do bundle (diferença invisível no md) | upload |
 | `conflito` | md alterado **e** ALM mudou | a skill pergunta ao usuário: md ou ALM |
 | `erro: <msg>` | falha no download | download de novo |
 
@@ -485,7 +486,7 @@ generated:
 
 No corpo do md do bundle a regra é fixa: **artefato do bundle (id no `sync.md`) é sempre embed; o resto é sempre
 link**. O download grava `[id título](../03-Regras/2001-x.md)` para artefato do bundle e `[id título](URL do ALM)`
-para os de fora. Se o ALM estiver diferente da regra, a linha fica `atualizado` e o upload corrige. O md do bundle não
+para os de fora. Se o ALM estiver diferente da regra, a linha fica `normalizado` e o upload corrige. O md do bundle não
 tem `embedded`, e o `links:` do cabeçalho não sobe. Formatos sugeridos ao escrever no md:
 
 | Referência | Formato | Upload |

@@ -399,11 +399,11 @@ def _write_requirement(pa: str, component: str, configuration: str, rid: str, ro
 
 
 def _downloaded(row: dict, meta: dict) -> None:
-    """Linha do sync.md depois de gravar o arquivo: data do ALM e hash deste momento; 'atualizado' se o md ficou
+    """Linha do sync.md depois de gravar o arquivo: data do ALM e hash deste momento; 'normalizado' se o md ficou
     diferente do ALM (link normalizado) e precisa subir."""
     row.update(title=meta["title"], folder=row["folder"] or posixpath.dirname(meta["path"]), path=meta["path"],
                alm=meta["last_modified"] or "", hash=meta["hash"],
-               status="atualizado" if meta["modified"] else "sincronizado")
+               status="normalizado" if meta["modified"] else "sincronizado")
 
 
 def _message(exc: Exception) -> str:
@@ -431,7 +431,9 @@ def rm_sync_plan(project_area_identifier: str, component: str, configuration: st
     (rm_count_folder + rm_list_folder), compara com o sync.md de dest e o regrava. Estados:
     'novo' (não baixado), 'sincronizado' (md == ALM), 'desatualizado' (o ALM mudou desde o último download:
     modified != 'Última atualização ALM'), 'atualizado' (o md mudou: sha256 != Hash; sobe com
-    rm_upload_requirements), 'conflito' (md e ALM mudaram), 'erro: ...'. Mudou de pasta = removido da antiga e
+    rm_upload_requirements), 'normalizado' (md NÃO editado, hash igual: o ALM foge da regra embed/link do bundle,
+    diferença que não aparece no md; não é falso positivo, sobe com rm_upload_requirements), 'conflito' (md e ALM
+    mudaram), 'erro: ...'. Mudou de pasta = removido da antiga e
     novo na nova (o arquivo é apagado; se ele tem edição local, vira 'conflito' e fica). Artefato do sync.md que não
     está em nenhuma pasta = removido: o arquivo é APAGADO e a linha sai (não apaga nada se alguma pasta vier com
     count != listados: índice instável, ids em nao_confirmados).
@@ -469,7 +471,8 @@ def rm_sync_plan(project_area_identifier: str, component: str, configuration: st
         else:
             alm = (item["modified"] or "") != row["alm"] or row["status"].startswith(("erro", "desatualizado"))
             row["status"] = ("conflito" if local and alm else "atualizado" if local
-                             else "desatualizado" if alm else "sincronizado")
+                             else "desatualizado" if alm else "normalizado" if row["status"] == "normalizado"
+                             else "sincronizado")
         row.update(title=item["title"], folder=item["folder"])
     gone = [r for rid, r in rows.items() if rid not in listed]
     removed = [] if inconsistent else gone
@@ -499,8 +502,9 @@ def rm_download_requirements(project_area_identifier: str, component: str, confi
     se o título ou a pasta mudou). `dest`: caminho ABSOLUTO da raiz do bundle. Sem `requirement_ids`, pega as
     próximas `limit` linhas novo/desatualizado/erro do sync.md (a fila de rm_sync_plan); com ids, baixa esses,
     inclusive 'conflito' (o usuário escolheu a versão do ALM: a edição do md é sobrescrita).
-    Linha baixada = 'sincronizado', ou 'atualizado' se o md ficou diferente do ALM (link da UI web, embed de
+    Linha baixada = 'sincronizado', ou 'normalizado' se o md ficou diferente do ALM (link da UI web, embed de
     artefato fora do bundle ou hyperlink para artefato do bundle normalizados): sobe com rm_upload_requirements.
+    No md embed e link para o bundle são iguais, então o diff do md não mostra essa diferença.
     Atualiza as linhas no sync.md a cada chamada (retomada) e regera o index.md quando a fila zera. Erro num id
     não para o lote. Retorna {baixados, erros: [{id, error}], restantes}: chame de novo até restantes = 0."""
     root = _root(dest)
@@ -550,7 +554,7 @@ def _bundle_embeds(configuration: str, body: str, bundle_ids: set[str]) -> list[
 def rm_upload_requirements(project_area_identifier: str, component: str, configuration: str, dest: str,
                            requirement_ids: list[str] | None = None, limit: int = 50) -> dict:
     """Sobe para o ALM os md editados do bundle da alm-sync (rode depois de rm_download_requirements zerar).
-    Sem `requirement_ids`, pega as próximas `limit` linhas 'atualizado' do sync.md e só sobe se o ALM não mudou
+    Sem `requirement_ids`, pega as próximas `limit` linhas 'atualizado'/'normalizado' do sync.md e só sobe se o ALM não mudou
     desde o download (senão a linha vira 'conflito' e nada sobe); com ids, sobe esses sem checar (o usuário
     escolheu a versão do md num conflito). Envia title (cabeçalho) e o corpo: artefato do bundle vira embed e o
     resto, link (`links` do cabeçalho não sobe). Formatos no corpo: embed [<id>](<id>); link para artefato de outra
