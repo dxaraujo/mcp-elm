@@ -24,6 +24,8 @@ FOLDER = "/rm/folders/{id}"
 TYPE = "/rm/types/{id}"
 SEARCH_SELECT = "dcterms:identifier,dcterms:title,dcterms:modified,oslc:instanceShape,nav:parent"
 MODIFIED_SELECT = "dcterms:identifier,dcterms:title,dcterms:modified"
+# passadas extras só se a listagem ordenada ainda não alcançar o oslc:totalCount (índice do servidor instável)
+LIST_PASSES = 3
 # propriedades que já têm lugar próprio na saída (não entram em attributes)
 CORE = {"dcterms:title", "dcterms:identifier", "dcterms:description", "jazz_rm:primaryText", "nav:parent",
         "oslc:instanceShape"}
@@ -257,12 +259,20 @@ def rm_count_folder(project_area_identifier: str, component: str, configuration:
 def rm_list_folder(project_area_identifier: str, component: str, configuration: str, folder: str) -> list[dict]:
     """Todos os requisitos diretamente na pasta (identifier de rm.folders; subpastas não entram), sem teto:
     [{id, title, modified}] ordenado por id, modified em ISO 8601 UTC (como rm_list_modified). Inventário para
-    download/sync: compare com rm_count_folder e com o generated.at dos arquivos baixados."""
+    download/sync: compare com rm_count_folder e com o generated.at dos arquivos baixados.
+    Pagina ordenado por dcterms:identifier (sem ordem, itens pulam de página); se ainda faltar, repete a listagem
+    unindo os ids até alcançar o oslc:totalCount (máx. LIST_PASSES vezes)."""
     configuration = _url(STREAM, configuration)
     base, where = _folder_query(project_area_identifier, configuration, folder)
-    found = oslc.query(base, where=where, select=MODIFIED_SELECT, limit=None, configuration=configuration)
+    merged: dict[str, dict] = {}
+    for _ in range(LIST_PASSES):
+        for r in oslc.query(base, where=where, select=MODIFIED_SELECT, order_by="+dcterms:identifier", limit=None,
+                            configuration=configuration):
+            merged[r["id"]] = r
+        if len(merged) >= oslc.count(base, where=where, configuration=configuration):
+            break
     return sorted(({"id": r["id"], "title": one_line(r["title"]),
-                    "modified": utc_datetime(r["properties"].get("dcterms:modified"))} for r in found),
+                    "modified": utc_datetime(r["properties"].get("dcterms:modified"))} for r in merged.values()),
                   key=lambda r: int(r["id"]))
 
 

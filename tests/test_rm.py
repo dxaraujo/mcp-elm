@@ -262,6 +262,7 @@ def test_list_folder_only_direct_members(req_srv):
         {"id": "123", "title": "Login", "modified": "2024-10-01T13:45:10Z"}]
     q = parse_qs(urlsplit(next(c.url for c in req_srv.calls if c.url.startswith(QUERY + "?"))).query)
     assert q["oslc.where"] == [f"nav:parent=<{FOLDER}>"] and q["oslc.select"] == [rm.MODIFIED_SELECT]
+    assert q["oslc.orderBy"] == ["+dcterms:identifier"]
     assert "oslc.searchTerms" not in q
 
 
@@ -282,3 +283,11 @@ def test_download_requirements_writes_bundle_file_and_replaces_old(req_srv, tmp_
     assert rm.rm_download_requirements("_PA1", C, S, ["999"], str(tmp_path)) == [{"id": "999", "error": "HTTP 404"}]
     with pytest.raises(ValueError):
         rm.rm_download_requirements("_PA1", C, S, ["123"], "relativo")
+
+
+def test_list_folder_unions_passes_until_total_count(req_srv, monkeypatch):
+    item = lambda i: {"id": i, "title": f"T{i}", "properties": {}}
+    pages = iter([[item("1"), item("2")], [item("2"), item("3")], [item("9")]])  # cada passada perde um item
+    monkeypatch.setattr(rm.oslc, "query", lambda *a, **k: next(pages))
+    monkeypatch.setattr(rm.oslc, "count", lambda *a, **k: 3)
+    assert [r["id"] for r in rm.rm_list_folder("_PA1", C, S, F)] == ["1", "2", "3"]  # parou na 2ª passada
