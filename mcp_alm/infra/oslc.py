@@ -300,9 +300,10 @@ def query(
     return results
 
 
-def count(query_base: str, *, where: str | None = None, configuration: str | None = None) -> int:
+def count(query_base: str, *, where: str | None = None, order_by: str | None = None,
+          configuration: str | None = None) -> int:
     """Total de resultados da query pelo oslc:totalCount do servidor (uma página de 1 item); sem totalCount,
-    conta seguindo todas as páginas."""
+    conta seguindo todas as páginas, ordenadas por `order_by` (sem ordem, itens podem pular de página)."""
     params = {"oslc.paging": "true", "oslc.pageSize": "1", "oslc.select": "dcterms:identifier",
               "oslc.prefix": _prefix_header()}
     if where:
@@ -311,7 +312,8 @@ def count(query_base: str, *, where: str | None = None, configuration: str | Non
     total = next(parse(resp.content, resp.url).objects(None, OSLC.totalCount), None)
     if total is not None:
         return int(total)
-    return len(query(query_base, where=where, select="dcterms:identifier", limit=None, configuration=configuration))
+    return len(query(query_base, where=where, select="dcterms:identifier", order_by=order_by, limit=None,
+                     configuration=configuration))
 
 
 def _members(g: Graph, query_base: str) -> list:

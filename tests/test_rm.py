@@ -268,6 +268,8 @@ def test_list_folder_only_direct_members(req_srv):
 
 def test_count_folder_falls_back_to_listing(req_srv):
     assert rm.rm_count_folder("_PA1", C, S, F) == {"folder": F, "count": 1}  # fixture sem oslc:totalCount
+    paged = [parse_qs(urlsplit(c.url).query) for c in req_srv.calls if c.url.startswith(QUERY + "?")]
+    assert paged[-1]["oslc.orderBy"] == [rm.BY_ID]  # a contagem de reserva também pagina ordenada
 
 
 def test_download_requirements_writes_bundle_file_and_replaces_old(req_srv, tmp_path, monkeypatch):

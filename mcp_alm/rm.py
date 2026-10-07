@@ -26,6 +26,8 @@ SEARCH_SELECT = "dcterms:identifier,dcterms:title,dcterms:modified,oslc:instance
 MODIFIED_SELECT = "dcterms:identifier,dcterms:title,dcterms:modified"
 # passadas extras só se a listagem ordenada ainda não alcançar o oslc:totalCount (índice do servidor instável)
 LIST_PASSES = 3
+# paginação estável na listagem de pasta
+BY_ID = "+dcterms:identifier"
 # propriedades que já têm lugar próprio na saída (não entram em attributes)
 CORE = {"dcterms:title", "dcterms:identifier", "dcterms:description", "jazz_rm:primaryText", "nav:parent",
         "oslc:instanceShape"}
@@ -252,7 +254,7 @@ def rm_count_folder(project_area_identifier: str, component: str, configuration:
     Serve para conferir download/sync: count != len(rm_list_folder) indica listagem inconsistente no servidor."""
     configuration = _url(STREAM, configuration)
     base, where = _folder_query(project_area_identifier, configuration, folder)
-    return {"folder": folder, "count": oslc.count(base, where=where, configuration=configuration)}
+    return {"folder": folder, "count": oslc.count(base, where=where, order_by=BY_ID, configuration=configuration)}
 
 
 @tool
@@ -266,10 +268,10 @@ def rm_list_folder(project_area_identifier: str, component: str, configuration: 
     base, where = _folder_query(project_area_identifier, configuration, folder)
     merged: dict[str, dict] = {}
     for _ in range(LIST_PASSES):
-        for r in oslc.query(base, where=where, select=MODIFIED_SELECT, order_by="+dcterms:identifier", limit=None,
+        for r in oslc.query(base, where=where, select=MODIFIED_SELECT, order_by=BY_ID, limit=None,
                             configuration=configuration):
             merged[r["id"]] = r
-        if len(merged) >= oslc.count(base, where=where, configuration=configuration):
+        if len(merged) >= oslc.count(base, where=where, order_by=BY_ID, configuration=configuration):
             break
     return sorted(({"id": r["id"], "title": one_line(r["title"]),
                     "modified": utc_datetime(r["properties"].get("dcterms:modified"))} for r in merged.values()),
