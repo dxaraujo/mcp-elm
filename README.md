@@ -107,12 +107,12 @@ nomes:
   (artefatos embutidos no texto). A gravação usa os mesmos nomes. O alm.json do RM guarda só tipos e pastas.
 
 O cabeçalho do requisito segue o [Google OKF v0.2](https://okf.md/): primeiro os campos OKF padrão (`type`,
-`title`, `description?`, `resource`, `tags`), depois `sources` (a fonte no DOORS Next, com `last_modified` = última
-modificação no ALM) e `generated` (quem gerou e **quando o documento foi gerado**), ambos em ISO 8601 UTC, e, por
+`title`, `description?`, `resource`, `tags` = [pasta]), depois `sources` (a fonte no DOORS Next: `author` = quem
+criou, `last_modified` = última modificação no ALM e `last_modified_by` = quem modificou por último) e `generated` (quem gerou e **quando o documento foi gerado**), ambos em ISO 8601 UTC, e, por
 fim, as extensões RM. `sources[0].last_modified` > `generated.at` indica cópia desatualizada; `rm_list_modified`
 devolve essa data para um ou vários ids sem ler o conteúdo. Para download/sync de uma pasta, use
 `rm_count_folder` (total pelo servidor) e `rm_list_folder` (todos os `{id, title, modified}`, sem teto) como
-inventário: só a pasta, sem subpastas; `count` diferente do tamanho da lista indica listagem inconsistente. Para o bundle da alm-sync, o MCP cuida de tudo sem passar listas nem conteúdo pela conversa: `rm_sync_plan(folders, dest)` lista as pastas, regrava `sync.md` (fila: novo/pendente/erro) e apaga os removidos; `rm_download_requirements(dest)` baixa os próximos da fila, atualiza `sync.md` e, ao zerar, `index.md`. Ambos devolvem só um resumo. `url` é mantido como alias de compatibilidade de `resource` (mesmo valor). `verified`, `status` e
+inventário: só a pasta, sem subpastas; `count` diferente do tamanho da lista indica listagem inconsistente. Para o bundle da alm-sync, o MCP cuida de tudo sem passar listas nem conteúdo pela conversa: `rm_sync_plan(folders, dest)` lista as pastas, regrava `sync.md` (fila: novo/pendente/erro; `modificado` = arquivo a subir para o ALM) e apaga os removidos; `rm_download_requirements(dest)` baixa os próximos da fila, atualiza `sync.md` e, ao zerar, `index.md`. Ambos devolvem só um resumo. Extensões RM: `id`, `created` (UTC), `attributes`, `links` e `embedded`, só quando preenchidos. `verified`, `status` e
 `stale_after` só aparecem quando o artefato traz um sinal real (requisitos do DOORS Next não os definem).
 
 Exemplo (dados fictícios):
@@ -124,19 +124,17 @@ title: UC - Cadastrar cliente
 resource: "https://alm.example.com/rm/resources/TX_exemplo2010"
 tags:
   - "03-Casos de Uso"
-  - Caso de Uso
 sources:
   - id: doors-next
     resource: "https://alm.example.com/rm/resources/TX_exemplo2010"
-    title: DOORS Next 2010
-    author: "human:bruno.lima"
+    author: "human:ana.souza"
     last_modified: "2026-01-10T13:05:00Z"
+    last_modified_by: "human:bruno.lima"
 generated:
   by: "process:alm-mcp/1.0.14"
   at: "2026-01-11T19:20:00Z"
 id: 2010
-url: "https://alm.example.com/rm/resources/TX_exemplo2010"
-folder: "03-Casos de Uso"
+created: "2026-01-05T13:00:00Z"
 attributes:
   Prioridade: Alta
 links:
@@ -148,15 +146,17 @@ embedded:
 ## Fluxo Básico
 
 1. O usuário informa os dados do cliente.
-2. O sistema valida o documento: ![2001 RN - Validar CPF do cliente](https://alm.example.com/rm/resources/TX_exemplo2001)
+2. O sistema valida o documento: [2001 RN - Validar CPF do cliente](https://alm.example.com/rm/resources/TX_exemplo2001)
 ```
 
 O corpo é Markdown nos dois sentidos: `text` (RM) e `description` (WI) aceitam Markdown na gravação. No RM, a
-leitura sai sempre no mesmo padrão: artefato embutido = `![<id> <título>](<alvo>)` e hyperlink para artefato =
-`[<id> <título>](<alvo>)`. O alvo é a URL do ALM ou, com `rm_get_requirement(..., links="bundle")`, o caminho
+leitura sai sempre no mesmo padrão: todo artefato, embutido ou hyperlink, é `[<id> <título>](<alvo>)`; o que é
+embed está na lista `embedded` do cabeçalho (só artefatos que existem no destino: embed quebrado ou de outra PA sai
+como link e fica fora da lista). O alvo é a URL do ALM ou, com `rm_get_requirement(..., links="bundle")`, o caminho
 relativo do arquivo do artefato no bundle baixado (`../03-Regras/2001-rn-validar-cpf.md`, o mesmo `path` de
-`rm_search_requirements`). Na gravação, `!` = embed e sem `!` = hyperlink, com alvo por URL, id (`2001`) ou
-arquivo cujo nome começa pelo id; `![[id]]` continua aceito. Links de requisito em `attributes` aceitam a URL ou o
+`rm_search_requirements`). Na gravação, o link cujo artefato está em `embedded` (parâmetro de
+`rm_create_requirement`/`rm_update_requirement`) vira embed e o resto, hyperlink; alvo por URL (inclusive link da UI
+web com `artifactURI`), id (`2001`) ou arquivo cujo nome começa pelo id. Links de requisito em `attributes` aceitam a URL ou o
 id. No EWM a descrição só tem texto, `<br/>`, `<b>`, `<i>` e `<a>` (listas viram `• ` / `1. `); para citar outro
 WI, escreva "Tarefa 1002" no texto e o EWM cria o link "Menções". `[texto](url)` é hyperlink comum.
 

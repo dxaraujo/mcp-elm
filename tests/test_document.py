@@ -43,7 +43,7 @@ def test_word_html_to_markdown_keeps_structure_and_embeds():
     md = to_markdown(UC_HTML, lambda url: ("2001 Regra de validação", url))
     assert md == ("## Pré-condição:\n\nesteja diferente de cancelado.\n\n# **Fluxo Básico:**\n\n"
                   "1. O sistema verifica se o cliente foi identificado: "
-                  "![2001 Regra de validação](https://alm.test/rm/resources/TX_1)\n"
+                  "[2001 Regra de validação](https://alm.test/rm/resources/TX_1)\n"
                   "2. O sistema verifica a compatibilidade:")
 
 
@@ -55,7 +55,7 @@ def test_line_break_round_trip():
 
 def test_collapses_spaces_around_embed_but_keeps_indentation():
     md = to_markdown('<ul><li>a,  <a class="embedded" href="u"> </a>  e;<ul><li>b</li></ul></li></ul>', lambda u: ("1 X", u))
-    assert md == "- a, ![1 X](u) e;\n   - b"
+    assert md == "- a, [1 X](u) e;\n   - b"
 
 
 def test_table_to_markdown():
@@ -64,7 +64,8 @@ def test_table_to_markdown():
 
 
 def test_markdown_to_xhtml_with_embed():
-    html = to_xhtml("## Fluxo\n\n1. Passo ![[2001: Regra]]\n2. Outro & mais", lambda i: f"https://alm.test/rm/{i}")
+    html = to_xhtml("## Fluxo\n\n1. Passo [2001 Regra](2001)\n2. Outro & mais", lambda i: f"https://alm.test/rm/{i}",
+                    ["2001: Regra"])
     assert "<h2>Fluxo</h2>" in html and "<ol>" in html and "&amp; mais" in html
     assert '<a class="embedded" href="https://alm.test/rm/2001"> </a>' in html
 
@@ -123,20 +124,31 @@ def test_artifact_links_read_in_fixed_pattern():
     html = (f'<p>Valida: <a class="embedded" href="{REGRA[0]}"> </a> e cita a <a href="{REGRA[0]}">RN 2001</a>; '
             f'ver <a href="https://site/x">site</a></p>')
     alm = to_markdown(html, lambda u: (REGRA[1], u) if u.startswith(RM) else None)
-    assert alm == f"Valida: ![{REGRA[1]}]({REGRA[0]}) e cita a [{REGRA[1]}]({REGRA[0]}); ver [site](https://site/x)"
+    assert alm == f"Valida: [{REGRA[1]}]({REGRA[0]}) e cita a [{REGRA[1]}]({REGRA[0]}); ver [site](https://site/x)"
     bundle = to_markdown(html, lambda u: (REGRA[1], REGRA[2]) if u.startswith(RM) else None)
-    assert f"![{REGRA[1]}](<{REGRA[2]}>)" in bundle and f"[{REGRA[1]}](<{REGRA[2]}>)" in bundle
+    assert bundle.count(f"[{REGRA[1]}](<{REGRA[2]}>)") == 2 and "!" not in bundle
 
 
-def test_write_accepts_every_artifact_link_form():
+def test_unresolved_embed_is_a_plain_link():
+    gone = f"{RM}GONE"
+    md = to_markdown(f'<p>a <a class="embedded" href="{gone}"> </a> e <a href="{gone}">REG9</a></p>', lambda u: None)
+    assert md == f"a [{gone}]({gone}) e [REG9]({gone})"
+
+
+def test_write_embed_comes_from_embedded_list():
     url = lambda ref: ref if ref.startswith("http") else f"{RM}{ref}"
-    embed = f'<a class="embedded" href="{RM}2001">'
-    for md in ("![[2001]]", "![[2001: RN]]", f"![x]({RM}2001)", "![x](2001)", f"![x](<{REGRA[2]}>)",
-               "![2001 RN Validar](2001 RN Validar.md)"):
-        assert embed in to_xhtml(md, url), md
-    for md in (f"[x]({RM}2001)", "[2001](2001)", f"[x](<{REGRA[2]}>)", "[2001 RN Validar](2001 RN Validar)"):
+    embed = f'<a class="embedded" href="{RM}2001"> </a>'
+    web = ("https://alm.test/rm/web#action=com.ibm.rdm.web.pages.showArtifactPage&artifactURI="
+           "https%3A%2F%2Falm.test%2Frm%2Fresources%2FTX_2001&componentURI=x")
+    forms = (f"[x]({RM}2001)", "[2001](2001)", f"[x](<{REGRA[2]}>)", "[2001 RN Validar](2001 RN Validar)",
+             f"[x]({web})")
+    for md in forms:
+        for embedded in (["2001"], ["2001: RN - Validar CPF"], [f"{RM}2001"]):
+            html = to_xhtml(md, url, embedded)
+            assert embed in html and "<a href" not in html, (md, embedded)
         html = to_xhtml(md, url)
         assert f'<a href="{RM}2001">' in html and "embedded" not in html, md
+    assert f'<a href="{RM}2002">y</a>' in to_xhtml("[y](2002)", url, ["2001"])
     assert to_xhtml("![logo](img.png) [site](https://site/123)", url) == \
         '<p><img src="img.png" alt="logo" /> <a href="https://site/123">site</a></p>'
     assert artifact_ref("relatorio-2024.pdf") is None and artifact_ref("2024-relatorio.pdf") is None
@@ -146,7 +158,9 @@ def test_artifact_links_round_trip():
     html = f'<p>a <a class="embedded" href="{RM}2001"> </a> b <a href="{RM}2002">x</a></p>'
     cb = lambda u: (u.rsplit("_", 1)[1] + " T", u)
     md = to_markdown(html, cb)
-    assert to_markdown(to_xhtml(md, lambda ref: ref), cb) == md
+    back = to_xhtml(md, lambda ref: ref, [f"{RM}2001"])
+    assert f'<a class="embedded" href="{RM}2001">' in back and f'<a href="{RM}2002">' in back
+    assert to_markdown(back, cb) == md
 
 
 def test_slug():

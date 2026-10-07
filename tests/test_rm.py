@@ -84,6 +84,7 @@ def req_srv(srv):
         <oslc:instanceShape rdf:resource="{SHAPE}"/><nav:parent rdf:resource="{FOLDER}"/>
         <rdf:type rdf:resource="http://open-services.net/ns/rm#Requirement"/>
         <j.0:PRIO xmlns:j.0="https://alm.test/rm/types/AT_" rdf:resource="{ALTA}"/>
+        <dcterms:creator rdf:resource="{SERVER}/jts/users/ana"/>
         <dcterms:contributor rdf:resource="{SERVER}/jts/users/joao"/>
         </rdf:Description></rdf:RDF>''')
     # página de busca com os campos do oslc.select, como o DN devolve
@@ -138,22 +139,17 @@ title: Login
 resource: "{R1}"
 tags:
   - "01-Requisitos"
-  - Requisito
 sources:
   - id: doors-next
     resource: "{R1}"
-    title: DOORS Next 123
-    author: "human:joao"
+    author: "human:ana"
     last_modified: "2024-10-01T13:45:10Z"
+    last_modified_by: "human:joao"
 generated:
   by: "process:alm-mcp/{version}"
   at: "2026-10-06T13:00:00Z"
 id: 123
-url: "{R1}"
-folder: "01-Requisitos"
-contributor: joao
-created: "2024-09-23 17:30"
-modified: "2024-10-01 10:45"
+created: "2024-09-23T20:30:48Z"
 attributes:
   Prioridade: Alta
 links:
@@ -162,13 +158,11 @@ links:
 embedded:
   - "123: Login"
 ---
-Passo 1: ![123 Login]({R1})
+Passo 1: [123 Login]({R1})
 """
     # description/verified/status/stale_after não têm fonte neste requisito: ausentes do cabeçalho
     assert "description:" not in doc
     assert "verified:" not in doc and "status:" not in doc and "stale_after:" not in doc
-    # resource é o URI canônico e url é alias com o mesmo valor
-    assert f'resource: "{R1}"' in doc and f'url: "{R1}"' in doc
 
 
 def test_get_requirement_description_present_when_source_exists(req_srv):
@@ -209,7 +203,8 @@ def test_update_requirement_title_text(req_srv):
 def test_update_requirement_markdown_embed_and_link_by_id(req_srv):
     sent = {}
     req_srv.routes[("PUT", R1)] = lambda req: (sent.update(body=req.body.decode()), (200, {}, b""))[1]
-    rm.rm_update_requirement("_PA1", C, S, "123", text="1. Passo ![[123]]", attributes={"Vincular A": "123: Login"})
+    rm.rm_update_requirement("_PA1", C, S, "123", text="1. Passo [123 Login](123)", attributes={"Vincular A": "123: Login"},
+                             embedded=["123: Login"])
     assert f'class="embedded" href="{R1}"' in sent["body"] and "<ol>" in sent["body"]
     assert f'rdf:resource="{R1}"' in sent["body"].split("Link")[1]
 
@@ -254,9 +249,20 @@ def test_get_requirement_bundle_links_are_relative_file_paths(req_srv):
         f'href="{R1}"> </a>', f'href="{r2}"> </a> e <a href="/rm/resources/TX_2">RN 2</a>'))
     doc = rm.rm_get_requirement("_PA1", C, S, "123", links="bundle")
     target = "<../03 Regras/2-rn-validar-cpf.md>"
-    assert f"Passo 1: ![2 RN - Validar CPF]({target}) e [2 RN - Validar CPF]({target})" in doc
+    assert f"Passo 1: [2 RN - Validar CPF]({target}) e [2 RN - Validar CPF]({target})" in doc
     assert '- "2: RN - Validar CPF"' in doc.split("embedded:")[1]
-    assert f"![2 RN - Validar CPF]({r2})" in rm.rm_get_requirement("_PA1", C, S, "123")
+    assert f"[2 RN - Validar CPF]({r2})" in rm.rm_get_requirement("_PA1", C, S, "123")
+    # fora do inventário do bundle: embed e link ficam com a URL e o 2 sai de `embedded`
+    doc, meta = rm._requirement("_PA1", C, S, "123", "bundle", {"123"})
+    assert f"Passo 1: [{r2}]({r2}) e [RN 2](/rm/resources/TX_2)" in doc and "embedded:" not in doc
+    assert meta["modified"] is False
+    # link copiado da UI web para artefato do bundle: vira o arquivo e o documento fica 'modified'
+    web = (f"{SERVER}/rm/web#action=com.ibm.rdm.web.pages.showArtifactPage&amp;artifactURI="
+           f"{SERVER.replace(':', '%3A').replace('/', '%2F')}%2Frm%2Fresources%2FTX_2")
+    req_srv.routes[("GET", R1)] = (200, {"ETag": '"1"'}, req_srv.routes[("GET", R1)][2].replace(
+        'href="/rm/resources/TX_2"', f'href="{web}"'))
+    doc, meta = rm._requirement("_PA1", C, S, "123", "bundle", {"123", "2"})
+    assert f"e [2 RN - Validar CPF]({target})" in doc and meta["modified"] is True
 
 
 def test_list_folder_only_direct_members(req_srv):
@@ -319,11 +325,19 @@ def test_sync_plan_classifies_removes_and_queues(tmp_path, monkeypatch):
     rows = bundle.read_sync(dest)
     assert rows["3"]["status"] == "pendente (movido)" and rows["3"]["folder"] == "B" and "4" not in rows
     # fila: a download sem ids pega os da fila e só eles
-    monkeypatch.setattr(rm, "_write_requirement", lambda pa, c, s, rid, root: {
+    monkeypatch.setattr(rm, "_write_requirement", lambda pa, c, s, rid, root, ids: {
         "path": f"X/{rid}-t.md", "title": f"T{rid}", "last_modified": "2025-01-01T00:00:00Z",
-        "generated_at": "2026-01-01T00:00:00Z"})
+        "generated_at": "2026-01-01T00:00:00Z", "modified": rid == "2"})
     assert rm.rm_download_requirements("_PA1", C, S, dest, limit=3) == {"baixados": 3, "erros": [], "restantes": 1}
     assert rm.rm_download_requirements("_PA1", C, S, dest)["restantes"] == 0
+    rows = bundle.read_sync(dest)
+    assert rows["2"]["status"] == "modificado" and rows["6"]["status"] == "atualizado"
+    # 'modificado' segue até o ALM mudar; ALM mais novo ganha e volta para a fila
+    out = rm.rm_sync_plan("_PA1", C, S, {"A": "FR_A", "B": "FR_B"}, dest)
+    assert bundle.read_sync(dest)["2"]["status"] == "modificado" and out["pastas"]["A"]["modificado"] == 1
+    lists["FR_A"][1]["modified"] = "2027-01-01T00:00:00Z"
+    rm.rm_sync_plan("_PA1", C, S, {"A": "FR_A", "B": "FR_B"}, dest)
+    assert bundle.read_sync(dest)["2"]["status"] == "pendente"
 
 
 def test_sync_plan_does_not_remove_when_listing_is_inconsistent(tmp_path, monkeypatch):

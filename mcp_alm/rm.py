@@ -14,7 +14,7 @@ from typing import Literal
 from . import bundle
 from .ibm import common, requirements
 from .infra import oslc
-from .infra.document import document, local_datetime, one_line, slug, to_markdown, to_xhtml, utc_datetime
+from .infra.document import document, one_line, resource_url, slug, to_markdown, to_xhtml, utc_datetime
 from .infra.http import get_session
 from .server import tool
 
@@ -201,12 +201,14 @@ def _attributes(shape_url: str, configuration: str, attributes: dict, pa: str, c
     return out
 
 
-def _xhtml(project_area_identifier: str, component: str, configuration: str, text: str) -> str:
-    """`text` em Markdown (![x](alvo) embute, [x](alvo) cita; alvo = id, URL ou arquivo do bundle) ou XHTML."""
+def _xhtml(project_area_identifier: str, component: str, configuration: str, text: str,
+           embedded: list[str] | None) -> str:
+    """`text` em Markdown ([x](alvo) cita o artefato, ou embute se ele está em `embedded`; alvo = id, URL ou arquivo
+    do bundle) ou XHTML."""
     if text.lstrip().startswith("<"):
         return text
     return to_xhtml(text, lambda ref: _artifact_url(project_area_identifier, component, configuration, ref)
-                    if ref.isdigit() else get_session().url(ref))
+                    if ref.isdigit() else get_session().url(ref), embedded or ())
 
 
 @tool
@@ -286,32 +288,32 @@ def rm_list_folder(project_area_identifier: str, component: str, configuration: 
 def rm_get_requirement(project_area_identifier: str, component: str, configuration: str, requirement_id: str,
                        links: Literal["alm", "bundle"] = "alm") -> str:
     """Requisito pelo id numérico em Markdown + YAML, conforme Google OKF v0.2. Cabeçalho, nesta ordem:
-    campos OKF padrão (type, title, description?, resource, tags) + provenance (sources) + trust (generated) +
-    extensões RM
-    (id, url, folder, creator, contributor, created, modified, attributes, links, embedded).
-    - type, title: tipo e título do requisito.
-    - description: resumo (dcterms:description) em uma linha; só aparece quando o artefato tem esse valor.
-    - resource: URI canônico do artefato; url é o mesmo valor, mantido como alias de compatibilidade.
-    - tags: [folder, type] (sem nulos).
-    - sources (OKF §5.1): [{id: doors-next, resource, title, author?, last_modified}]; last_modified = a última
-      modificação do artefato no DOORS Next (dcterms:modified) e author = 'human:<login do contributor>'.
-    - generated {by, at} (OKF §5.2): by = 'process:alm-mcp/<versão>'; at = o instante em que este documento foi
-      gerado. Timestamps em ISO 8601 UTC ('...Z'): last_modified > generated.at => o documento está desatualizado.
-    - verified/status/stale_after: OMITIDOS por padrão — só aparecem quando o artefato traz um sinal real de
-      verificação/estado/validade (requisitos do DOORS Next não os definem); nunca inventados.
-    - id, folder, creator, contributor; created/modified em horário de Brasília; attributes {nome: valor};
-      links {nome: ['id: título', ...]}; embedded (artefatos embutidos no texto, 'id: título'). Nomes de atributo
-      e link são os do DOORS Next; só entram os preenchidos; enumerações pelo nome do valor.
-    Corpo: o texto em Markdown. Artefato embutido = ![id título](alvo); hyperlink para artefato = [id título](alvo).
+    campos OKF (type, title, description?, resource, tags) + provenance (sources) + trust (generated) + extensões RM
+    (id, created, attributes, links, embedded).
+    - type, title: tipo e título do requisito; description: resumo (dcterms:description), só se preenchido.
+    - resource: URI canônico do artefato; tags: [pasta].
+    - sources (OKF §5.1): [{id: doors-next, resource, author, last_modified, last_modified_by}]: author =
+      'human:<login de quem criou>', last_modified = última modificação no DOORS Next, last_modified_by =
+      'human:<login de quem modificou por último>'.
+    - generated {by, at} (OKF §5.2): by = 'process:alm-mcp/<versão>'; at = quando este documento foi gerado.
+      Timestamps em ISO 8601 UTC ('...Z'): last_modified > generated.at => o documento está desatualizado.
+    - verified/status/stale_after: só com sinal real do artefato (o DOORS Next não os define); nunca inventados.
+    - id; created (UTC); attributes {nome: valor}; links {nome: ['id: título', ...]}; embedded ['id: título', ...]
+      = artefatos embutidos no texto que existem no destino dos links. Nomes de atributo e link são os do DOORS
+      Next; só entram os preenchidos; enumerações pelo nome do valor.
+    Corpo: o texto em Markdown; todo artefato citado ou embutido é [id título](alvo) (é embed se está em
+    `embedded`). Embed ou link para artefato que não existe ou não está no destino fica [texto](URL do ALM).
     links='alm': alvo = URL do artefato no ALM. links='bundle': alvo = caminho relativo do arquivo do artefato no
     bundle da alm-download ('../03-Regras/2001-rn-validar-cpf.md', mesmo `path` de rm_search_requirements).
-    Para gravar, use os mesmos nomes de atributo e link em rm_update_requirement; o corpo volta como veio."""
+    Para gravar, use os mesmos nomes de atributo e link e o `embedded` do cabeçalho em rm_update_requirement."""
     return _requirement(project_area_identifier, component, configuration, requirement_id, links)[0]
 
 
 def _requirement(project_area_identifier: str, component: str, configuration: str, requirement_id: str,
-                 links: str) -> tuple[str, dict]:
-    """(documento de rm_get_requirement, {path, last_modified, generated_at}) para gravar no bundle."""
+                 links: str, bundle_ids: set[str] | None = None) -> tuple[str, dict]:
+    """(documento de rm_get_requirement, {path, title, last_modified, generated_at, modified}) para gravar no bundle.
+    `bundle_ids`: ids do inventário do bundle; artefato fora dele não vira caminho nem embed. modified = algum link
+    foi normalizado (link da UI web -> arquivo do bundle): o arquivo difere do texto no ALM."""
     configuration = _url(STREAM, configuration)
     resource = requirements.get_requirement(project_area_identifier, component, requirement_id,
                                             configuration_url=configuration)
@@ -321,6 +323,7 @@ def _requirement(project_area_identifier: str, component: str, configuration: st
     # artefatos são citados por muitos requisitos)
     artifacts: dict[str, dict | None] = _BUNDLE_ARTIFACTS if links == "bundle" else {}
     own_dir = posixpath.dirname(_file_path(resource, configuration)) if links == "bundle" else ""
+    normalized = False
 
     def artifact(url: str) -> dict | None:
         url = get_session().url(url.split("?")[0])
@@ -328,11 +331,15 @@ def _requirement(project_area_identifier: str, component: str, configuration: st
             artifacts[url] = _artifact(url, configuration)
         return artifacts[url]
 
-    def ref(url: str) -> tuple[str, str] | None:
-        """Embed/hyperlink no corpo -> ('id título', alvo); None se não for artefato legível do RM."""
+    def ref(href: str) -> tuple[str, str] | None:
+        """Embed/hyperlink no corpo -> ('id título', alvo); None se não for artefato legível do RM (ou, com
+        `bundle_ids`, se não estiver no bundle)."""
+        nonlocal normalized
+        url = resource_url(href)
         found = artifact(url) if "/rm/resources/" in url else None
-        if found is None:
+        if found is None or (bundle_ids is not None and found["id"] not in bundle_ids):
             return None
+        normalized |= url != href
         target = (posixpath.relpath(_file_path(found, configuration), own_dir or ".") if links == "bundle"
                   else found["url"].split("?")[0])
         return f"{found['id']} {one_line(found['title'])}", target
@@ -364,35 +371,32 @@ def _requirement(project_area_identifier: str, component: str, configuration: st
     body = to_markdown(html, ref)
     embeds = [unescape(m.group(1)) for tag in re.findall(r"<a\s[^>]*>", html) if 'class="embedded"' in tag
               for m in [re.search(r'href="([^"]+)"', tag)] if m]
+    # mesmo critério do corpo: embed fora do bundle (quebrado, de outra PA) virou link e não entra na lista
+    embedded = list(dict.fromkeys(label({"url": u}) for u in embeds if ref(u)))
     login = lambda predicate: next((link["url"].rsplit("/", 1)[-1] for link in res_links.get(predicate, [])), None)
+    actor = lambda predicate: f"human:{user}" if (user := login(predicate)) else None
     url = resource["url"].split("?")[0]  # URI canônico do artefato
-    tags = [t for t in (summary["folder"], summary["type"]) if t]  # OKF tags = [folder, type], sem nulos
     # OKF §5.1/§5.2: a última modificação no ALM é da fonte (sources.last_modified); generated.at é quando o
     # documento foi escrito, para comparar e saber se a cópia baixada está desatualizada
-    contributor = login("dcterms:contributor")
-    source = {"id": "doors-next", "resource": url, "title": f"DOORS Next {resource['id']}",
-              "author": f"human:{contributor}" if contributor else None,
-              "last_modified": utc_datetime(props.get("dcterms:modified"))}
+    source = {"id": "doors-next", "resource": url, "author": actor("dcterms:creator"),
+              "last_modified": utc_datetime(props.get("dcterms:modified")),
+              "last_modified_by": actor("dcterms:contributor")}
     generated = {"by": _generator(), "at": utc_datetime(datetime.now(timezone.utc))}
     # verified/status/stale_after: OMITIDOS por padrão — requisitos do DOORS Next não têm sinal de
     # aprovação/revisão, estado de workflow nem atributo de validade/expiração definidos pelo servidor (ver
     # .agents/tasks/okf-rm-output/plan.md). Emitir só se um sinal real do servidor for encontrado; não inventar.
     head = {
-        # OKF padrão
+        # OKF
         "type": summary["type"], "title": one_line(resource["title"]),
         "description": one_line(props.get("dcterms:description")) or None,
-        "resource": url, "tags": tags or None,
-        # provenance e trust
+        "resource": url, "tags": [summary["folder"]] if summary["folder"] else None,
         "sources": [{k: v for k, v in source.items() if v}], "generated": generated,
-        # extensões RM (nada do que já era emitido some; `url` é alias de compatibilidade de `resource`)
-        "id": int(resource["id"]), "url": url, "folder": summary["folder"],
-        "creator": login("dcterms:creator"), "contributor": contributor,
-        "created": local_datetime(props.get("dcterms:created")),
-        "modified": local_datetime(props.get("dcterms:modified")),
-        "attributes": attributes, "links": related,
-        "embedded": list(dict.fromkeys(label({"url": u}) for u in embeds))}
+        # extensões RM
+        "id": int(resource["id"]), "created": utc_datetime(props.get("dcterms:created")),
+        "attributes": attributes or None, "links": related or None, "embedded": embedded or None}
     return document(head, body), {"path": _file_path(resource, configuration), "title": head["title"],
-                                  "last_modified": source["last_modified"], "generated_at": generated["at"]}
+                                  "last_modified": source["last_modified"], "generated_at": generated["at"],
+                                  "modified": normalized}
 
 
 # artefatos citados já lidos no download do bundle; rm_sync_plan limpa (novo inventário = dados novos)
@@ -409,9 +413,10 @@ def _root(dest: str) -> str:
     return os.path.realpath(dest)
 
 
-def _write_requirement(pa: str, component: str, configuration: str, rid: str, root: str) -> dict:
+def _write_requirement(pa: str, component: str, configuration: str, rid: str, root: str,
+                       bundle_ids: set[str] | None) -> dict:
     """Grava o requisito em '<root>/<pasta>/<id>-<slug>.md' e apaga outros '<id>-*.md' (título/pasta mudou)."""
-    doc, meta = _requirement(pa, component, configuration, rid, "bundle")
+    doc, meta = _requirement(pa, component, configuration, rid, "bundle", bundle_ids)
     target = os.path.realpath(os.path.join(root, meta["path"]))
     if not target.startswith(root + os.sep):
         raise ValueError(f"caminho fora de dest: {meta['path']}")
@@ -430,10 +435,10 @@ def rm_sync_plan(project_area_identifier: str, component: str, configuration: st
     """Inventário do bundle da alm-sync sem passar a lista pela conversa. `folders`: rm.folders inteiro
     {nome: identifier}; `dest`: caminho ABSOLUTO da raiz do bundle (rm.download.path). Lista cada pasta
     (rm_count_folder + rm_list_folder), compara com o sync.md de dest e o regrava: id novo = 'novo'; mudou de
-    pasta = 'pendente (movido)'; modified > Generated OKF = 'pendente'; 'erro' volta para 'pendente'; senão
-    'atualizado'. Artefato do sync.md que não está em nenhuma pasta = removido: o arquivo é APAGADO e a linha sai
+    pasta = 'pendente (movido)'; modified > Generated OKF = 'pendente'; 'erro' volta para 'pendente'; 'modificado'
+    (arquivo a subir para o ALM) continua 'modificado' se o ALM não mudou depois; senão 'atualizado'. Artefato do sync.md que não está em nenhuma pasta = removido: o arquivo é APAGADO e a linha sai
     (não apaga nada se alguma pasta vier com count != listados: índice instável, ids em nao_confirmados).
-    Retorna só o resumo: {pastas: {nome: {total, listados, novo, pendente, atualizado, erro}}, removidos:
+    Retorna só o resumo: {pastas: {nome: {total, listados, novo, pendente, atualizado, modificado, erro}}, removidos:
     [{id, title, folder}], inconsistentes: [nomes], nao_confirmados: [ids], a_baixar}."""
     root = _root(dest)
     _BUNDLE_ARTIFACTS.clear()
@@ -456,6 +461,8 @@ def rm_sync_plan(project_area_identifier: str, component: str, configuration: st
             status = "pendente (movido)"
         elif not row["okf"]:
             status = "novo"
+        elif row["status"] == "modificado" and (item["modified"] or "") <= row["okf"]:
+            status = "modificado"  # o arquivo tem mudança a subir e o ALM não mudou depois
         elif row["status"].startswith(("erro", "pendente")) or (item["modified"] or "") > row["okf"]:
             status = "pendente"
         else:
@@ -492,6 +499,8 @@ def rm_download_requirements(project_area_identifier: str, component: str, confi
     rm_get_requirement(links='bundle') em '<dest>/<caminho da pasta>/<id>-<slug>.md' (apaga '<id>-*.md' antigo
     se o título ou a pasta mudou). `dest`: caminho ABSOLUTO da raiz do bundle. Sem `requirement_ids`, pega as
     próximas `limit` linhas novo/pendente/erro do sync.md (a fila de rm_sync_plan); com ids, baixa esses.
+    Linha baixada = 'atualizado', ou 'modificado' se algum link foi normalizado (link da UI web -> arquivo do
+    bundle): o arquivo difere do ALM e precisa subir (rm_update_requirement).
     Atualiza as linhas no sync.md a cada chamada (retomada) e regera o index.md quando a fila zera. Erro num id
     não para o lote. Retorna {baixados, erros: [{id, error}], restantes}: chame de novo até restantes = 0."""
     root = _root(dest)
@@ -499,10 +508,11 @@ def rm_download_requirements(project_area_identifier: str, component: str, confi
     queue = [r["id"] for r in sorted(rows.values(), key=lambda r: (r["folder"], int(r["id"])))
              if r["status"].startswith(bundle.QUEUE)]
     ids = requirement_ids or queue[:max(1, limit)]
+    bundle_ids = set(rows) or None  # sem inventário (sync.md vazio): não filtra pelo bundle
 
     def fetch(rid: str):
         try:
-            return _write_requirement(project_area_identifier, component, configuration, rid, root)
+            return _write_requirement(project_area_identifier, component, configuration, rid, root, bundle_ids)
         except Exception as exc:  # um id com erro não derruba o lote
             return exc
 
@@ -514,7 +524,7 @@ def rm_download_requirements(project_area_identifier: str, component: str, confi
         if not isinstance(meta, Exception):
             row.update(title=meta["title"], folder=row["folder"] or posixpath.dirname(meta["path"]),
                        path=meta["path"], alm=meta["last_modified"] or "", okf=meta["generated_at"],
-                       status="atualizado")
+                       status="modificado" if meta["modified"] else "atualizado")
             done += 1
         else:
             message = " ".join(str(meta).replace("|", "/").split())[:200]
@@ -531,16 +541,17 @@ def rm_download_requirements(project_area_identifier: str, component: str, confi
 @tool
 def rm_create_requirement(
     project_area_identifier: str, component: str, configuration: str, requirement_type: str, folder: str,
-    title: str, text: str, attributes: dict | None = None,
+    title: str, text: str, attributes: dict | None = None, embedded: list[str] | None = None,
 ) -> dict:
-    """Cria um requisito na pasta e no tipo do alm.json (identifiers). `text`: Markdown (![x](alvo) embute e
-    [x](alvo) cita o artefato; alvo = id, URL ou arquivo do bundle '<id>-....md'; ![[id]] também vale) ou XHTML. `attributes`: {nome do atributo ou link (como em rm_get_requirement): valor};
+    """Cria um requisito na pasta e no tipo do alm.json (identifiers). `text`: Markdown ([x](alvo) cita o artefato;
+    alvo = id, URL ou arquivo do bundle '<id>-....md') ou XHTML. `embedded`: artefatos ('id' ou 'id: título') cujos
+    links no texto viram embed; os demais viram hyperlink. `attributes`: {nome do atributo ou link (como em rm_get_requirement): valor};
     enumeração pelo nome do valor, link pela URL ou id do artefato. Retorna {id, title, url}."""
     pa = project_area_identifier
     configuration, requirement_type = _url(STREAM, configuration), _url(TYPE, requirement_type)
     values = _attributes(requirement_type, configuration, attributes or {}, pa, component)  # valida antes do POST
     created = requirements.create_requirement(_area_url(pa), _url(COMPONENT, component), requirement_type, title, "",
-                                              _xhtml(pa, component, configuration, text),
+                                              _xhtml(pa, component, configuration, text, embedded),
                                               configuration_url=configuration, folder_url=_url(FOLDER, folder))
     if values:  # ponytail: 2ª gravação para os atributos; montar tudo no POST se virar gargalo
         created = oslc.update(created["url"], values, configuration=configuration)
@@ -551,10 +562,12 @@ def rm_create_requirement(
 def rm_update_requirement(
     project_area_identifier: str, component: str, configuration: str, requirement_id: str,
     title: str | None = None, text: str | None = None, attributes: dict | None = None,
+    embedded: list[str] | None = None,
 ) -> dict:
     """Atualiza título, texto (Markdown como em rm_create_requirement ou XHTML; substitui o texto inteiro) e/ou atributos e links
     ({nome: valor}, nomes como em rm_get_requirement; substituem os valores atuais, então um link novo apaga os
-    outros do mesmo tipo: mande a lista completa) do requisito pelo id numérico. Retorna {id, title, url}."""
+    outros do mesmo tipo: mande a lista completa) do requisito pelo id numérico. Com `text`, mande o `embedded` do
+    cabeçalho de rm_get_requirement para manter os embeds; sem ele todo link vira hyperlink. Retorna {id, title, url}."""
     if not (title or text is not None or attributes):
         raise ValueError("Informe title, text e/ou attributes.")
     pa, configuration = project_area_identifier, _url(STREAM, configuration)
@@ -563,7 +576,7 @@ def rm_update_requirement(
     if title:
         changes["dcterms:title"] = title
     if text is not None:
-        changes["jazz_rm:primaryText"] = requirements.xhtml(_xhtml(pa, component, configuration, text))
+        changes["jazz_rm:primaryText"] = requirements.xhtml(_xhtml(pa, component, configuration, text, embedded))
     if attributes:
         shape = _link(resource, "oslc:instanceShape")
         if shape is None:
