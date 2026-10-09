@@ -581,7 +581,7 @@ def _get_wi_details(workitem_id: str) -> dict:
 
 def _get_wi_via_rest(workitem_id: str) -> dict:
     """Lê um work item via serviço REST interno para obter os dados completos incluindo timesheet."""
-    # Primeiro, fazer uma leitura OSLC para obter o itemId e PA
+    # Primeiro, fazer uma leitura OSLC para obter o itemId (UUID) e PA
     wi = workitems.get_workitem(workitem_id, fetch_all=False)
     item_id = oslc.item_id(wi["url"])
     pa_link = next(iter(wi["links"].get("rtc_cm:projectArea", [])), None) or next(
@@ -596,7 +596,7 @@ def _get_wi_via_rest(workitem_id: str) -> dict:
 
     dto_url = "/ccm/service/com.ibm.team.workitem.common.internal.rest.IWorkItemRestService/workItemDTO2"
     params = {
-        "itemId": item_id,
+        "id": wi["id"],  # usar o número do WI, não o UUID
         "projectAreaItemId": pa_id,
         "includeAttributes": "true",
         "includeLinks": "true",
