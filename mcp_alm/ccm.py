@@ -584,8 +584,13 @@ def _get_wi_via_rest(workitem_id: str) -> dict:
     # Primeiro, fazer uma leitura OSLC para obter o itemId (UUID) e PA
     wi = workitems.get_workitem(workitem_id, fetch_all=False)
     item_id = oslc.item_id(wi["url"])
-    pa_link = next(iter(wi["links"].get("rtc_cm:projectArea", [])), None) or next(
-        iter(wi["links"].get("process:projectArea", [])), None)
+    
+    # Tentar vários predicados possíveis para project area
+    pa_link = None
+    for pred in ("rtc_cm:projectArea", "process:projectArea", "oslc:serviceProvider"):
+        pa_link = next(iter(wi["links"].get(pred, [])), None)
+        if pa_link:
+            break
     pa_id = oslc.item_id(pa_link["url"]) if pa_link else None
 
     # Agora buscar via workItemDTO2 para ter todos os detalhes
@@ -622,6 +627,12 @@ def _get_wi_via_rest(workitem_id: str) -> dict:
     # Extrair dados do DTO
     attrs = {a["key"]: a["value"] for a in wi_dto.get("attributes", [])}
     link_types = wi_dto.get("linkTypes", [])
+
+    # Fallback: extrair pa_id dos attributes se ainda não tiver
+    if not pa_id:
+        pa_attr = attrs.get("projectArea", {})
+        if isinstance(pa_attr, dict):
+            pa_id = pa_attr.get("itemId") or pa_attr.get("id")
 
     # Encontrar stateId
     state_id = wi_dto.get("stateId")
