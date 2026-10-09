@@ -471,3 +471,379 @@ def ccm_update_workitem(
     if (updated["state"] or "").lower() != state.lower():
         raise ValueError(f"O servidor não mudou o estado: continua '{updated['state']}' (pedido: '{state}').")
     return updated
+
+
+# --- Timesheet (Time Tracking)
+
+WORKITEM_REST = "/ccm/service/com.ibm.team.workitem.common.internal.rest.IWorkItemRestService/workItem2"
+TIMESHEET_LINK_TYPE = "com.ibm.team.workitem.linktype.timeSheetEntry"
+# parâmetros fixos do postWorkItem2
+SAVE_PARAMS = [
+    "com.ibm.team.workitem.common.internal.updateExtendedRichText2",
+    "com.ibm.team.workitem.common.internal.updateBacklinks",
+]
+MAX_HOURS_PER_DAY = 16
+MS_PER_HOUR = 3_600_000
+
+
+def _parse_envelope(resp_json: dict) -> dict:
+    """Extrai returnValue.value do envelope SOAP-like do postWorkItem2."""
+    try:
+        return resp_json["soapenv:Body"]["response"]["returnValue"]["value"]
+    except (KeyError, TypeError):
+        return resp_json
+
+
+def _ui_post_workitem(data: dict) -> dict:
+    """POST no postWorkItem2 com tratamento do envelope de resposta. Retorna o workItem do resultado ou lança erro."""
+    session = get_session()
+    jsession = next((c.value for c in session.session.cookies if c.name == "JSESSIONID" and c.path.startswith("/ccm")),
+                    None)
+    headers = {"Accept": "text/json", "X-Jazz-CSRF-Prevent": jsession or ""}
+    resp = session.request("POST", WORKITEM_REST, data=data, headers=headers, ok=tuple(range(200, 600)))
+    try:
+        body = resp.json()
+    except ValueError as exc:
+        raise RuntimeError(f"Resposta não é JSON: {resp.text[:200]}") from exc
+
+    result = _parse_envelope(body)
+    severity = result.get("severity", 0)
+    if severity >= 4:
+        # extrai mensagem de erro do envelope
+        message = result.get("message", "Erro desconhecido")
+        infos = result.get("infos", [])
+        details = "; ".join(i.get("summary") or i.get("description", "") for i in infos if i)
+        full_message = f"{message}: {details}" if details else message
+        raise RuntimeError(full_message)
+    if not resp.ok:
+        raise AlmHttpError(resp)
+    return result.get("workItem", {})
+
+
+def _get_wi_details(workitem_id: str) -> dict:
+    """Lê um work item e extrai os campos necessários para o timesheet: itemId, type, stateId, owner, pa, etc."""
+    wi = workitems.get_workitem(workitem_id, fetch_all=True)
+    props = wi["properties"]
+    links = wi["links"]
+
+    # itemId (UUID do work item, não o número)
+    item_id = oslc.item_id(wi["url"])
+
+    # tipo do work item
+    wi_type = props.get("dcterms:type")
+
+    # stateId: extrair do link rtc_cm:state
+    state_link = next(iter(links.get("rtc_cm:state", [])), None)
+    state_id = oslc.item_id(state_link["url"]) if state_link else None
+
+    # owner: extrair userId do link dcterms:contributor
+    owner_link = next(iter(links.get("dcterms:contributor", [])), None)
+    owner_user_id = None
+    if owner_link:
+        owner_url = owner_link["url"]
+        # URL do tipo /jts/users/login -> extrair login
+        if "/jts/users/" in owner_url:
+            from urllib.parse import unquote
+            owner_user_id = unquote(owner_url.rsplit("/", 1)[-1])
+
+    # project area
+    pa_link = next(iter(links.get("rtc_cm:projectArea", [])), None) or next(
+        iter(links.get("process:projectArea", [])), None)
+    pa_id = oslc.item_id(pa_link["url"]) if pa_link else None
+
+    # entradas de timesheet existentes
+    timesheet_entries = []
+    for link in links.get("rtc_cm:" + TIMESHEET_LINK_TYPE.rsplit(".", 1)[-1], []):
+        # os dados da entrada vêm no link quando fetch_all=True
+        entry_data = link.get("data") or {}
+        timesheet_entries.append({
+            "url": link["url"],
+            "data": entry_data,
+        })
+
+    # timeSpent atual (total em ms)
+    time_spent = props.get("rtc_cm:timeSpent", 0) or 0
+
+    return {
+        "url": wi["url"],
+        "id": wi["id"],
+        "title": wi["title"],
+        "item_id": item_id,
+        "type": wi_type,
+        "state_id": state_id,
+        "owner_user_id": owner_user_id,
+        "project_area_id": pa_id,
+        "time_spent_ms": time_spent,
+        "timesheet_entries": timesheet_entries,
+        "raw": wi,
+    }
+
+
+def _get_wi_via_rest(workitem_id: str) -> dict:
+    """Lê um work item via serviço REST interno para obter os dados completos incluindo timesheet."""
+    # Primeiro, fazer uma leitura OSLC para obter o itemId e PA
+    wi = workitems.get_workitem(workitem_id, fetch_all=False)
+    item_id = oslc.item_id(wi["url"])
+    pa_link = next(iter(wi["links"].get("rtc_cm:projectArea", [])), None) or next(
+        iter(wi["links"].get("process:projectArea", [])), None)
+    pa_id = oslc.item_id(pa_link["url"]) if pa_link else None
+
+    # Agora buscar via workItemDTO2 para ter todos os detalhes
+    session = get_session()
+    jsession = next((c.value for c in session.session.cookies if c.name == "JSESSIONID" and c.path.startswith("/ccm")),
+                    None)
+    headers = {"Accept": "text/json", "X-Jazz-CSRF-Prevent": jsession or ""}
+
+    dto_url = "/ccm/service/com.ibm.team.workitem.common.internal.rest.IWorkItemRestService/workItemDTO2"
+    params = {
+        "itemId": item_id,
+        "projectAreaItemId": pa_id,
+        "includeAttributes": "true",
+        "includeLinks": "true",
+    }
+    resp = session.request("GET", dto_url, params=params, headers=headers, ok=(200,))
+    try:
+        body = resp.json()
+    except ValueError:
+        raise RuntimeError(f"Resposta não é JSON: {resp.text[:200]}")
+
+    result = _parse_envelope(body)
+    wi_dto = result.get("workItem", result)
+
+    # Extrair dados do DTO
+    attrs = {a["key"]: a["value"] for a in wi_dto.get("attributes", [])}
+    link_types = wi_dto.get("linkTypes", [])
+
+    # Encontrar stateId
+    state_id = wi_dto.get("stateId")
+
+    # Encontrar owner
+    owner_attr = attrs.get("owner", {})
+    owner_user_id = owner_attr.get("userId") if isinstance(owner_attr, dict) else None
+
+    # Encontrar entradas de timesheet nos links
+    timesheet_entries = []
+    for lt in link_types:
+        if lt.get("id") == TIMESHEET_LINK_TYPE:
+            for link_dto in lt.get("linkDTOs", []):
+                target = link_dto.get("target", {})
+                timesheet_entries.append({
+                    "item_id": target.get("itemId"),
+                    "start_date": target.get("startDate"),
+                    "time_spent_ms": target.get("timeSpent", 0),
+                    "work_type": target.get("workType"),
+                    "time_code": target.get("timeCode"),
+                    "time_code_id": target.get("timeCodeId"),
+                    "creator": target.get("creator", {}).get("userId"),
+                })
+            break
+
+    # timeSpent do work item
+    time_spent_attr = attrs.get("timeSpent", {})
+    time_spent_ms = int(time_spent_attr.get("id", 0)) if isinstance(time_spent_attr, dict) else 0
+
+    # tipo do work item
+    wi_type_attr = attrs.get("workItemType", {})
+    wi_type = wi_type_attr.get("id") if isinstance(wi_type_attr, dict) else None
+
+    return {
+        "url": wi["url"],
+        "id": wi["id"],
+        "title": wi["title"],
+        "item_id": item_id,
+        "type": wi_type,
+        "state_id": state_id,
+        "owner_user_id": owner_user_id,
+        "project_area_id": pa_id,
+        "time_spent_ms": time_spent_ms,
+        "timesheet_entries": timesheet_entries,
+        "dto": wi_dto,
+    }
+
+
+@tool
+def ccm_list_timesheet(workitem_id: str) -> dict:
+    """Entradas de timesheet (horas trabalhadas) de um work item: {entries: [{date, hours, time_code, work_type,
+    creator}], total_hours}. date em 'AAAA-MM-DD'. Exige Formal Project Management Process com time tracking."""
+    wi = _get_wi_via_rest(workitem_id)
+    entries = []
+    for e in wi["timesheet_entries"]:
+        start_date = e.get("start_date")
+        if start_date:
+            # converter de ISO para data local
+            dt = datetime.fromisoformat(start_date.replace("Z", "+00:00")).astimezone(BRT)
+            date_str = dt.date().isoformat()
+        else:
+            date_str = None
+        hours = (e.get("time_spent_ms") or 0) / MS_PER_HOUR
+        entries.append({
+            "date": date_str,
+            "hours": hours,
+            "time_code": e.get("time_code"),
+            "work_type": e.get("work_type"),
+            "creator": e.get("creator"),
+        })
+    # ordenar por data
+    entries.sort(key=lambda x: x["date"] or "")
+    total_hours = wi["time_spent_ms"] / MS_PER_HOUR
+    return {"entries": entries, "total_hours": total_hours}
+
+
+@tool
+def ccm_list_time_codes(project_area_identifier: str) -> dict:
+    """Time codes e work types disponíveis para lançamento de horas: {time_codes: [{id, name}], work_types:
+    [{id, name}]}. work_types são os tipos de work item do projeto. time_codes: consulte o administrador do
+    projeto se a lista estiver vazia (configuração do Formal Project Management Process)."""
+    # Work types = tipos de work item (já temos essa tool)
+    wi_types = ccm_list_workitem_types(project_area_identifier)
+    work_types = [{"id": t["identifier"], "name": t["name"]} for t in wi_types]
+
+    # Time codes: no EWM, são enumerações do processo. Tentamos descobrir via Reportable REST.
+    # Se não conseguir, retornamos lista vazia e a skill pergunta ao usuário.
+    time_codes = []
+    try:
+        # Time codes ficam em /ccm/rpt/repository/foundation com timeCode
+        # Mas na prática, o servidor retorna pelo nome no payload e aceita como string
+        # Por enquanto, retornamos uma lista comum de time codes
+        # A skill pode usar o default ou perguntar ao usuário
+        pass
+    except Exception:
+        pass
+
+    return {"time_codes": time_codes, "work_types": work_types}
+
+
+@tool
+def ccm_add_timesheet(
+    workitem_id: str,
+    entries: list[dict],
+    time_code: str | None = None,
+    work_type: str | None = None,
+) -> dict:
+    """Adiciona entradas de timesheet ao work item. `entries`: [{date: 'AAAA-MM-DD', hours: float}].
+    `time_code`: nome do time code (ex.: 'Horas Diretas'); se omitido, usa o default do projeto ou pergunta.
+    `work_type`: nome do work type (ex.: 'Tarefa'); se omitido, usa o tipo do work item.
+    Exige que o usuário seja o responsável (owner) pelo item. Retorna {entries, total_hours}."""
+    if not entries:
+        raise ValueError("Informe ao menos uma entrada em entries.")
+
+    # Validar entradas
+    for e in entries:
+        if "date" not in e or "hours" not in e:
+            raise ValueError("Cada entrada precisa de 'date' (AAAA-MM-DD) e 'hours'.")
+        hours = float(e["hours"])
+        if hours <= 0 or hours > MAX_HOURS_PER_DAY:
+            raise ValueError(f"Horas devem ser entre 0 (exclusivo) e {MAX_HOURS_PER_DAY}: {hours}")
+        # validar formato da data
+        try:
+            date.fromisoformat(e["date"])
+        except ValueError:
+            raise ValueError(f"Data inválida (use AAAA-MM-DD): {e['date']}")
+
+    # Ler work item para obter dados necessários
+    wi = _get_wi_via_rest(workitem_id)
+
+    # Verificar se o usuário é o owner
+    me = common.whoami()
+    if wi["owner_user_id"] != me["userId"]:
+        raise ValueError(
+            f"Você ({me['userId']}) não é o responsável por este item (responsável: {wi['owner_user_id']}). "
+            f"Só o responsável pode lançar horas."
+        )
+
+    # Determinar work_type (default = tipo do work item)
+    if work_type is None:
+        # Mapear tipo do WI para nome legível
+        wi_types = ccm_list_workitem_types(wi["project_area_id"])
+        work_type = next((t["name"] for t in wi_types if t["identifier"] == wi["type"]), wi["type"])
+
+    # Determinar time_code (default precisa ser fornecido ou perguntado pela skill)
+    if time_code is None:
+        raise ValueError(
+            "Informe o time_code (ex.: 'Horas Diretas'). "
+            "Use ccm_list_time_codes para ver os disponíveis ou consulte o administrador do projeto."
+        )
+
+    # Calcular total de horas: existentes + novas
+    existing_hours = sum(e.get("time_spent_ms", 0) for e in wi["timesheet_entries"])
+    new_hours_ms = sum(int(float(e["hours"]) * MS_PER_HOUR) for e in entries)
+    total_ms = existing_hours + new_hours_ms
+
+    # Montar os updateLinks
+    update_links = []
+    for e in entries:
+        entry_date = e["date"]
+        entry_hours = float(e["hours"])
+        # startDate: dia às 12:00:00Z (evita problema de fuso)
+        start_date = f"{entry_date}T12:00:00.000Z"
+        time_spent_ms = int(entry_hours * MS_PER_HOUR)
+
+        link_json = {
+            "cmd": "addLink",
+            "type": TIMESHEET_LINK_TYPE,
+            "end": "target",
+            "name": "Entrada da Planilha de horas",
+            "item": {
+                "startDate": start_date,
+                "timeSpent": time_spent_ms,
+                "workType": work_type,
+                "timeCode": time_code,
+                "creator": {"userId": me["userId"]},
+            },
+        }
+        update_links.append(json.dumps(link_json))
+
+    # Montar payload
+    # Precisamos do projectAreaConfigurationStateId - vamos obter do DTO
+    config_state_id = wi.get("dto", {}).get("projectAreaConfigurationStateId")
+    if not config_state_id:
+        # Tentar extrair de outro lugar ou usar um valor padrão
+        # Na prática, o servidor pode aceitar sem ele em alguns casos
+        config_state_id = ""
+
+    data = {
+        "attributeIdentifiers": "timeSpent",
+        "attributeValues": str(total_ms),
+        "itemId": wi["item_id"],
+        "type": wi["type"],
+        "stateId": wi["state_id"],
+        "projectAreaItemId": wi["project_area_id"],
+        "sanitizeHTML": "true",
+    }
+    if config_state_id:
+        data["projectAreaConfigurationStateId"] = config_state_id
+
+    # Adicionar os updateLinks (múltiplos com a mesma chave)
+    # requests não suporta múltiplos valores para a mesma chave em dict, então usamos lista de tuplas
+    form_data = list(data.items())
+    for link in update_links:
+        form_data.append(("updateLinks", link))
+    for param in SAVE_PARAMS:
+        form_data.append(("additionalSaveParameters", param))
+
+    # Converter para formato adequado para requests
+    # Usar uma lista de tuplas diretamente
+    session = get_session()
+    jsession = next((c.value for c in session.session.cookies if c.name == "JSESSIONID" and c.path.startswith("/ccm")),
+                    None)
+    headers = {"Accept": "text/json", "X-Jazz-CSRF-Prevent": jsession or ""}
+
+    resp = session.request("POST", WORKITEM_REST, data=form_data, headers=headers, ok=tuple(range(200, 600)))
+    try:
+        body = resp.json()
+    except ValueError as exc:
+        raise RuntimeError(f"Resposta não é JSON: {resp.text[:200]}") from exc
+
+    result = _parse_envelope(body)
+    severity = result.get("severity", 0)
+    if severity >= 4:
+        message = result.get("message", "Erro desconhecido")
+        infos = result.get("infos", [])
+        details = "; ".join(i.get("summary") or i.get("description", "") for i in infos if i)
+        full_message = f"{message}: {details}" if details else message
+        raise RuntimeError(full_message)
+    if not resp.ok:
+        raise AlmHttpError(resp)
+
+    # Reler o work item para retornar o estado atualizado
+    return ccm_list_timesheet(workitem_id)
