@@ -597,10 +597,12 @@ def _get_wi_via_rest(workitem_id: str) -> dict:
     dto_url = "/ccm/service/com.ibm.team.workitem.common.internal.rest.IWorkItemRestService/workItemDTO2"
     params = {
         "id": wi["id"],  # usar o número do WI, não o UUID
-        "projectAreaItemId": pa_id,
         "includeAttributes": "true",
         "includeLinks": "true",
     }
+    # projectAreaItemId é opcional; se não tiver, o servidor descobre pelo WI
+    if pa_id:
+        params["projectAreaItemId"] = pa_id
     resp = session.request("GET", dto_url, params=params, headers=headers, ok=(200,))
     try:
         body = resp.json()
@@ -609,6 +611,10 @@ def _get_wi_via_rest(workitem_id: str) -> dict:
 
     result = _parse_envelope(body)
     wi_dto = result.get("workItem", result)
+
+    # Se pa_id não foi extraído do OSLC, pegar do DTO
+    if not pa_id:
+        pa_id = wi_dto.get("projectAreaItemId")
 
     # Extrair dados do DTO
     attrs = {a["key"]: a["value"] for a in wi_dto.get("attributes", [])}
