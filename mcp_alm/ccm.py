@@ -756,9 +756,16 @@ def ccm_add_timesheet(
             raise ValueError(f"Horas devem ser entre 0 (exclusivo) e {MAX_HOURS_PER_DAY}: {hours}")
         # validar formato da data
         try:
-            date.fromisoformat(e["date"])
+            entry_date = date.fromisoformat(e["date"])
         except ValueError:
             raise ValueError(f"Data inválida (use AAAA-MM-DD): {e['date']}")
+        # validar que a data não é futura
+        today = date.today()
+        if entry_date > today:
+            raise ValueError(
+                f"Não é permitido lançar horas em datas futuras. "
+                f"Data informada: {e['date']}, data máxima permitida: {today.isoformat()}"
+            )
 
     # Ler work item para obter dados necessários
     wi = _get_wi_via_rest(workitem_id)

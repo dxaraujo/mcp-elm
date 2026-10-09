@@ -410,3 +410,21 @@ def test_update_description_markdown_goes_as_ewm_xml_literal(srv):
     assert 'rdf:parseType="Literal"' in sent["body"]
     assert "Regras:<br/><br/>• <b>um</b><br/>• dois<br/><br/>Fim</dcterms:description>" in sent["body"]
 
+
+
+def test_add_timesheet_rejects_future_date():
+    """Não é permitido lançar horas em datas futuras."""
+    from datetime import date, timedelta
+    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+    with pytest.raises(ValueError, match="futuras"):
+        ccm.ccm_add_timesheet("123", [{"date": tomorrow, "hours": 2}], time_code="Horas Diretas")
+
+
+def test_add_timesheet_accepts_today():
+    """Lançamento no dia atual deve passar pela validação de data (falhará por outro motivo depois)."""
+    from datetime import date
+    today = date.today().isoformat()
+    # Vai falhar em outro ponto (ex: conexão), mas não na validação de data futura
+    with pytest.raises(Exception) as exc_info:
+        ccm.ccm_add_timesheet("123", [{"date": today, "hours": 2}], time_code="Horas Diretas")
+    assert "futuras" not in str(exc_info.value).lower()
