@@ -615,6 +615,9 @@ def _get_wi_via_rest(workitem_id: str) -> dict:
     # Se pa_id não foi extraído do OSLC, pegar do DTO
     if not pa_id:
         pa_id = wi_dto.get("projectAreaItemId")
+    
+    # O itemId do DTO é o UUID real (começa com _), não o número do WI
+    item_id = wi_dto.get("itemId") or item_id
 
     # Extrair dados do DTO
     attrs = {a["key"]: a["value"] for a in wi_dto.get("attributes", [])}
