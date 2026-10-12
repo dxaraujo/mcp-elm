@@ -446,7 +446,7 @@ def rm_sync_plan(project_area_identifier: str, component: str, configuration: st
     _BUNDLE_ARTIFACTS.clear()
     rows = bundle.read_sync(root)
     listed: dict[str, dict] = {}
-    summary, inconsistent = {}, []
+    summary, inconsistent, moved = {}, [], []
     for name, identifier in folders.items():
         total = rm_count_folder(project_area_identifier, component, configuration, identifier)["count"]
         items = rm_list_folder(project_area_identifier, component, configuration, identifier)
@@ -465,6 +465,7 @@ def rm_sync_plan(project_area_identifier: str, component: str, configuration: st
                  or bool(row["path"]) and bundle.file_hash(os.path.join(root, row["path"])) != row["hash"])
         if row["folder"] != item["folder"] and not local:
             _remove(root, row["path"])
+            moved.append({**row, "path": None})
             row.update(path=None, alm="", hash="", status="novo")
         elif row["folder"] != item["folder"]:
             row["status"] = "conflito"
@@ -480,8 +481,10 @@ def rm_sync_plan(project_area_identifier: str, component: str, configuration: st
         _remove(root, r["path"])
         del rows[r["id"]]
     bundle.write_sync(root, rows, _generator())
-    if removed or not os.path.exists(os.path.join(root, bundle.INDEX)):
+    if removed or moved or not os.path.exists(os.path.join(root, bundle.INDEX)):
         bundle.write_index(root, rows)
+    bundle.append_log(root, [bundle.log_line("Deletion", [{**r, "path": None} for r in removed]),
+                             bundle.log_line("Move", moved)])
     for r in rows.values():
         if r["folder"] in summary:
             counts = summary[r["folder"]]
@@ -505,7 +508,8 @@ def rm_download_requirements(project_area_identifier: str, component: str, confi
     Linha baixada = 'sincronizado', ou 'normalizado' se o md ficou diferente do ALM (link da UI web, embed de
     artefato fora do bundle ou hyperlink para artefato do bundle normalizados): sobe com rm_upload_requirements.
     No md embed e link para o bundle são iguais, então o diff do md não mostra essa diferença.
-    Atualiza as linhas no sync.md a cada chamada (retomada) e regera o index.md quando a fila zera. Erro num id
+    Atualiza as linhas no sync.md a cada chamada (retomada), registra criados/atualizados no log.md e regera os
+    index.md quando a fila zera. Erro num id
     não para o lote. Retorna {baixados, erros: [{id, error}], restantes}: chame de novo até restantes = 0."""
     root = _root(dest)
     rows = bundle.read_sync(root)
@@ -518,12 +522,13 @@ def rm_download_requirements(project_area_identifier: str, component: str, confi
         except Exception as exc:  # um id com erro não derruba o lote
             return exc
 
-    done, errors = 0, []
+    done, errors, created, updated = 0, [], [], []
     with ThreadPoolExecutor(WORKERS) as pool:
         results = list(pool.map(fetch, ids))
     for rid, meta in zip(ids, results):
         row = rows.get(rid) or {"id": rid, "title": rid, "folder": "", "path": None, "alm": "", "hash": ""}
         if not isinstance(meta, Exception):
+            (updated if row["hash"] else created).append(row)
             _downloaded(row, meta)
             done += 1
         else:
@@ -531,6 +536,7 @@ def rm_download_requirements(project_area_identifier: str, component: str, confi
             errors.append({"id": rid, "error": _message(meta)})
         rows[rid] = row
     bundle.write_sync(root, rows, _generator())
+    bundle.append_log(root, [bundle.log_line("Creation", created), bundle.log_line("Update", updated)])
     remaining = len(_in_order(rows, bundle.QUEUE))
     if remaining == 0:
         bundle.write_index(root, rows)
@@ -581,7 +587,7 @@ def rm_upload_requirements(project_area_identifier: str, component: str, configu
         except Exception as exc:  # um id com erro não derruba o lote
             return exc
 
-    done, errors, conflicts = 0, [], []
+    done, errors, conflicts, uploaded = 0, [], [], []
     with ThreadPoolExecutor(WORKERS) as pool:
         results = list(pool.map(push, ids))
     for rid, result in zip(ids, results):
@@ -592,8 +598,12 @@ def rm_upload_requirements(project_area_identifier: str, component: str, configu
             errors.append({"id": rid, "error": _message(result)})
         else:
             _downloaded(rows[rid], result)
+            uploaded.append(rows[rid])
             done += 1
     bundle.write_sync(root, rows, _generator())
+    if uploaded:  # o título pode ter mudado
+        bundle.write_index(root, rows)
+    bundle.append_log(root, [bundle.log_line("Upload", uploaded)])
     return {"enviados": done, "erros": errors, "conflitos": conflicts,
             "restantes": len(_in_order(rows, bundle.UPLOAD))}
 

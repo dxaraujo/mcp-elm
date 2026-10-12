@@ -158,8 +158,9 @@ WI, escreva "Tarefa 1002" no texto e o EWM cria o link "Menções". `[texto](url
 
 ### Sincronismo do bundle (alm-sync)
 
-O bundle é uma pasta de md, um por requisito (`<pasta>/<id>-<slug>.md`), com `sync.md` (situação de cada artefato) e
-`index.md`. O sincronismo baixa primeiro e depois sobe o que foi editado no md:
+O bundle é uma pasta de md, um por requisito (`<pasta>/<id>-<slug>.md`), com `sync.md` (situação de cada artefato),
+`index.md` na raiz e em cada pasta (OKF §8, como o `build_index` do okf-kit) e `log.md` (cada sync registra, sob
+`## AAAA-MM-DD`, o que criou, atualizou, subiu, moveu ou apagou). O sincronismo baixa primeiro e depois sobe o que foi editado no md:
 
 1. `rm_sync_plan(folders, dest)`: lista as pastas, regrava `sync.md`, apaga os removidos e devolve um resumo com
    `a_baixar`, `a_subir` e `conflitos`;

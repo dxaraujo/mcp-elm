@@ -273,7 +273,9 @@ def test_download_requirements_writes_file_and_updates_sync(req_srv, tmp_path, m
     assert row["status"] == "sincronizado" and row["alm"] == "2024-10-01T13:45:10Z"
     assert row["hash"] == bundle.file_hash(str(tmp_path / row["path"]))
     assert (tmp_path / row["path"]).read_text(encoding="utf-8").startswith("---")
-    assert "01-Requisitos/123-login.md" in (tmp_path / "index.md").read_text(encoding="utf-8")
+    assert "(<01-Requisitos/index.md>)" in (tmp_path / "index.md").read_text(encoding="utf-8")
+    assert "(<123-login.md>)" in (tmp_path / "01-Requisitos" / "index.md").read_text(encoding="utf-8")
+    assert "* **Creation**: [123 — Login](</01-Requisitos/123-login.md>)" in (tmp_path / "log.md").read_text()
     monkeypatch.setattr(rm, "_requirement", lambda *a: (_ for _ in ()).throw(RuntimeError("HTTP 404")))
     assert rm.rm_download_requirements("_PA1", C, S, str(tmp_path), ["999"])["erros"] == [
         {"id": "999", "error": "HTTP 404"}]
