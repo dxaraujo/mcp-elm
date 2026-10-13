@@ -1,4 +1,4 @@
-"""Tools do EWM para as skills (alm-setup e alm-ccm): saída com as chaves do alm.json."""
+"""Tools do EWM para as skills (elm-setup e elm-ccm): saída com as chaves do elm.json."""
 from __future__ import annotations
 
 import json
@@ -8,7 +8,7 @@ from datetime import date, datetime, time
 from .ibm import common, workitems
 from .infra import oslc
 from .infra.document import BRT, document, local_datetime, one_line, to_ewm_html, to_markdown
-from .infra.http import AlmHttpError, get_session, reportable
+from .infra.http import ElmHttpError, get_session, reportable
 from .server import tool
 
 PROJECT_AREA = "/ccm/process/project-areas/{pa}"
@@ -74,7 +74,7 @@ def _is_link(prop: dict) -> bool:
     """Tipo de link (pai, filhos, requisito, teste, commit...), não campo."""
     predicate = prop["predicate"]
     return ".linktype." in predicate.lower() or (
-        predicate.startswith(("oslc_cm:", "calm:")) and prop["value_type"] not in VALUE_KINDS)
+        predicate.startswith(("oslc_cm:", "celm:")) and prop["value_type"] not in VALUE_KINDS)
 
 
 def _kind(prop: dict) -> str:
@@ -88,7 +88,7 @@ def _kind(prop: dict) -> str:
 @tool
 def ccm_list_team_areas(project_area_identifier: str) -> list[dict]:
     """Times (team areas) da project area em lista plana: [{name, identifier, parent}] (parent = time pai ou None).
-    alm.json: team-areas {name: {identifier, categories}}."""
+    elm.json: team-areas {name: {identifier, categories}}."""
     return [{"name": t["name"], "identifier": t["team_area_uuid"], "parent": t["parent"]}
             for t in common.team_areas(_url(PROJECT_AREA, pa=project_area_identifier))]
 
@@ -96,7 +96,7 @@ def ccm_list_team_areas(project_area_identifier: str) -> list[dict]:
 @tool
 def ccm_list_members(project_area_identifier: str, team_area_identifiers: list[str]) -> list[dict]:
     """Membros dos times escolhidos, sem repetição: [{identifier (login), name, team-areas: [identifier]}].
-    alm.json: members {identifier: name}."""
+    elm.json: members {identifier: name}."""
     if not team_area_identifiers:
         raise ValueError("Informe ao menos um time em team_area_identifiers.")
     names = {c["userId"]: c["name"] for c in common.contributors()}
@@ -110,7 +110,7 @@ def ccm_list_members(project_area_identifier: str, team_area_identifiers: list[s
 
 @tool
 def ccm_list_workitem_types(project_area_identifier: str) -> list[dict]:
-    """Tipos de work item: [{identifier, name}]. alm.json: workitem-types {name: {identifier, fields}}."""
+    """Tipos de work item: [{identifier, name}]. elm.json: workitem-types {name: {identifier, fields}}."""
     return [{"identifier": t["id"], "name": oslc.shape(t["shape"])["title"] if t["shape"] else t["title"]}
             for t in workitems.types(project_area_identifier)]
 
@@ -119,7 +119,7 @@ def ccm_list_workitem_types(project_area_identifier: str) -> list[dict]:
 def ccm_list_workitem_fields(project_area_identifier: str, workitem_type: str) -> list[dict]:
     """Campos editáveis do tipo: [{name, attribute, required, kind}]. kind: category, iteration, team-area,
     release, member, enumeration, text, integer, date, boolean ou resource. Inclua sempre os required.
-    alm.json: workitem-types[name].fields {name: attribute}."""
+    elm.json: workitem-types[name].fields {name: attribute}."""
     return [{"name": p["title"], "attribute": p["predicate"], "required": p["required"], "kind": _kind(p)}
             for p in _props(project_area_identifier, workitem_type)
             if not p["read_only"] and p["predicate"] not in PARAMETER_FIELDS and not _is_link(p)]
@@ -128,7 +128,7 @@ def ccm_list_workitem_fields(project_area_identifier: str, workitem_type: str) -
 @tool
 def ccm_list_link_types(project_area_identifier: str, workitem_type: str) -> list[dict]:
     """Tipos de link do tipo de work item (pai, filhos, relacionados, requisitos, testes, commits...):
-    [{name, attribute}]. alm.json: ccm.link-types {name: attribute} (só os que o projeto usa; nomes à escolha)."""
+    [{name, attribute}]. elm.json: ccm.link-types {name: attribute} (só os que o projeto usa; nomes à escolha)."""
     return [{"name": p["title"], "attribute": p["predicate"]}
             for p in _props(project_area_identifier, workitem_type) if _is_link(p)]
 
@@ -136,7 +136,7 @@ def ccm_list_link_types(project_area_identifier: str, workitem_type: str) -> lis
 @tool
 def ccm_list_iterations(project_area_identifier: str) -> list[dict]:
     """Iterações de todas as timelines, em lista plana: [{name, identifier, start-date?, end-date?, parent?}].
-    Nomes repetidos viram caminho ('2026/Sprint 01'). alm.json: iterations {name: {identifier, plans}}."""
+    Nomes repetidos viram caminho ('2026/Sprint 01'). elm.json: iterations {name: {identifier, plans}}."""
     rows = []
 
     timeline_of: dict[str, str] = {}
@@ -187,7 +187,7 @@ def _ui_post(path: str, data: dict, guarded: bool = False) -> None:
         token = (error.get("errorData") or {}).get("token") if error.get("errorClass") == GUARD_ERROR else None
         if not token:
             break
-    raise AlmHttpError(resp)
+    raise ElmHttpError(resp)
 
 
 def _epoch_ms(day: str, end: bool = False) -> int:
@@ -221,7 +221,7 @@ def ccm_create_iteration(
 @tool
 def ccm_list_iteration_plans(project_area_identifier: str, iteration_identifiers: list[str] | None = None) -> list[dict]:
     """Planos de iteração não arquivados, opcionalmente só das iterações informadas:
-    [{name, identifier, team-area (time dono; None se o dono é a project area), iteration}]. alm.json:
+    [{name, identifier, team-area (time dono; None se o dono é a project area), iteration}]. elm.json:
     iterations[nome da iteração].plans {name: {identifier, team-area}} (sem team-area quando None)."""
     pa, wanted = project_area_identifier, set(iteration_identifiers or [])
     plans = [{"name": r.findtext("name"), "identifier": r.findtext("itemId"),
@@ -258,7 +258,7 @@ def ccm_create_iteration_plan(
     return created[0]
 
 
-# --- alm-ccm
+# --- elm-ccm
 
 def _first(resource: dict, predicate: str) -> dict | None:
     return next(iter(resource["links"].get(predicate, [])), None)
@@ -292,7 +292,7 @@ def ccm_list_workitems(
     workitem_type: str | None = None,
 ) -> list[dict]:
     """Work items (até 1000): [{id, title, type, state, owner, iteration, url}]. Filtros combinam com 'e';
-    informe ao menos iteration, team_areas ou owner. Plano do alm.json: iteration=iterations[it].identifier e
+    informe ao menos iteration, team_areas ou owner. Plano do elm.json: iteration=iterations[it].identifier e
     team_areas=[iterations[it].plans[nome].team-area] (plano sem team-area: omita). team_areas inclui os subtimes.
     `state`: nome do estado ('Em Desenvolvimento'). `workitem_type`: identifier ('task')."""
     teams = [t for t in team_areas or [] if t != project_area_identifier]
@@ -320,9 +320,9 @@ def ccm_list_workitems(
 
 @tool
 def ccm_list_field_values(project_area_identifier: str, workitem_type: str, attribute: str) -> dict:
-    """Tipo, obrigatoriedade e valores de um campo do alm.json: {kind, required, values: [{identifier, name,
+    """Tipo, obrigatoriedade e valores de um campo do elm.json: {kind, required, values: [{identifier, name,
     default}]}. Use `identifier` em fields de ccm_create_workitem/ccm_update_workitem. values vem vazio para
-    text/integer/date/member (membros: alm.json)."""
+    text/integer/date/member (membros: elm.json)."""
     prop = next((p for p in _props(project_area_identifier, workitem_type) if p["predicate"] == attribute), None)
     if prop is None:
         raise LookupError(f"Atributo '{attribute}' não existe no tipo '{workitem_type}'.")
@@ -363,11 +363,11 @@ def _label(link: dict) -> str | None:
 @tool
 def ccm_get_workitem(workitem_id: str, fields: dict, link_types: dict | None = None) -> str:
     """Work item em Markdown + YAML. Cabeçalho: id, type, title, state, url, creator, created, modified, closed,
-    attributes {nome do alm.json: valor} e links {nome do alm.json: ['id: título', ...]}. Corpo: descrição em
+    attributes {nome do elm.json: valor} e links {nome do elm.json: ['id: título', ...]}. Corpo: descrição em
     Markdown e comentários (outro WI citado no texto, 'Tarefa 479977', fica como texto e aparece no link
     'Menções' quando mapeado). Só entram os campos e links informados: fields=workitem-types[tipo].fields e
-    link_types=link-types do alm.json. Pessoas vêm pelo nome (login: members do alm.json); durações como '4h'
-    (na gravação, em ms). Para gravar, use a chave do alm.json (fields[nome]) em ccm_update_workitem."""
+    link_types=link-types do elm.json. Pessoas vêm pelo nome (login: members do elm.json); durações como '4h'
+    (na gravação, em ms). Para gravar, use a chave do elm.json (fields[nome]) em ccm_update_workitem."""
     wi = workitems.get_workitem(workitem_id, fetch_all=True)
     props, links = wi["properties"], wi["links"]
 
@@ -410,7 +410,7 @@ def ccm_create_workitem(
     fields: dict | None = None, parent: str | None = None,
 ) -> dict:
     """Cria um work item. `description`: Markdown (vira o texto formatado do EWM; 'Tarefa 123' no texto faz o
-    EWM criar o link de menção). `fields`: {chave do alm.json (fields[nome]): identifier de ccm_list_field_values
+    EWM criar o link de menção). `fields`: {chave do elm.json (fields[nome]): identifier de ccm_list_field_values
     ou valor}. `parent`: id do work item pai. Retorna {id, title, type, state, owner, iteration, url}."""
     attributes = {"dcterms:title": summary,
                   **({"dcterms:description": to_ewm_html(description)} if description else {}),
@@ -441,7 +441,7 @@ def ccm_list_workitem_states(workitem_id: str) -> dict:
 def ccm_update_workitem(
     workitem_id: str, fields: dict | None = None, state: str | None = None, description: str | None = None,
 ) -> dict:
-    """Atualiza campos ({chave do alm.json: identifier ou valor}), a descrição (Markdown; substitui a descrição
+    """Atualiza campos ({chave do elm.json: identifier ou valor}), a descrição (Markdown; substitui a descrição
     inteira) e/ou muda o estado pelo nome ('Pronto'). Retorna {id, title, type, state, owner, iteration, url}."""
     if not fields and not state and description is None:
         raise ValueError("Informe fields, description e/ou state.")
@@ -464,7 +464,7 @@ def ccm_update_workitem(
         try:
             updated = _summary(oslc.update(url, attributes, params={"_action": action["id"]}))
             break
-        except AlmHttpError as exc:
+        except ElmHttpError as exc:
             first_error = first_error or exc
     else:
         raise first_error
@@ -516,7 +516,7 @@ def _ui_post_workitem(data: dict) -> dict:
         full_message = f"{message}: {details}" if details else message
         raise RuntimeError(full_message)
     if not resp.ok:
-        raise AlmHttpError(resp)
+        raise ElmHttpError(resp)
     return result.get("workItem", {})
 
 
@@ -870,7 +870,7 @@ def ccm_add_timesheet(
         full_message = f"{message}: {details}" if details else message
         raise RuntimeError(full_message)
     if not resp.ok:
-        raise AlmHttpError(resp)
+        raise ElmHttpError(resp)
 
     # Reler o work item para retornar o estado atualizado
     return ccm_list_timesheet(workitem_id)

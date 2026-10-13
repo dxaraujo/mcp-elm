@@ -8,21 +8,21 @@ from urllib.parse import urljoin
 import requests
 
 from . import auth
-from .config import AlmConfig, load_config
+from .config import ElmConfig, load_config
 
 TIMEOUT = 60
 RDF_XML = "application/rdf+xml"
 
 
-class AlmHttpError(RuntimeError):
+class ElmHttpError(RuntimeError):
     def __init__(self, resp: requests.Response):
         body = resp.text[:500].strip()
         super().__init__(f"HTTP {resp.status_code} em {resp.request.method} {resp.url}: {body}")
         self.status_code = resp.status_code
 
 
-class AlmSession:
-    def __init__(self, cfg: AlmConfig):
+class ElmSession:
+    def __init__(self, cfg: ElmConfig):
         self.cfg = cfg
         self.session = requests.Session()
         self.session.headers.update({"OSLC-Core-Version": "2.0", "Accept": RDF_XML})
@@ -65,24 +65,24 @@ class AlmSession:
             if auth.needs_auth(resp):
                 raise auth.AuthError(f"Não autenticado após login em {auth.context_root(url)}.")
         if resp.status_code not in ok:
-            raise AlmHttpError(resp)
+            raise ElmHttpError(resp)
         return resp
 
 
-_instance: AlmSession | None = None
+_instance: ElmSession | None = None
 _instance_lock = threading.Lock()
 
 
-def get_session() -> AlmSession:
-    """Sessão única por processo; carrega o alm.properties na primeira chamada."""
+def get_session() -> ElmSession:
+    """Sessão única por processo; carrega o elm.properties na primeira chamada."""
     global _instance
     with _instance_lock:
         if _instance is None:
-            _instance = AlmSession(load_config())
+            _instance = ElmSession(load_config())
         return _instance
 
 
-def set_session(session: AlmSession | None) -> None:
+def set_session(session: ElmSession | None) -> None:
     """Substitui a sessão global (testes)."""
     global _instance
     _instance = session

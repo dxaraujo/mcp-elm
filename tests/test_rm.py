@@ -2,13 +2,13 @@ import os
 
 import pytest
 
-from mcp_alm import bundle, rm
-from mcp_alm.ibm import requirements
+from mcp_elm import bundle, rm
+from mcp_elm.ibm import requirements
 
 from conftest import SERVER, fixture, xml_ok
 from test_requirements import COMP, RDF, ROUTES, SHAPE, STREAM
 
-C, S, T, F = "_C1", "_S1", "_T1", "FR_1"  # identifiers que a skill grava no alm.json
+C, S, T, F = "_C1", "_S1", "_T1", "FR_1"  # identifiers que a skill grava no elm.json
 
 USERS = """<foundation><contributor><itemId>_U1</itemId><userId>joao</userId><name>João Silva</name>
 <emailAddress>j@x</emailAddress><archived>false</archived></contributor></foundation>"""
@@ -50,8 +50,8 @@ from urllib.parse import parse_qs, urlsplit
 
 from test_requirements import FACTORY, QUERY, R1
 
-PRIO = "https://alm.test/rm/types/AT_PRIO"
-ALTA = "https://alm.test/rm/types/AT_PRIO#alta"
+PRIO = "https://elm.test/rm/types/AT_PRIO"
+ALTA = "https://elm.test/rm/types/AT_PRIO#alta"
 FOLDER = f"{SERVER}/rm/folders/FR_1"
 LINK = "http://www.ibm.com/xmlns/rdm/types/Link"
 
@@ -68,7 +68,7 @@ def req_srv(srv):
           <oslc:valueType rdf:resource="http://open-services.net/ns/core#Resource"/>
         </oslc:Property></oslc:property>
         <oslc:property><oslc:Property><dcterms:title>Revisor</dcterms:title><oslc:name>revisor</oslc:name>
-          <oslc:propertyDefinition rdf:resource="https://alm.test/rm/types/AT_REV"/>
+          <oslc:propertyDefinition rdf:resource="https://elm.test/rm/types/AT_REV"/>
           <oslc:range rdf:resource="http://xmlns.com/foaf/0.1/Person"/>
         </oslc:Property></oslc:property>
         <oslc:property><oslc:Property><oslc:name>semtitulo</oslc:name>
@@ -85,7 +85,7 @@ def req_srv(srv):
         <dcterms:modified rdf:datatype="http://www.w3.org/2001/XMLSchema#dateTime">2024-10-01T13:45:10.000Z</dcterms:modified>
         <oslc:instanceShape rdf:resource="{SHAPE}"/><nav:parent rdf:resource="{FOLDER}"/>
         <rdf:type rdf:resource="http://open-services.net/ns/rm#Requirement"/>
-        <j.0:PRIO xmlns:j.0="https://alm.test/rm/types/AT_" rdf:resource="{ALTA}"/>
+        <j.0:PRIO xmlns:j.0="https://elm.test/rm/types/AT_" rdf:resource="{ALTA}"/>
         <dcterms:creator rdf:resource="{SERVER}/jts/users/ana"/>
         <dcterms:contributor rdf:resource="{SERVER}/jts/users/joao"/>
         </rdf:Description></rdf:RDF>''')
@@ -133,7 +133,7 @@ def test_get_requirement_markdown_with_server_names_and_embeds(req_srv, monkeypa
         "</rdf:Description>", f'<j.1:Link xmlns:j.1="http://www.ibm.com/xmlns/rdm/types/" rdf:resource="{R1}"/>'
         "</rdf:Description>", 1))
     from importlib import metadata
-    version = metadata.version("mcp-alm")
+    version = metadata.version("mcp-elm")
     doc = rm.rm_get_requirement("_PA1", C, S, "123")
     assert doc == f"""---
 type: Requisito
@@ -148,7 +148,7 @@ sources:
     last_modified: "2024-10-01T13:45:10Z"
     last_modified_by: "human:joao"
 generated:
-  by: "process:alm-mcp/{version}"
+  by: "process:elm-mcp/{version}"
   at: "2026-10-06T13:00:00Z"
 id: 123
 created: "2024-09-23T20:30:48Z"
@@ -227,14 +227,14 @@ def test_get_requirement_bundle_links_are_relative_file_paths(req_srv):
     assert f"Passo 1: [2 RN - Validar CPF]({target}) e [2 RN - Validar CPF]({target})" in doc
     assert "embedded:" not in doc  # no bundle a regra diz o que é embed
     assert f"[2 RN - Validar CPF]({r2})" in rm.rm_get_requirement("_PA1", C, S, "123")
-    # fora do inventário do bundle: sempre link para a URL; o embed virou link, então o md difere do ALM
+    # fora do inventário do bundle: sempre link para a URL; o embed virou link, então o md difere do ELM
     doc, meta = rm._requirement("_PA1", C, S, "123", "bundle", {"123"})
     assert f"Passo 1: [2 RN - Validar CPF]({r2}) e [2 RN - Validar CPF]({r2})" in doc and meta["modified"] is True
     # do bundle e já embed: nada a normalizar
     only_embed = req_srv.routes[("GET", R1)][2].replace(' e <a href="/rm/resources/TX_2">RN 2</a>', "")
     req_srv.routes[("GET", R1)] = (200, {"ETag": '"1"'}, only_embed)
     assert rm._requirement("_PA1", C, S, "123", "bundle", {"123", "2"})[1]["modified"] is False
-    # hyperlink para artefato do bundle vira embed: o md difere do ALM
+    # hyperlink para artefato do bundle vira embed: o md difere do ELM
     req_srv.routes[("GET", R1)] = (200, {"ETag": '"1"'}, only_embed.replace(
         "</p>", ' e <a href="/rm/resources/TX_2">RN 2</a></p>', 1))
     assert rm._requirement("_PA1", C, S, "123", "bundle", {"123", "2"})[1]["modified"] is True
@@ -270,7 +270,7 @@ def test_download_requirements_writes_file_and_updates_sync(req_srv, tmp_path, m
     assert not old.exists()
     [row] = bundle.read_sync(str(tmp_path)).values()
     assert row["path"] == "01-Requisitos/123-login.md" and row["folder"] == "01-Requisitos"
-    assert row["status"] == "sincronizado" and row["alm"] == "2024-10-01T13:45:10Z"
+    assert row["status"] == "sincronizado" and row["elm"] == "2024-10-01T13:45:10Z"
     assert row["hash"] == bundle.file_hash(str(tmp_path / row["path"]))
     assert (tmp_path / row["path"]).read_text(encoding="utf-8").startswith("---")
     assert "(<01-Requisitos/index.md>)" in (tmp_path / "index.md").read_text(encoding="utf-8")
@@ -284,8 +284,8 @@ def test_download_requirements_writes_file_and_updates_sync(req_srv, tmp_path, m
         rm.rm_download_requirements("_PA1", C, S, "relativo", ["123"])
 
 
-def _row(rid, folder, alm="2024-01-01T00:00:00Z", status="sincronizado", path=None, hash="h"):
-    return {"id": rid, "title": f"T{rid}", "folder": folder, "path": path, "alm": alm, "hash": hash, "status": status}
+def _row(rid, folder, elm="2024-01-01T00:00:00Z", status="sincronizado", path=None, hash="h"):
+    return {"id": rid, "title": f"T{rid}", "folder": folder, "path": path, "elm": elm, "hash": hash, "status": status}
 
 
 def test_sync_plan_classifies_removes_and_queues(tmp_path, monkeypatch):
@@ -294,7 +294,7 @@ def test_sync_plan_classifies_removes_and_queues(tmp_path, monkeypatch):
     (tmp_path / "A" / "4-t4.md").write_text("x")
     bundle.write_sync(dest, {"1": _row("1", "A"), "2": _row("2", "A"), "3": _row("3", "A"),
                              "4": _row("4", "A", path="A/4-t4.md"),
-                             "5": _row("5", "B", alm="", hash="", status="novo")}, "t")
+                             "5": _row("5", "B", elm="", hash="", status="novo")}, "t")
     lists = {"FR_A": [{"id": "1", "title": "T1", "modified": "2024-01-01T00:00:00Z"},   # sincronizado
                       {"id": "2", "title": "T2", "modified": "2025-01-01T00:00:00Z"},   # desatualizado
                       {"id": "6", "title": "T6", "modified": "2025-01-01T00:00:00Z"}],  # novo
@@ -330,7 +330,7 @@ def test_sync_plan_classifies_removes_and_queues(tmp_path, monkeypatch):
     rows = bundle.read_sync(dest)
     assert rows["2"]["status"] == "normalizado" and rows["6"]["status"] == "atualizado"
     assert out["a_subir"] == 2 and out["a_baixar"] == 0
-    # o ALM também mudou -> md editado vira conflito (pergunta ao usuário); normalizado só rebaixa
+    # o ELM também mudou -> md editado vira conflito (pergunta ao usuário); normalizado só rebaixa
     lists["FR_A"][1]["modified"] = lists["FR_A"][2]["modified"] = "2027-01-01T00:00:00Z"
     out = plan()
     assert out["conflitos"] == [{"id": "6", "title": "T6", "folder": "A", "path": "X/6-t.md"}]
@@ -352,23 +352,23 @@ def test_upload_round_trip_embed_and_links(req_srv, tmp_path):
     path = tmp_path / "01-Requisitos" / "123-login.md"
     doc = path.read_text(encoding="utf-8")
     assert "Passo 1: [123 Login](123-login.md)" in doc  # artefato do bundle: embed
-    path.write_text(doc.replace("title: Login", 'title: "Login: novo"') + "\nVer [9](https://alm.test/rm/resources/TX_9)"
+    path.write_text(doc.replace("title: Login", 'title: "Login: novo"') + "\nVer [9](https://elm.test/rm/resources/TX_9)"
                     " e [Portal](https://www.gov.br/portal).\n", encoding="utf-8")
     assert rm.rm_sync_plan("_PA1", C, S, {"01-Requisitos": F}, dest)["a_subir"] == 1
     assert rm.rm_upload_requirements("_PA1", C, S, dest) == {"enviados": 1, "erros": [], "conflitos": [], "restantes": 0}
     body = sent["body"]
     assert "Login: novo" in body and f'class="embedded" href="{R1}"' in body
-    assert 'href="https://alm.test/rm/resources/TX_9"' in body and 'href="https://www.gov.br/portal"' in body
+    assert 'href="https://elm.test/rm/resources/TX_9"' in body and 'href="https://www.gov.br/portal"' in body
     assert bundle.read_sync(dest)["123"]["status"] == "sincronizado"  # rebaixado depois de subir
 
 
-def test_upload_marks_conflict_when_alm_changed(req_srv, tmp_path):
+def test_upload_marks_conflict_when_elm_changed(req_srv, tmp_path):
     dest = str(tmp_path)
     rm.rm_download_requirements("_PA1", C, S, dest, ["123"])
     path = tmp_path / "01-Requisitos" / "123-login.md"
     path.write_text(path.read_text(encoding="utf-8") + "\nmais\n", encoding="utf-8")
     rows = bundle.read_sync(dest)
-    rows["123"].update(status="atualizado", alm="2020-01-01T00:00:00Z")  # o ALM mudou depois do download
+    rows["123"].update(status="atualizado", elm="2020-01-01T00:00:00Z")  # o ELM mudou depois do download
     bundle.write_sync(dest, rows, "t")
     assert rm.rm_upload_requirements("_PA1", C, S, dest)["conflitos"] == ["123"]
     assert not any(c.method == "PUT" for c in req_srv.calls)

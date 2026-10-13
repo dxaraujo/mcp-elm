@@ -2,15 +2,15 @@
 <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
     xmlns:dcterms="http://purl.org/dc/terms/"
     xmlns:oslc="http://open-services.net/ns/core#">
-  <oslc:ServiceProviderCatalog rdf:about="https://alm.test/ccm/oslc/workitems/catalog">
+  <oslc:ServiceProviderCatalog rdf:about="https://elm.test/ccm/oslc/workitems/catalog">
     <oslc:serviceProvider>
-      <oslc:ServiceProvider rdf:about="https://alm.test/ccm/oslc/contexts/_PA1/workitems/services.xml">
+      <oslc:ServiceProvider rdf:about="https://elm.test/ccm/oslc/contexts/_PA1/workitems/services.xml">
         <dcterms:title>Projeto Alfa</dcterms:title>
-        <oslc:details rdf:resource="https://alm.test/ccm/process/project-areas/_PA1"/>
+        <oslc:details rdf:resource="https://elm.test/ccm/process/project-areas/_PA1"/>
       </oslc:ServiceProvider>
     </oslc:serviceProvider>
     <oslc:serviceProvider>
-      <oslc:ServiceProvider rdf:about="https://alm.test/ccm/oslc/contexts/_PA2/workitems/services.xml">
+      <oslc:ServiceProvider rdf:about="https://elm.test/ccm/oslc/contexts/_PA2/workitems/services.xml">
         <dcterms:title>Projeto Beta</dcterms:title>
       </oslc:ServiceProvider>
     </oslc:serviceProvider>

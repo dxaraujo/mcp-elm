@@ -2,7 +2,7 @@
 <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
     xmlns:dcterms="http://purl.org/dc/terms/"
     xmlns:oslc="http://open-services.net/ns/core#">
-  <oslc:AllowedValues rdf:about="https://alm.test/ccm/oslc/context/_PA1/shapes/workitems/defect/allowedValues/filedAgainst">
-    <oslc:allowedValue rdf:resource="https://alm.test/ccm/resource/itemOid/com.ibm.team.workitem.Category/_C1"/>
+  <oslc:AllowedValues rdf:about="https://elm.test/ccm/oslc/context/_PA1/shapes/workitems/defect/allowedValues/filedAgainst">
+    <oslc:allowedValue rdf:resource="https://elm.test/ccm/resource/itemOid/com.ibm.team.workitem.Category/_C1"/>
   </oslc:AllowedValues>
 </rdf:RDF>

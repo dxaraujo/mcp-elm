@@ -1,4 +1,4 @@
-"""Tools do DOORS Next para as skills (alm-setup e alm-rm): saída com as chaves do alm.json."""
+"""Tools do DOORS Next para as skills (elm-setup e elm-rm): saída com as chaves do elm.json."""
 from __future__ import annotations
 
 import glob
@@ -48,12 +48,12 @@ EMBEDDING = "http://www.ibm.com/xmlns/rdm/types/Embedding"
 
 
 def _generator() -> str:
-    """Ator OKF `generated.by`: 'process:alm-mcp/<versão>' pela metadata da distribuição 'mcp-alm'.
-    Sem a distribuição instalada (rodando do fonte) cai para 'process:alm-mcp' em vez de levantar."""
+    """Ator OKF `generated.by`: 'process:elm-mcp/<versão>' pela metadata da distribuição 'mcp-elm'.
+    Sem a distribuição instalada (rodando do fonte) cai para 'process:elm-mcp' em vez de levantar."""
     try:
-        return f"process:alm-mcp/{metadata.version('mcp-alm')}"
+        return f"process:elm-mcp/{metadata.version('mcp-elm')}"
     except metadata.PackageNotFoundError:
-        return "process:alm-mcp"
+        return "process:elm-mcp"
 
 
 def _area_url(project_area_identifier: str) -> str:
@@ -67,7 +67,7 @@ def _url(template: str, identifier: str) -> str:
 @tool
 def rm_get_configuration(project_area_identifier: str) -> dict:
     """Componente e stream padrão da project area do DOORS Next: {component, configuration} (identifiers do
-    primeiro componente e da primeira stream). alm.json: rm.component e rm.configuration."""
+    primeiro componente e da primeira stream). elm.json: rm.component e rm.configuration."""
     components = requirements.get_project_components(project_area_identifier)
     if not components:
         raise LookupError(f"Project area {project_area_identifier} não tem componentes no DOORS Next.")
@@ -77,7 +77,7 @@ def rm_get_configuration(project_area_identifier: str) -> dict:
 
 @tool
 def rm_list_members(project_area_identifier: str) -> list[dict]:
-    """Membros da project area do DOORS Next: [{identifier (login), name}]. alm.json: rm.members {identifier: name}."""
+    """Membros da project area do DOORS Next: [{identifier (login), name}]. elm.json: rm.members {identifier: name}."""
     names = {c["userId"]: c["name"] for c in common.contributors()}
     members = [{"identifier": login, "name": names.get(login)}
                for login in dict.fromkeys(common.area_members(_area_url(project_area_identifier)))]
@@ -87,7 +87,7 @@ def rm_list_members(project_area_identifier: str) -> list[dict]:
 @tool
 def rm_list_folders(project_area_identifier: str, component: str, configuration: str) -> list[dict]:
     """Pastas do componente com o caminho como nome: [{name ('01-Requisitos'), identifier ('FR_...')}].
-    alm.json: rm.folders {name: identifier}. O prefixo 'root/' é removido do nome."""
+    elm.json: rm.folders {name: identifier}. O prefixo 'root/' é removido do nome."""
     folders = requirements.list_rm_component_folders(_url(COMPONENT, component), _url(STREAM, configuration))
     by_url = {f["url"]: f for f in folders}
 
@@ -109,14 +109,14 @@ def rm_list_folders(project_area_identifier: str, component: str, configuration:
 
 @tool
 def rm_list_requirement_types(project_area_identifier: str, component: str, configuration: str) -> list[dict]:
-    """Tipos de requisito criáveis: [{name, identifier ('OT_...')}]. alm.json: rm.requirements-types
+    """Tipos de requisito criáveis: [{name, identifier ('OT_...')}]. elm.json: rm.requirements-types
     {name: identifier}."""
     return [{"name": s["title"], "identifier": oslc.item_id(s["url"])}
             for s in requirements.get_rm_component_types(project_area_identifier, component,
                                                          _url(STREAM, configuration))]
 
 
-# --- alm-rm
+# --- elm-rm
 
 def _kind(prop: dict) -> str:
     if prop["allowed_values"]:
@@ -154,7 +154,7 @@ def _folder_path(url: str, configuration: str) -> str:
 
 
 def _file_path(resource: dict, configuration: str) -> str:
-    """Arquivo do artefato no bundle baixado (alm-download): '<caminho da pasta>/<id>-<slug do título>.md'."""
+    """Arquivo do artefato no bundle baixado (elm-download): '<caminho da pasta>/<id>-<slug do título>.md'."""
     folder = _link(resource, "nav:parent")
     name = f"{resource['id']}-{slug(one_line(resource['title']) or '')}.md"
     return posixpath.join(_folder_path(folder["url"], configuration), name) if folder else name
@@ -164,7 +164,7 @@ def _artifact(url: str, configuration: str) -> dict | None:
     """Artefato pela URL; None se não puder ser lido (sem permissão, removido...)."""
     try:
         return oslc.get(url, configuration)
-    except RuntimeError:  # AlmHttpError: um artefato ilegível não derruba a leitura do requisito
+    except RuntimeError:  # ElmHttpError: um artefato ilegível não derruba a leitura do requisito
         return None
 
 
@@ -258,7 +258,7 @@ def rm_list_folder(project_area_identifier: str, component: str, configuration: 
 
 @tool
 def rm_get_requirement(project_area_identifier: str, component: str, configuration: str, requirement_id: str,
-                       links: Literal["alm", "bundle"] = "alm") -> str:
+                       links: Literal["elm", "bundle"] = "elm") -> str:
     """Requisito pelo id numérico em Markdown + YAML, conforme Google OKF v0.2. Cabeçalho, nesta ordem:
     campos OKF (type, title, description?, resource, tags) + provenance (sources) + trust (generated) + extensões RM
     (id, created, links, embedded).
@@ -267,17 +267,17 @@ def rm_get_requirement(project_area_identifier: str, component: str, configurati
     - sources (OKF §5.1): [{id: doors-next, resource, author, last_modified, last_modified_by}]: author =
       'human:<login de quem criou>', last_modified = última modificação no DOORS Next, last_modified_by =
       'human:<login de quem modificou por último>'.
-    - generated {by, at} (OKF §5.2): by = 'process:alm-mcp/<versão>'; at = quando este documento foi gerado.
+    - generated {by, at} (OKF §5.2): by = 'process:elm-mcp/<versão>'; at = quando este documento foi gerado.
       Timestamps em ISO 8601 UTC ('...Z'): last_modified > generated.at => o documento está desatualizado.
     - verified/status/stale_after: só com sinal real do artefato (o DOORS Next não os define); nunca inventados.
     - id; created (UTC); links {nome: ['id: título', ...]} (só leitura: relacionamentos OSLC, nomes do DOORS Next);
-      embedded ['id: título', ...] = artefatos embutidos no texto (só com links='alm').
+      embedded ['id: título', ...] = artefatos embutidos no texto (só com links='elm').
     Corpo: o texto em Markdown; todo artefato citado ou embutido é [id título](alvo). Artefato ilegível fica
-    [texto](URL do ALM).
-    links='alm': alvo = URL do artefato no ALM; é embed se está em `embedded` (mande-o em rm_update_requirement).
-    links='bundle' (bundle da alm-sync): artefato do bundle = embed, alvo = caminho relativo do arquivo
+    [texto](URL do ELM).
+    links='elm': alvo = URL do artefato no ELM; é embed se está em `embedded` (mande-o em rm_update_requirement).
+    links='bundle' (bundle da elm-sync): artefato do bundle = embed, alvo = caminho relativo do arquivo
     ('../03-Regras/2001-rn-validar-cpf.md', mesmo `path` de rm_search_requirements); o resto (outra PA, fora das
-    pastas) = link, alvo = URL do ALM. Sem `embedded` no cabeçalho: a regra já diz o que é embed."""
+    pastas) = link, alvo = URL do ELM. Sem `embedded` no cabeçalho: a regra já diz o que é embed."""
     return _requirement(project_area_identifier, component, configuration, requirement_id, links)[0]
 
 
@@ -286,7 +286,7 @@ def _requirement(project_area_identifier: str, component: str, configuration: st
     """(documento de rm_get_requirement, {path, title, last_modified, generated_at, modified}) para gravar no bundle.
     `bundle_ids`: ids do inventário do bundle (None = todo artefato legível); no bundle, artefato dele vira o
     arquivo (embed) e o resto, a URL (link). modified = algum link foi normalizado (link da UI web, embed fora do
-    bundle ou hyperlink para artefato do bundle): o arquivo difere do texto no ALM e precisa subir."""
+    bundle ou hyperlink para artefato do bundle): o arquivo difere do texto no ELM e precisa subir."""
     configuration = _url(STREAM, configuration)
     resource = requirements.get_requirement(project_area_identifier, component, requirement_id,
                                             configuration_url=configuration)
@@ -344,7 +344,7 @@ def _requirement(project_area_identifier: str, component: str, configuration: st
     login = lambda predicate: next((link["url"].rsplit("/", 1)[-1] for link in res_links.get(predicate, [])), None)
     actor = lambda predicate: f"human:{user}" if (user := login(predicate)) else None
     url = resource["url"].split("?")[0]  # URI canônico do artefato
-    # OKF §5.1/§5.2: a última modificação no ALM é da fonte (sources.last_modified); generated.at é quando o
+    # OKF §5.1/§5.2: a última modificação no ELM é da fonte (sources.last_modified); generated.at é quando o
     # documento foi escrito, para comparar e saber se a cópia baixada está desatualizada
     source = {"id": "doors-next", "resource": url, "author": actor("dcterms:creator"),
               "last_modified": utc_datetime(props.get("dcterms:modified")),
@@ -399,10 +399,10 @@ def _write_requirement(pa: str, component: str, configuration: str, rid: str, ro
 
 
 def _downloaded(row: dict, meta: dict) -> None:
-    """Linha do sync.md depois de gravar o arquivo: data do ALM e hash deste momento; 'normalizado' se o md ficou
-    diferente do ALM (link normalizado) e precisa subir."""
+    """Linha do sync.md depois de gravar o arquivo: data do ELM e hash deste momento; 'normalizado' se o md ficou
+    diferente do ELM (link normalizado) e precisa subir."""
     row.update(title=meta["title"], folder=row["folder"] or posixpath.dirname(meta["path"]), path=meta["path"],
-               alm=meta["last_modified"] or "", hash=meta["hash"],
+               elm=meta["last_modified"] or "", hash=meta["hash"],
                status="normalizado" if meta["modified"] else "sincronizado")
 
 
@@ -426,19 +426,19 @@ def _remove(root: str, path: str | None) -> None:
 @tool
 def rm_sync_plan(project_area_identifier: str, component: str, configuration: str, folders: dict[str, str],
                  dest: str) -> dict:
-    """Inventário do bundle da alm-sync sem passar a lista pela conversa. `folders`: rm.folders inteiro
+    """Inventário do bundle da elm-sync sem passar a lista pela conversa. `folders`: rm.folders inteiro
     {nome: identifier}; `dest`: caminho ABSOLUTO da raiz do bundle (rm.download.path). Lista cada pasta
     (rm_count_folder + rm_list_folder), compara com o sync.md de dest e o regrava. Estados:
-    'novo' (não baixado), 'sincronizado' (md == ALM), 'desatualizado' (o ALM mudou desde o último download:
-    modified != 'Última atualização ALM'), 'atualizado' (o md mudou: sha256 != Hash; sobe com
-    rm_upload_requirements), 'normalizado' (md NÃO editado, hash igual: o ALM foge da regra embed/link do bundle,
-    diferença que não aparece no md; não é falso positivo, sobe com rm_upload_requirements), 'conflito' (md e ALM
+    'novo' (não baixado), 'sincronizado' (md == ELM), 'desatualizado' (o ELM mudou desde o último download:
+    modified != 'Última atualização ELM'), 'atualizado' (o md mudou: sha256 != Hash; sobe com
+    rm_upload_requirements), 'normalizado' (md NÃO editado, hash igual: o ELM foge da regra embed/link do bundle,
+    diferença que não aparece no md; não é falso positivo, sobe com rm_upload_requirements), 'conflito' (md e ELM
     mudaram), 'erro: ...'. Mudou de pasta = removido da antiga e
     novo na nova (o arquivo é apagado; se ele tem edição local, vira 'conflito' e fica). Artefato do sync.md que não
     está em nenhuma pasta = removido: o arquivo é APAGADO e a linha sai (não apaga nada se alguma pasta vier com
     count != listados: índice instável, ids em nao_confirmados).
-    Fluxo da alm-sync: 1) rm_sync_plan; 2) rm_download_requirements até restantes = 0; 3) para cada item de
-    `conflitos`, PERGUNTE AO USUÁRIO qual versão fica: ALM -> rm_download_requirements(requirement_ids=[id]);
+    Fluxo da elm-sync: 1) rm_sync_plan; 2) rm_download_requirements até restantes = 0; 3) para cada item de
+    `conflitos`, PERGUNTE AO USUÁRIO qual versão fica: ELM -> rm_download_requirements(requirement_ids=[id]);
     md -> rm_upload_requirements(requirement_ids=[id]); 4) rm_upload_requirements até restantes = 0.
     Retorna só o resumo: {pastas: {nome: {total, listados, <estado>: n}}, removidos: [{id, title, folder}],
     inconsistentes: [nomes], nao_confirmados: [ids], a_baixar, a_subir, conflitos: [{id, title, folder, path}]}."""
@@ -458,7 +458,7 @@ def rm_sync_plan(project_area_identifier: str, component: str, configuration: st
     for rid, item in listed.items():
         row = rows.get(rid)
         if row is None or not row["hash"]:
-            rows[rid] = {"id": rid, "title": item["title"], "folder": item["folder"], "path": None, "alm": "",
+            rows[rid] = {"id": rid, "title": item["title"], "folder": item["folder"], "path": None, "elm": "",
                          "hash": "", "status": "novo"}
             continue
         local = (row["status"] in ("atualizado", "conflito")
@@ -466,13 +466,13 @@ def rm_sync_plan(project_area_identifier: str, component: str, configuration: st
         if row["folder"] != item["folder"] and not local:
             _remove(root, row["path"])
             moved.append({**row, "path": None})
-            row.update(path=None, alm="", hash="", status="novo")
+            row.update(path=None, elm="", hash="", status="novo")
         elif row["folder"] != item["folder"]:
             row["status"] = "conflito"
         else:
-            alm = (item["modified"] or "") != row["alm"] or row["status"].startswith(("erro", "desatualizado"))
-            row["status"] = ("conflito" if local and alm else "atualizado" if local
-                             else "desatualizado" if alm else "normalizado" if row["status"] == "normalizado"
+            elm = (item["modified"] or "") != row["elm"] or row["status"].startswith(("erro", "desatualizado"))
+            row["status"] = ("conflito" if local and elm else "atualizado" if local
+                             else "desatualizado" if elm else "normalizado" if row["status"] == "normalizado"
                              else "sincronizado")
         row.update(title=item["title"], folder=item["folder"])
     gone = [r for rid, r in rows.items() if rid not in listed]
@@ -500,12 +500,12 @@ def rm_sync_plan(project_area_identifier: str, component: str, configuration: st
 @tool
 def rm_download_requirements(project_area_identifier: str, component: str, configuration: str, dest: str,
                              requirement_ids: list[str] | None = None, limit: int = 50) -> dict:
-    """Baixa para o bundle da alm-sync sem passar o conteúdo pela conversa: o mesmo documento de
+    """Baixa para o bundle da elm-sync sem passar o conteúdo pela conversa: o mesmo documento de
     rm_get_requirement(links='bundle') em '<dest>/<caminho da pasta>/<id>-<slug>.md' (apaga '<id>-*.md' antigo
     se o título ou a pasta mudou). `dest`: caminho ABSOLUTO da raiz do bundle. Sem `requirement_ids`, pega as
     próximas `limit` linhas novo/desatualizado/erro do sync.md (a fila de rm_sync_plan); com ids, baixa esses,
-    inclusive 'conflito' (o usuário escolheu a versão do ALM: a edição do md é sobrescrita).
-    Linha baixada = 'sincronizado', ou 'normalizado' se o md ficou diferente do ALM (link da UI web, embed de
+    inclusive 'conflito' (o usuário escolheu a versão do ELM: a edição do md é sobrescrita).
+    Linha baixada = 'sincronizado', ou 'normalizado' se o md ficou diferente do ELM (link da UI web, embed de
     artefato fora do bundle ou hyperlink para artefato do bundle normalizados): sobe com rm_upload_requirements.
     No md embed e link para o bundle são iguais, então o diff do md não mostra essa diferença.
     Atualiza as linhas no sync.md a cada chamada (retomada), registra criados/atualizados no log.md e regera os
@@ -526,7 +526,7 @@ def rm_download_requirements(project_area_identifier: str, component: str, confi
     with ThreadPoolExecutor(WORKERS) as pool:
         results = list(pool.map(fetch, ids))
     for rid, meta in zip(ids, results):
-        row = rows.get(rid) or {"id": rid, "title": rid, "folder": "", "path": None, "alm": "", "hash": ""}
+        row = rows.get(rid) or {"id": rid, "title": rid, "folder": "", "path": None, "elm": "", "hash": ""}
         if not isinstance(meta, Exception):
             (updated if row["hash"] else created).append(row)
             _downloaded(row, meta)
@@ -559,12 +559,12 @@ def _bundle_embeds(configuration: str, body: str, bundle_ids: set[str]) -> list[
 @tool
 def rm_upload_requirements(project_area_identifier: str, component: str, configuration: str, dest: str,
                            requirement_ids: list[str] | None = None, limit: int = 50) -> dict:
-    """Sobe para o ALM os md editados do bundle da alm-sync (rode depois de rm_download_requirements zerar).
-    Sem `requirement_ids`, pega as próximas `limit` linhas 'atualizado'/'normalizado' do sync.md e só sobe se o ALM não mudou
+    """Sobe para o ELM os md editados do bundle da elm-sync (rode depois de rm_download_requirements zerar).
+    Sem `requirement_ids`, pega as próximas `limit` linhas 'atualizado'/'normalizado' do sync.md e só sobe se o ELM não mudou
     desde o download (senão a linha vira 'conflito' e nada sobe); com ids, sobe esses sem checar (o usuário
     escolheu a versão do md num conflito). Envia title (cabeçalho) e o corpo: artefato do bundle vira embed e o
     resto, link (`links` do cabeçalho não sobe). Formatos no corpo: embed [<id>](<id>); link para artefato de outra
-    PA [<id>](<URL do ALM>); link externo [<texto descritivo>](<url>). Depois rebaixa o requisito (linha
+    PA [<id>](<URL do ELM>); link externo [<texto descritivo>](<url>). Depois rebaixa o requisito (linha
     'sincronizado'). Erro num id não para o lote e mantém a linha como está.
     Retorna {enviados, erros: [{id, error}], conflitos: [ids], restantes}: chame de novo até restantes = 0."""
     pa, root = project_area_identifier, _root(dest)
@@ -577,7 +577,7 @@ def rm_upload_requirements(project_area_identifier: str, component: str, configu
             row = rows[rid]
             if not requirement_ids:
                 current = requirements.get_requirement(pa, component, rid, configuration_url=stream)
-                if utc_datetime(current["properties"].get("dcterms:modified")) != row["alm"]:
+                if utc_datetime(current["properties"].get("dcterms:modified")) != row["elm"]:
                     return "conflito"
             with open(os.path.join(root, row["path"]), encoding="utf-8") as f:
                 head, body = read_document(f.read())
@@ -613,7 +613,7 @@ def rm_create_requirement(
     project_area_identifier: str, component: str, configuration: str, requirement_type: str, folder: str,
     title: str, text: str, embedded: list[str] | None = None,
 ) -> dict:
-    """Cria um requisito na pasta e no tipo do alm.json (identifiers). `text`: Markdown ([x](alvo) cita o artefato;
+    """Cria um requisito na pasta e no tipo do elm.json (identifiers). `text`: Markdown ([x](alvo) cita o artefato;
     alvo = id, URL ou arquivo do bundle '<id>-....md') ou XHTML. `embedded`: artefatos ('id' ou 'id: título') cujos
     links no texto viram embed; os demais viram hyperlink. Retorna {id, title, url}."""
     pa = project_area_identifier

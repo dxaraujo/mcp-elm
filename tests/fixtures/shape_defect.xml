@@ -2,7 +2,7 @@
 <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
     xmlns:dcterms="http://purl.org/dc/terms/"
     xmlns:oslc="http://open-services.net/ns/core#">
-  <oslc:ResourceShape rdf:about="https://alm.test/ccm/oslc/context/_PA1/shapes/workitems/defect">
+  <oslc:ResourceShape rdf:about="https://elm.test/ccm/oslc/context/_PA1/shapes/workitems/defect">
     <dcterms:title>Defect</dcterms:title>
     <oslc:property>
       <oslc:Property>
@@ -10,7 +10,7 @@
         <oslc:name>filedAgainst</oslc:name>
         <oslc:propertyDefinition rdf:resource="http://jazz.net/xmlns/prod/jazz/rtc/cm/1.0/filedAgainst"/>
         <oslc:occurs rdf:resource="http://open-services.net/ns/core#Exactly-one"/>
-        <oslc:allowedValues rdf:resource="https://alm.test/ccm/oslc/context/_PA1/shapes/workitems/defect/allowedValues/filedAgainst"/>
+        <oslc:allowedValues rdf:resource="https://elm.test/ccm/oslc/context/_PA1/shapes/workitems/defect/allowedValues/filedAgainst"/>
       </oslc:Property>
     </oslc:property>
     <oslc:property>
@@ -18,7 +18,7 @@
         <dcterms:title>Planned For</dcterms:title>
         <oslc:name>target</oslc:name>
         <oslc:propertyDefinition rdf:resource="http://jazz.net/xmlns/prod/jazz/rtc/cm/1.0/plannedFor"/>
-        <oslc:allowedValue rdf:resource="https://alm.test/ccm/oslc/iterations/_IT1"/>
+        <oslc:allowedValue rdf:resource="https://elm.test/ccm/oslc/iterations/_IT1"/>
       </oslc:Property>
     </oslc:property>
     <oslc:property>
@@ -26,10 +26,10 @@
         <dcterms:title>Priority</dcterms:title>
         <oslc:name>priority</oslc:name>
         <oslc:propertyDefinition rdf:resource="http://open-services.net/ns/cm-x#priority"/>
-        <oslc:range rdf:resource="https://alm.test/ccm/oslc/enumerations/_PA1/priority"/>
-        <oslc:allowedValue rdf:resource="https://alm.test/ccm/oslc/enumerations/_PA1/priority/priority.literal.l1"/>
-        <oslc:allowedValue rdf:resource="https://alm.test/ccm/oslc/enumerations/_PA1/priority/priority.literal.l2"/>
-        <oslc:defaultValue rdf:resource="https://alm.test/ccm/oslc/enumerations/_PA1/priority/priority.literal.l2"/>
+        <oslc:range rdf:resource="https://elm.test/ccm/oslc/enumerations/_PA1/priority"/>
+        <oslc:allowedValue rdf:resource="https://elm.test/ccm/oslc/enumerations/_PA1/priority/priority.literal.l1"/>
+        <oslc:allowedValue rdf:resource="https://elm.test/ccm/oslc/enumerations/_PA1/priority/priority.literal.l2"/>
+        <oslc:defaultValue rdf:resource="https://elm.test/ccm/oslc/enumerations/_PA1/priority/priority.literal.l2"/>
       </oslc:Property>
     </oslc:property>
   </oslc:ResourceShape>

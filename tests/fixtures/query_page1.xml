@@ -3,15 +3,15 @@
     xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#"
     xmlns:dcterms="http://purl.org/dc/terms/"
     xmlns:oslc="http://open-services.net/ns/core#">
-  <rdf:Description rdf:about="https://alm.test/ccm/oslc/contexts/_PA1/workitems">
+  <rdf:Description rdf:about="https://elm.test/ccm/oslc/contexts/_PA1/workitems">
     <rdfs:member>
-      <rdf:Description rdf:about="https://alm.test/ccm/resource/itemName/com.ibm.team.workitem.WorkItem/1">
+      <rdf:Description rdf:about="https://elm.test/ccm/resource/itemName/com.ibm.team.workitem.WorkItem/1">
         <dcterms:identifier>1</dcterms:identifier>
         <dcterms:title>Primeiro</dcterms:title>
       </rdf:Description>
     </rdfs:member>
   </rdf:Description>
-  <oslc:ResponseInfo rdf:about="https://alm.test/ccm/oslc/contexts/_PA1/workitems?page=1">
-    <oslc:nextPage rdf:resource="https://alm.test/ccm/oslc/contexts/_PA1/workitems?page=2"/>
+  <oslc:ResponseInfo rdf:about="https://elm.test/ccm/oslc/contexts/_PA1/workitems?page=1">
+    <oslc:nextPage rdf:resource="https://elm.test/ccm/oslc/contexts/_PA1/workitems?page=2"/>
   </oslc:ResponseInfo>
 </rdf:RDF>

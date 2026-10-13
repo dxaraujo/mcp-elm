@@ -1,7 +1,7 @@
 """Servidor MCP do IBM ELM (DOORS Next, EWM, ETM).
 
-As tools são os serviços de mcp_alm/ibm/ (nomes e parâmetros do IBM Engineering AI Hub 1.3.0),
-registrados com `@tool`; o encanamento HTTP/OSLC fica em mcp_alm/infra/.
+As tools são os serviços de mcp_elm/ibm/ (nomes e parâmetros do IBM Engineering AI Hub 1.3.0),
+registrados com `@tool`; o encanamento HTTP/OSLC fica em mcp_elm/infra/.
 """
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
 mcp = MCPServer(
-    "alm",
+    "elm",
     instructions=(
         "Acesso ao IBM ELM com as tools do IBM Engineering AI Hub (mesmos nomes e parâmetros). "
         "Descubra UUIDs com list_project_areas(app_type) e get_project_area; componentes com "
@@ -20,7 +20,7 @@ mcp = MCPServer(
     ),
 )
 
-# RuntimeError: AlmHttpError/AuthError; OSError: arquivo de config e falhas de rede do requests
+# RuntimeError: ElmHttpError/AuthError; OSError: arquivo de config e falhas de rede do requests
 EXPECTED = (RuntimeError, OSError, LookupError, ValueError)
 
 

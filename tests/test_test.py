@@ -2,7 +2,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
-from mcp_alm.ibm import test
+from mcp_elm.ibm import test
 
 from conftest import SERVER
 

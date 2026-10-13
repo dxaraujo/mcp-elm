@@ -1,6 +1,6 @@
 import pytest
 
-from mcp_alm import ccm
+from mcp_elm import ccm
 
 from conftest import SERVER, fixture, ok, xml_ok
 
@@ -159,7 +159,7 @@ def test_field_values_category(srv):
         {"identifier": "_C1", "name": "Backend", "default": False}]
 
 
-def test_create_workitem_uses_alm_json_keys(srv):
+def test_create_workitem_uses_elm_json_keys(srv):
     sent = {}
     factory = f"{SERVER}/ccm/oslc/contexts/_PA1/workitems/defect"
     srv.routes[("POST", factory)] = lambda req: (sent.update(body=req.body), (201, {"Location": WI7}, b""))[1]

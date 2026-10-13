@@ -1,6 +1,6 @@
 import pytest
 
-from mcp_alm.ibm import common
+from mcp_elm.ibm import common
 
 from conftest import SERVER, fixture, ok, xml_ok
 

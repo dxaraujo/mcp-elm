@@ -1,9 +1,9 @@
 """Documento Markdown + YAML das tools de leitura (rm_get_requirement, ccm_get_workitem).
 
 Cabeçalho YAML com os campos, corpo em Markdown. Todo artefato citado no texto do DOORS Next, embutido ou
-hyperlink, vira `[id título](alvo)` (alvo = URL do ALM ou caminho do arquivo); o que é embed fica na lista
+hyperlink, vira `[id título](alvo)` (alvo = URL do ELM ou caminho do arquivo); o que é embed fica na lista
 `embedded` do cabeçalho. Na gravação, o link cujo artefato está em `embedded` volta a ser embed e o resto,
-hyperlink. Alvos aceitos na gravação: URL do ALM, id (`2001`) ou arquivo (`../03-Regras/2001-x.md`).
+hyperlink. Alvos aceitos na gravação: URL do ELM, id (`2001`) ou arquivo (`../03-Regras/2001-x.md`).
 """
 from __future__ import annotations
 
@@ -79,8 +79,8 @@ def resource_url(url: str) -> str:
 
 
 def artifact_ref(target: str) -> str | None:
-    """Alvo de link escrito pelo usuário -> URL do artefato no ALM ou id; None se não for artefato do RM.
-    Aceita URL do ALM ('/rm/resources/' ou link da UI web com artifactURI), id ('2001') e arquivo cujo nome começa pelo id
+    """Alvo de link escrito pelo usuário -> URL do artefato no ELM ou id; None se não for artefato do RM.
+    Aceita URL do ELM ('/rm/resources/' ou link da UI web com artifactURI), id ('2001') e arquivo cujo nome começa pelo id
     ('../03-Regras/2001-x.md', '2001 REG Nome.md', '2001 REG Nome')."""
     target = unquote(resource_url(unescape(target))).strip()
     if "/rm/resources/" in target:

@@ -88,7 +88,7 @@ def get_user(user_uuid: str | None = None, search_term: str | None = None) -> di
 
 @tool
 def whoami() -> dict:
-    """Usuário autenticado (login do alm.properties): {userUUID, userId, name, emailAddress, archived}.
+    """Usuário autenticado (login do elm.properties): {userUUID, userId, name, emailAddress, archived}.
     Serve para testar a conexão: falha de credencial vira erro de autenticação."""
     login = get_session().cfg.user.lower()
     found = next((c for c in contributors() if (c["userId"] or "").lower() == login), None)
@@ -268,7 +268,7 @@ def search_global_configuration(
 # --- links de rastreabilidade (gravados sempre no work item ou no teste; o DOORS Next mostra o backlink)
 
 REQUIREMENT_LINKS = {
-    "calm:implementsRequirement", "oslc_cm:implementsRequirement", "oslc_cm:affectsRequirement",
+    "celm:implementsRequirement", "oslc_cm:implementsRequirement", "oslc_cm:affectsRequirement",
     "oslc_cm:tracksRequirement", "oslc_qm:validatesRequirement", "oslc_qm:validatesRequirementCollection",
     "oslc_rm:elaboratedBy", "oslc_rm:elaborates", "oslc_rm:satisfiedBy", "oslc_rm:satisfies",
     "oslc_rm:decomposedBy", "oslc_rm:decomposes", "oslc_rm:constrainedBy", "oslc_rm:constrains",
@@ -281,10 +281,10 @@ WORKITEM_LINKS = {
 TESTARTIFACT_LINKS = {
     "oslc_rm:validatedBy", "oslc_cm:testedByTestCase", "oslc_cm:affectsTestResult",
     "oslc_cm:blocksTestExecutionRecord", "oslc_cm:relatedTestCase", "oslc_cm:relatedTestExecutionRecord",
-    "oslc_cm:relatedTestPlan", "oslc_cm:relatedTestScript", "calm:testedByTestCase",
+    "oslc_cm:relatedTestPlan", "oslc_cm:relatedTestScript", "celm:testedByTestCase",
 }
 WORKITEM_TO_REQUIREMENT = {
-    "implements": "calm:implementsRequirement", "implementedby": "calm:implementsRequirement",
+    "implements": "celm:implementsRequirement", "implementedby": "celm:implementsRequirement",
     "affects": "oslc_cm:affectsRequirement", "affectedby": "oslc_cm:affectsRequirement",
     "tracks": "oslc_cm:tracksRequirement", "trackedby": "oslc_cm:tracksRequirement",
 }

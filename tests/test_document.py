@@ -1,13 +1,13 @@
 from datetime import datetime, timezone
 
-from mcp_alm.infra.document import (artifact_ref, document, link_targets, local_datetime, one_line, read_document,
+from mcp_elm.infra.document import (artifact_ref, document, link_targets, local_datetime, one_line, read_document,
                                     slug, to_ewm_html, to_markdown, to_xhtml, utc_datetime)
 
 UC_HTML = """<div xmlns="http://www.w3.org/1999/xhtml">
 <h2 dir="ltr" id="_1">Pré-condição:</h2>
 <p dir="ltr"><span style="font-size:12pt"><span class="TextRun">esteja </span><span class="NormalTextRun">difer</span><span>ente de cancelado.</span></span></p>
 <h1><b><span style="font-size:14pt">Fluxo Básico:</span></b></h1>
-<ol dir="ltr"><li><span>O sistema verifica se o cliente foi identificado:<span> </span><span class="com-ibm-rdm-editor-EmbeddedResourceDecorator minimised"><a class="embedded" href="https://alm.test/rm/resources/TX_1">  </a></span></span> <span>  </span></li>
+<ol dir="ltr"><li><span>O sistema verifica se o cliente foi identificado:<span> </span><span class="com-ibm-rdm-editor-EmbeddedResourceDecorator minimised"><a class="embedded" href="https://elm.test/rm/resources/TX_1">  </a></span></span> <span>  </span></li>
 <li><span>O sistema verifica a compatibilidade: </span> <span>  </span></li>
 <li id="_3"> </li></ol>
 <p> </p></div>"""
@@ -51,7 +51,7 @@ def test_word_html_to_markdown_keeps_structure_and_embeds():
     md = to_markdown(UC_HTML, lambda url: ("2001 Regra de validação", url))
     assert md == ("## Pré-condição:\n\nesteja diferente de cancelado.\n\n# **Fluxo Básico:**\n\n"
                   "1. O sistema verifica se o cliente foi identificado: "
-                  "[2001 Regra de validação](https://alm.test/rm/resources/TX_1)\n"
+                  "[2001 Regra de validação](https://elm.test/rm/resources/TX_1)\n"
                   "2. O sistema verifica a compatibilidade:")
 
 
@@ -72,10 +72,10 @@ def test_table_to_markdown():
 
 
 def test_markdown_to_xhtml_with_embed():
-    html = to_xhtml("## Fluxo\n\n1. Passo [2001 Regra](2001)\n2. Outro & mais", lambda i: f"https://alm.test/rm/{i}",
+    html = to_xhtml("## Fluxo\n\n1. Passo [2001 Regra](2001)\n2. Outro & mais", lambda i: f"https://elm.test/rm/{i}",
                     ["2001: Regra"])
     assert "<h2>Fluxo</h2>" in html and "<ol>" in html and "&amp; mais" in html
-    assert '<a class="embedded" href="https://alm.test/rm/2001"> </a>' in html
+    assert '<a class="embedded" href="https://elm.test/rm/2001"> </a>' in html
 
 
 def test_local_datetime_and_one_line():
@@ -124,15 +124,15 @@ def test_loose_list_keeps_numbering():
     assert to_markdown(html) == "1. Item\n   - sub A\n2. Outro"
 
 
-RM = "https://alm.test/rm/resources/TX_"
+RM = "https://elm.test/rm/resources/TX_"
 REGRA = (f"{RM}2001", "2001 RN - Validar CPF", "../03 Regras/2001-rn-validar-cpf.md")
 
 
 def test_artifact_links_read_in_fixed_pattern():
     html = (f'<p>Valida: <a class="embedded" href="{REGRA[0]}"> </a> e cita a <a href="{REGRA[0]}">RN 2001</a>; '
             f'ver <a href="https://site/x">site</a></p>')
-    alm = to_markdown(html, lambda u: (REGRA[1], u) if u.startswith(RM) else None)
-    assert alm == f"Valida: [{REGRA[1]}]({REGRA[0]}) e cita a [{REGRA[1]}]({REGRA[0]}); ver [site](https://site/x)"
+    elm = to_markdown(html, lambda u: (REGRA[1], u) if u.startswith(RM) else None)
+    assert elm == f"Valida: [{REGRA[1]}]({REGRA[0]}) e cita a [{REGRA[1]}]({REGRA[0]}); ver [site](https://site/x)"
     bundle = to_markdown(html, lambda u: (REGRA[1], REGRA[2]) if u.startswith(RM) else None)
     assert bundle.count(f"[{REGRA[1]}](<{REGRA[2]}>)") == 2 and "!" not in bundle
 
@@ -146,8 +146,8 @@ def test_unresolved_embed_is_a_plain_link():
 def test_write_embed_comes_from_embedded_list():
     url = lambda ref: ref if ref.startswith("http") else f"{RM}{ref}"
     embed = f'<a class="embedded" href="{RM}2001"> </a>'
-    web = ("https://alm.test/rm/web#action=com.ibm.rdm.web.pages.showArtifactPage&artifactURI="
-           "https%3A%2F%2Falm.test%2Frm%2Fresources%2FTX_2001&componentURI=x")
+    web = ("https://elm.test/rm/web#action=com.ibm.rdm.web.pages.showArtifactPage&artifactURI="
+           "https%3A%2F%2Felm.test%2Frm%2Fresources%2FTX_2001&componentURI=x")
     forms = (f"[x]({RM}2001)", "[2001](2001)", f"[x](<{REGRA[2]}>)", "[2001 RN Validar](2001 RN Validar)",
              f"[x]({web})")
     for md in forms:
@@ -194,7 +194,7 @@ def test_styled_spans_become_markdown_emphasis():
 
 
 def test_literal_text_is_escaped_and_survives_upload():
-    # '<nome banco>' (ETs do PAB) virava tag HTML na gravação e o texto sumia do ALM
+    # '<nome banco>' (ETs do PAB) virava tag HTML na gravação e o texto sumia do ELM
     md = to_markdown("<p>Dados de &lt;nome banco&gt; e DS_CRED_X e 2*3 [x]</p>")
     assert md == "Dados de \\<nome banco> e DS_CRED_X e 2\\*3 \\[x\\]"
     assert to_xhtml(md, str) == "<p>Dados de &lt;nome banco&gt; e DS_CRED_X e 2*3 [x]</p>"

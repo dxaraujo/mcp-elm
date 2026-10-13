@@ -1,5 +1,5 @@
 [project]
-name = "mcp-alm"
+name = "mcp-elm"
 version = "1.0.33"
 description = "MCP server para IBM ELM (DOORS Next, EWM, ETM) via OSLC"
 readme = "README.md"
@@ -15,10 +15,10 @@ dependencies = [
 ]
 
 [project.urls]
-Repository = "https://github.com/dxaraujo/mcp-alm"
+Repository = "https://github.com/dxaraujo/mcp-elm"
 
 [project.scripts]
-mcp-alm = "mcp_alm.server:main"
+mcp-elm = "mcp_elm.server:main"
 
 [dependency-groups]
 dev = ["pytest>=8"]

@@ -5,11 +5,11 @@ import pytest
 import requests
 from requests.adapters import BaseAdapter
 
-from mcp_alm.infra.config import AlmConfig
-from mcp_alm.infra.http import AlmSession, set_session
+from mcp_elm.infra.config import ElmConfig
+from mcp_elm.infra.http import ElmSession, set_session
 
 FIXTURES = Path(__file__).parent / "fixtures"
-SERVER = "https://alm.test"
+SERVER = "https://elm.test"
 
 
 def fixture(name: str) -> bytes:
@@ -42,10 +42,10 @@ class FakeAdapter(BaseAdapter):
 
 
 def _clear_caches():
-    from mcp_alm.infra import oslc
+    from mcp_elm.infra import oslc
     oslc.clear_cache()
     try:
-        from mcp_alm.ibm import common
+        from mcp_elm.ibm import common
         common.contributors.cache_clear()
     except ImportError:  # antes da Task 3 o módulo não existe
         pass
@@ -53,9 +53,9 @@ def _clear_caches():
 
 @pytest.fixture
 def fake():
-    """Instala uma AlmSession global com FakeAdapter; devolve o adapter para configurar rotas."""
+    """Instala uma ElmSession global com FakeAdapter; devolve o adapter para configurar rotas."""
     adapter = FakeAdapter({})
-    session = AlmSession(AlmConfig(server=SERVER, user="joao", password="segredo"))
+    session = ElmSession(ElmConfig(server=SERVER, user="joao", password="segredo"))
     session.session.mount("https://", adapter)
     set_session(session)
     _clear_caches()

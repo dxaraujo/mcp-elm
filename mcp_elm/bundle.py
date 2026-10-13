@@ -1,4 +1,4 @@
-"""Bundle OKF da documentação do RM (alm-sync): o `sync.md` (fila e situação de cada artefato),
+"""Bundle OKF da documentação do RM (elm-sync): o `sync.md` (fila e situação de cada artefato),
 os `index.md` (raiz e um por diretório) e o `log.md` (o que cada sync mudou).
 Só formato e disco; as tools que os usam estão em rm.py."""
 from __future__ import annotations
@@ -13,8 +13,8 @@ from datetime import date, datetime, timezone
 from .infra.document import document, read_document, utc_datetime
 
 SYNC, INDEX, LOG = "sync.md", "index.md", "log.md"
-HEADER = "| Artefato | Pasta | Última atualização ALM | Hash | Status |"
-# linhas a baixar e a subir para o ALM
+HEADER = "| Artefato | Pasta | Última atualização ELM | Hash | Status |"
+# linhas a baixar e a subir para o ELM
 QUEUE = ("novo", "desatualizado", "erro")
 UPLOAD = ("atualizado", "normalizado")
 _CELL = re.compile(r"(?<!\\)\|")
@@ -36,8 +36,8 @@ def _label(row: dict) -> str:
 
 
 def read_sync(dest: str) -> dict[str, dict]:
-    """Linhas do `sync.md` por id: {id, title, folder, path (None se não baixado), alm, hash, status}.
-    `alm` = dcterms:modified do ALM no último download/upload; `hash` = sha256 do arquivo gravado."""
+    """Linhas do `sync.md` por id: {id, title, folder, path (None se não baixado), elm, hash, status}.
+    `elm` = dcterms:modified do ELM no último download/upload; `hash` = sha256 do arquivo gravado."""
     try:
         with open(os.path.join(dest, SYNC), encoding="utf-8") as f:
             lines = f.read().splitlines()
@@ -53,7 +53,7 @@ def read_sync(dest: str) -> dict[str, dict]:
             continue
         rows[m.group(1)] = {"id": m.group(1), "title": _unesc(m.group(2)),
                             "path": m.group(3) if m.re is _LINKED else None, "folder": _unesc(cells[1]),
-                            "alm": cells[2], "hash": cells[3], "status": cells[4]}
+                            "elm": cells[2], "hash": cells[3], "status": cells[4]}
     return rows
 
 
@@ -62,13 +62,13 @@ def _order(rows: dict[str, dict]) -> list[dict]:
 
 
 def write_sync(dest: str, rows: dict[str, dict], by: str) -> None:
-    head = {"type": "Relatório de Sincronismo", "title": "Sincronismo ALM → OKF",
+    head = {"type": "Relatório de Sincronismo", "title": "Sincronismo ELM → OKF",
             "description": "Situação de cada artefato do DOORS Next baixado neste bundle. 'normalizado': o md"
-                           " não foi editado; é o ALM que foge da regra do bundle (artefato do bundle = embed, o"
+                           " não foi editado; é o ELM que foge da regra do bundle (artefato do bundle = embed, o"
                            " resto = link), invisível no md, e o upload corrige.",
             "generated": {"by": by, "at": utc_datetime(datetime.now(timezone.utc))}}
     table = [HEADER, "|---|---|---|---|---|"] + [
-        f"| {_label(r)} | {_esc(r['folder'])} | {r['alm']} | {r['hash']} | {r['status']} |" for r in _order(rows)]
+        f"| {_label(r)} | {_esc(r['folder'])} | {r['elm']} | {r['hash']} | {r['status']} |" for r in _order(rows)]
     os.makedirs(dest, exist_ok=True)
     with open(os.path.join(dest, SYNC), "w", encoding="utf-8") as f:
         f.write(document(head, "\n".join(table)))
@@ -116,7 +116,7 @@ def write_index(dest: str, rows: dict[str, dict]) -> None:
                 line + (f" - {head['description']}" if head.get("description") else ""))
         if d == "":
             groups.setdefault("Relatório de Sincronismo", []).append(
-                "* [Sincronismo ALM → OKF](sync.md) - Situação de cada artefato do DOORS Next baixado neste bundle.")
+                "* [Sincronismo ELM → OKF](sync.md) - Situação de cada artefato do DOORS Next baixado neste bundle.")
         out += [f"# {typ}\n\n" + "\n".join(lines) + "\n" for typ, lines in groups.items()]
         subs = sorted(s for s in dirs if s and posixpath.dirname(s) == d)
         if subs:

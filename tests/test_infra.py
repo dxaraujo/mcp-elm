@@ -5,8 +5,8 @@ import pytest
 from rdflib import Graph, Literal, URIRef
 from rdflib.namespace import RDF
 
-from mcp_alm.infra import auth, config, oslc
-from mcp_alm.infra.http import AlmHttpError, get_session, get_xml, reportable
+from mcp_elm.infra import auth, config, oslc
+from mcp_elm.infra.http import ElmHttpError, get_session, get_xml, reportable
 
 from conftest import SERVER, fixture, ok, xml_ok
 
@@ -14,14 +14,14 @@ URL = f"{SERVER}/ccm/rootservices"
 
 
 def write(tmp_path: Path, body: str) -> Path:
-    p = tmp_path / "alm.properties"
+    p = tmp_path / "elm.properties"
     p.write_text(body, encoding="utf-8")
     return p
 
 
 def test_load_config_ok(tmp_path):
-    cfg = config.load_config(write(tmp_path, "[DEFAULT]\nserver = https://alm.x/\nuser = u\npassword = p%ss\n"))
-    assert (cfg.server, cfg.user, cfg.password) == ("https://alm.x", "u", "p%ss")
+    cfg = config.load_config(write(tmp_path, "[DEFAULT]\nserver = https://elm.x/\nuser = u\npassword = p%ss\n"))
+    assert (cfg.server, cfg.user, cfg.password) == ("https://elm.x", "u", "p%ss")
     assert "p%ss" not in repr(cfg)
 
 
@@ -33,7 +33,7 @@ def test_load_config_missing_key_and_file(tmp_path):
 
 
 def test_default_path_env(monkeypatch):
-    monkeypatch.setenv("MCP_ALM_CONFIG", "/tmp/x.properties")
+    monkeypatch.setenv("MCP_ELM_CONFIG", "/tmp/x.properties")
     assert config.default_path() == Path("/tmp/x.properties")
 
 
@@ -86,10 +86,10 @@ def test_basic_fallback(fake):
 
 def test_http_error_and_configuration_header(fake):
     fake.routes = {("GET", URL): (500, {}, b"boom")}
-    with pytest.raises(AlmHttpError, match="HTTP 500"):
-        get_session().request("GET", URL, configuration="https://alm.test/rm/cm/stream/_S1")
+    with pytest.raises(ElmHttpError, match="HTTP 500"):
+        get_session().request("GET", URL, configuration="https://elm.test/rm/cm/stream/_S1")
     req = fake.calls[0]
-    assert req.headers["Configuration-Context"] == "https://alm.test/rm/cm/stream/_S1"
+    assert req.headers["Configuration-Context"] == "https://elm.test/rm/cm/stream/_S1"
     assert "oslc_config.context=" in req.url
 
 
@@ -137,7 +137,7 @@ def test_resource_dict():
     r = oslc.resource(oslc.parse(fixture("workitem_42.xml")), URIRef(WI))
     assert (r["id"], r["title"], r["types"]) == ("42", "Corrigir login", ["oslc_cm:ChangeRequest"])
     assert r["properties"]["dcterms:description"] == "Falha ao logar & sair"
-    assert r["links"]["calm:implementsRequirement"] == [
+    assert r["links"]["celm:implementsRequirement"] == [
         {"url": f"{SERVER}/rm/resources/_R1", "title": "REQ-1 Login seguro"}]
 
 
@@ -180,7 +180,7 @@ def test_update_sends_etag(fake):
         return 200, {}, b""
 
     fake.routes = {("GET", WI): ok("workitem_42.xml", ETag='"v1"'), ("PUT", WI): put}
-    oslc.update(WI, {"calm:implementsRequirement": f"{SERVER}/rm/resources/_R2"}, append=True)
+    oslc.update(WI, {"celm:implementsRequirement": f"{SERVER}/rm/resources/_R2"}, append=True)
     assert captured["req"].headers["If-Match"] == '"v1"'
     assert b"_R1" in captured["req"].body and b"_R2" in captured["req"].body  # append mantém o existente
 

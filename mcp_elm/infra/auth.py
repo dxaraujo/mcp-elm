@@ -5,7 +5,7 @@ from urllib.parse import urlsplit
 
 import requests
 
-from .config import AlmConfig
+from .config import ElmConfig
 
 AUTH_HEADER = "X-com-ibm-team-repository-web-auth-msg"
 
@@ -30,7 +30,7 @@ def needs_auth(resp: requests.Response) -> bool:
     return resp.status_code in (301, 302, 303) and "auth" in resp.headers.get("Location", "").lower()
 
 
-def login(session: requests.Session, url: str, cfg: AlmConfig, failed: requests.Response) -> None:
+def login(session: requests.Session, url: str, cfg: ElmConfig, failed: requests.Response) -> None:
     """Autentica a sessão para o context root de `url`. Lança AuthError se falhar."""
     if failed.status_code == 401 and "basic" in failed.headers.get("WWW-Authenticate", "").lower():
         session.auth = (cfg.user, cfg.password)

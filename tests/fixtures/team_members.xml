@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?><jp06:members xmlns:jp06="http://jazz.net/xmlns/prod/jazz/process/0.6/">
   <jp06:member>
-    <jp06:user-url>https://alm.test/jts/users/joao</jp06:user-url>
+    <jp06:user-url>https://elm.test/jts/users/joao</jp06:user-url>
     <jp06:role-assignments>
-      <jp06:role-assignment><jp06:role-url>https://alm.test/ccm/process/project-areas/_PA1/roles/Dev</jp06:role-url></jp06:role-assignment>
-      <jp06:role-assignment><jp06:role-url>https://alm.test/ccm/process/project-areas/_PA1/roles/default</jp06:role-url></jp06:role-assignment>
+      <jp06:role-assignment><jp06:role-url>https://elm.test/ccm/process/project-areas/_PA1/roles/Dev</jp06:role-url></jp06:role-assignment>
+      <jp06:role-assignment><jp06:role-url>https://elm.test/ccm/process/project-areas/_PA1/roles/default</jp06:role-url></jp06:role-assignment>
     </jp06:role-assignments>
   </jp06:member>
 </jp06:members>

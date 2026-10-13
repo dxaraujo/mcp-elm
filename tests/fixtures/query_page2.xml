@@ -2,9 +2,9 @@
 <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
     xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#"
     xmlns:dcterms="http://purl.org/dc/terms/">
-  <rdf:Description rdf:about="https://alm.test/ccm/oslc/contexts/_PA1/workitems">
+  <rdf:Description rdf:about="https://elm.test/ccm/oslc/contexts/_PA1/workitems">
     <rdfs:member>
-      <rdf:Description rdf:about="https://alm.test/ccm/resource/itemName/com.ibm.team.workitem.WorkItem/2">
+      <rdf:Description rdf:about="https://elm.test/ccm/resource/itemName/com.ibm.team.workitem.WorkItem/2">
         <dcterms:identifier>2</dcterms:identifier>
         <dcterms:title>Segundo</dcterms:title>
       </rdf:Description>

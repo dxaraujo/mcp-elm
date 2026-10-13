@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?><jp06:team-areas xmlns:jp06="http://jazz.net/xmlns/prod/jazz/process/0.6/">
   <jp06:team-area jp06:name="Time A">
-    <jp06:url>https://alm.test/ccm/process/project-areas/_PA1/team-areas/_TA</jp06:url>
+    <jp06:url>https://elm.test/ccm/process/project-areas/_PA1/team-areas/_TA</jp06:url>
     <jp06:archived>false</jp06:archived>
-    <jp06:parent-url>https://alm.test/ccm/process/project-areas/_PA1/team-areas/_ROOT</jp06:parent-url>
+    <jp06:parent-url>https://elm.test/ccm/process/project-areas/_PA1/team-areas/_ROOT</jp06:parent-url>
   </jp06:team-area>
   <jp06:team-area jp06:name="Time Velho">
-    <jp06:url>https://alm.test/ccm/process/project-areas/_PA1/team-areas/_TV</jp06:url>
+    <jp06:url>https://elm.test/ccm/process/project-areas/_PA1/team-areas/_TV</jp06:url>
     <jp06:archived>true</jp06:archived>
   </jp06:team-area>
 </jp06:team-areas>
