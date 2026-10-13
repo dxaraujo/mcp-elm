@@ -174,3 +174,33 @@ def test_artifact_links_round_trip():
 def test_slug():
     assert slug("UC - Validação  de (CPF) / Nome") == "uc-validacao-de-cpf-nome"
     assert len(slug("a" * 100)) == 60
+
+
+def test_emphasis_keeps_spaces_outside_the_markers():
+    # o editor do DOORS grava '<b>igual </b>ao': '**igual **ao' não é negrito no CommonMark
+    assert to_markdown("<p><b>Campo: </b>CS-ESPEC</p>") == "**Campo:** CS-ESPEC"
+    assert to_markdown("<p>o CPF <b>igual </b>ao e<b> não</b> deve</p>") == "o CPF **igual** ao e **não** deve"
+    assert to_markdown('<p>a <b> <a class="embedded" href="u"> </a> </b> b</p>', lambda u: ("1 X", u)) == "a [1 X](u) b"
+    assert to_markdown('<p><b>ver <a href="https://x">link</a></b></p>') == "**ver [link](https://x)**"
+
+
+def test_styled_spans_become_markdown_emphasis():
+    html = ('<p><span style="font-weight:700">x</span> <span style="font-style: italic; color: red">y</span> '
+            '<span style="text-decoration:line-through">z</span> <del>w</del> '
+            '<b><span style="font-weight:bold">dup</span></b> <span style="font-weight:400;color:#000">n</span></p>')
+    md = to_markdown(html)
+    assert md == "**x** *y* ~~z~~ ~~w~~ **dup** n"
+    assert to_xhtml(md, str) == "<p><strong>x</strong> <em>y</em> <s>z</s> <s>w</s> <strong>dup</strong> n</p>"
+
+
+def test_literal_text_is_escaped_and_survives_upload():
+    # '<nome banco>' (ETs do PAB) virava tag HTML na gravação e o texto sumia do ALM
+    md = to_markdown("<p>Dados de &lt;nome banco&gt; e DS_CRED_X e 2*3 [x]</p>")
+    assert md == "Dados de \\<nome banco> e DS_CRED_X e 2\\*3 \\[x\\]"
+    assert to_xhtml(md, str) == "<p>Dados de &lt;nome banco&gt; e DS_CRED_X e 2*3 [x]</p>"
+    assert to_markdown("<table><tr><td>a|b</td></tr></table>") == "| a\\|b |\n| --- |"
+
+
+def test_emphasis_round_trip_is_stable():
+    for md in ("**a** b", "*i* e ~~x~~", "\\<regra>"):
+        assert to_markdown(to_xhtml(md, str)) == md

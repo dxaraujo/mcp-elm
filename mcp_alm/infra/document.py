@@ -162,6 +162,18 @@ def read_document(text: str) -> tuple[dict, str]:
 
 # --- XHTML -> Markdown
 
+EMPHASIS = {"b": "**", "strong": "**", "i": "*", "em": "*", "del": "~~", "s": "~~", "strike": "~~"}
+
+
+def _style_markers(style: str) -> list[str]:
+    """Ênfase de um style="..." (texto colado do Word): negrito, itálico e riscado; cor, fonte etc. são ignorados."""
+    css = {k.strip().lower(): v.strip().lower() for k, _, v in (d.partition(":") for d in style.split(";"))}
+    deco = css.get("text-decoration", "") + css.get("text-decoration-line", "")
+    return [marker for marker, on in (("**", re.fullmatch(r"bold(?:er)?|[6-9]00", css.get("font-weight", ""))),
+                                      ("*", css.get("font-style") in ("italic", "oblique")),
+                                      ("~~", "line-through" in deco)) if on]
+
+
 class _ToMarkdown(HTMLParser):
     def __init__(self, artifact: Artifact | None):
         super().__init__(convert_charrefs=True)
@@ -171,6 +183,36 @@ class _ToMarkdown(HTMLParser):
         self.row_cells: int | None = None
         self.rows = 0
         self.item_start = False  # logo depois do marcador do item: <p> não abre parágrafo
+        self.in_cell = False
+        # ênfases abertas [chave, marcador, escrito?]: o marcador só sai no 1º texto, para o espaço ficar fora dele
+        self.marks: list[list] = []
+        self.spans: list[list[str]] = []  # chaves das ênfases abertas por cada <span style>
+
+    def _open(self, key: str, marker: str):
+        if any(m[1] == marker for m in self.marks):  # <b> dentro de span bold: não duplica o '**'
+            marker = ""
+        self.marks.append([key, marker, False])
+
+    def _close(self, key: str):
+        i = next((i for i in range(len(self.marks) - 1, -1, -1) if self.marks[i][0] == key), None)
+        if i is None:
+            return
+        _, marker, written = self.marks.pop(i)
+        if not written or not marker:  # ênfase sem texto (só espaço ou embed): some
+            return
+        space = False
+        while self.out and not self.out[-1].strip(" \t"):
+            space |= bool(self.out.pop())
+        if self.out and (tail := self.out[-1].rstrip(" \t")) != self.out[-1]:
+            self.out[-1], space = tail, True
+        self.out += [marker, " " * space]  # '**igual **ao' -> '**igual** ao'
+
+    def _flush(self):
+        """Escreve os marcadores pendentes (logo antes do 1º conteúdo visível da ênfase)."""
+        for m in self.marks:
+            if not m[2]:
+                self.out.append(m[1])
+                m[2] = True
 
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
@@ -190,10 +232,13 @@ class _ToMarkdown(HTMLParser):
             kind[1] += 1
             self.out.append("\n" + "   " * (len(self.lists) - 1) + (f"{kind[1]}. " if kind[0] == "ol" else "- "))
             self.item_start = True
-        elif tag in ("b", "strong"):
-            self.out.append("**")
-        elif tag in ("i", "em"):
-            self.out.append("*")
+        elif tag in EMPHASIS:
+            self._open(tag, EMPHASIS[tag])
+        elif tag == "span":  # sempre empilha (mesmo sem estilo) para casar com o </span>
+            key = f"span{len(self.spans)}"
+            self.spans.append(markers := _style_markers(a.get("style") or ""))
+            for marker in markers:
+                self._open(key, marker)
         elif tag == "br":
             self.out.append("\\\n")  # quebra forçada do CommonMark: volta a ser <br /> na gravação
         elif tag == "tr":
@@ -201,6 +246,7 @@ class _ToMarkdown(HTMLParser):
             self.out.append("\n|")
         elif tag in ("td", "th"):
             self.row_cells = (self.row_cells or 0) + 1
+            self.in_cell = True
             self.out.append(" ")
         elif tag == "a" and "embedded" in (a.get("class") or "").split():
             href = a.get("href", "")
@@ -210,6 +256,7 @@ class _ToMarkdown(HTMLParser):
             self.out.append(md_link(*found))  # padrão fixo: o texto do link é trocado por 'id título'
             self.in_embed, self.item_start = True, False
         elif tag == "a" and a.get("href"):
+            self._flush()  # '**[x](y)**', não '[**x](y)**'
             self.href = a["href"]
             self.out.append("[")
 
@@ -218,11 +265,14 @@ class _ToMarkdown(HTMLParser):
             self.lists.pop()
             if not self.lists:  # fim de sublista: o próximo item vem colado (lista compacta)
                 self.out.append("\n")
-        elif tag in ("b", "strong"):
-            self.out.append("**")
-        elif tag in ("i", "em"):
-            self.out.append("*")
+        elif tag in EMPHASIS:
+            self._close(tag)
+        elif tag == "span" and self.spans:
+            key = f"span{len(self.spans) - 1}"
+            for _ in self.spans.pop():
+                self._close(key)
         elif tag in ("td", "th"):
+            self.in_cell = False
             self.out.append(" |")
         elif tag == "tr":
             self.rows += 1
@@ -240,13 +290,22 @@ class _ToMarkdown(HTMLParser):
     def handle_data(self, data):
         if self.in_embed:  # o conteúdo do embed é só espaço
             return
-        if data.strip():
-            self.item_start = False
-        self.out.append(re.sub(r"\s+", " ", data))
+        text = re.sub(r"\s+", " ", data)
+        if not text.strip():
+            self.out.append(text)
+            return
+        self.item_start = False
+        # texto literal não pode virar Markdown/HTML na gravação: '<regra>', '*', '[x]', '_x_'
+        text = re.sub(r"([\\*\[\]]|<(?=[A-Za-z/])|(?<!\w)_|_(?!\w))", r"\\\1", text)
+        if self.in_cell:
+            text = text.replace("|", "\\|")
+        body = text.lstrip(" ")
+        self.out.append(text[:len(text) - len(body)])  # espaço inicial fica fora do '**'
+        self._flush()
+        self.out.append(body)
 
     def markdown(self) -> str:
         md = "".join(self.out)
-        md = re.sub(r"\*\*\s*\*\*", "", md)                        # negrito vazio
         md = re.sub(r"(?:\\\n[ \t]*){2,}", "\n\n", md)                # <br/><br/> (EWM) = parágrafo
         md = re.sub(r"\n\n[ \t]+", "\n\n", md)                          # espaço no início do parágrafo
         md = re.sub(r"(?<=\S) {2,}", " ", md)                      # espaços repetidos (não a indentação)
@@ -266,7 +325,7 @@ def to_markdown(html: str | None, artifact: Artifact | None = None) -> str:
 
 # --- Markdown -> XHTML
 
-_md = MarkdownIt("commonmark", {"html": True, "xhtmlOut": True}).enable("table")
+_md = MarkdownIt("commonmark", {"html": True, "xhtmlOut": True}).enable(["table", "strikethrough"])
 
 
 def link_targets(markdown: str) -> list[str]:
