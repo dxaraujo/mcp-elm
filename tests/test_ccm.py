@@ -93,15 +93,22 @@ def test_list_iterations_dates_and_duplicate_names(srv):
 
 def test_list_iteration_plans_skips_archived_and_filters(srv):
     assert ccm.ccm_list_iteration_plans("_PA1", ["_I1"]) == [
-        {"name": "Sprint 1 - Time A", "identifier": "_P1", "team-area": "_TA", "iteration": "_I1"}]
+        {"name": "Sprint 1 - Time A", "identifier": "_P1", "team-area": "_TA", "iteration": "_I1",
+         "plan-type": "com.ibm.team.apt.plantype.default"}]
     assert {p["identifier"] for p in ccm.ccm_list_iteration_plans("_PA1")} == {"_P1", "_P2"}
+
+
+def test_list_plan_types_counts_non_archived_plans(srv):
+    assert ccm.ccm_list_plan_types("_PA1") == [
+        {"id": "com.ibm.team.apt.plantype.default", "name": "Plano da sprint", "plans": 2, "last-modified": "2025-02-03"}]
 
 
 def test_list_iteration_plans_team_area_none_when_owned_by_project_area(srv):
     srv.routes[("GET", f"{SERVER}/ccm/rpt/repository/apt")] = lambda r: xml_ok("<apt/>") if "pos=" in r.url \
         else xml_ok(NEW_PLAN.replace("_TA", "_PA1"))
     assert ccm.ccm_list_iteration_plans("_PA1") == [
-        {"name": "Novo Plano", "identifier": "_P9", "team-area": None, "iteration": "_I1"}]
+        {"name": "Novo Plano", "identifier": "_P9", "team-area": None, "iteration": "_I1",
+         "plan-type": "com.ibm.team.apt.plantype.default"}]
 
 
 import json
@@ -268,6 +275,7 @@ def test_create_iteration_unknown_parent(srv):
 
 
 NEW_PLAN = ('<apt><iterationPlanRecord><name>Novo Plano</name><archived>false</archived><itemId>_P9</itemId>'
+            '<planType>com.ibm.team.apt.plantype.default</planType>'
             '<owner><itemId>_TA</itemId></owner><iteration><itemId>_I1</itemId></iteration></iterationPlanRecord></apt>')
 
 
@@ -284,13 +292,14 @@ def test_create_iteration_plan_sends_ui_record_and_retries_guard(srv):
         return 200, {"Content-Type": "text/json"}, b"{}"
     srv.routes[("POST", f"{SERVER}{ccm.PUT_PLAN}")] = put
     assert ccm.ccm_create_iteration_plan(
-        "_PA1", "Novo Plano", "_I1", "com.ibm.team.apt.plantype.kanbanBoard", team_area="_TA") == {
-        "name": "Novo Plano", "identifier": "_P9", "team-area": "_TA", "iteration": "_I1"}
+        "_PA1", "Novo Plano", "_I1", "com.ibm.team.apt.plantype.default", team_area="_TA") == {
+        "name": "Novo Plano", "identifier": "_P9", "team-area": "_TA", "iteration": "_I1",
+        "plan-type": "com.ibm.team.apt.plantype.default"}
     assert [p["_t"] for p in posts] == [[ccm.PLAN_GUARD_TOKEN], ["_NOVO"]]
     assert posts[1]["h"] == ["16;__new_1"]
     assert json.loads(posts[1]["json"][0]) == {
         "itemId": "__new_1", "itemType": "item:com.ibm.team.apt:IterationPlanRecord",
-        "planType": "8;_PA1/com.ibm.team.apt.plantype.kanbanBoard", "projectArea": "40;_PA1", "label": "Novo Plano",
+        "planType": "8;_PA1/com.ibm.team.apt.plantype.default", "projectArea": "40;_PA1", "label": "Novo Plano",
         "alwaysLoadAllExecutionItems": False, "fetchChildrenOnDemand": True, "teamArea": "39;_TA",
         "iteration": "35;_I1", "rankingMode": "explicit"}
 
@@ -306,7 +315,7 @@ def test_create_iteration_plan_team_area_defaults_to_project_area_and_raises_htt
 
 def test_create_iteration_plan_rejects_unsupported_plan_type(srv):
     with pytest.raises(ValueError, match="plantype.default"):
-        ccm.ccm_create_iteration_plan("_PA1", "Plano", "_I1", "com.ibm.team.apt.plantype.default")
+        ccm.ccm_create_iteration_plan("_PA1", "Plano", "_I1", "com.ibm.team.apt.plantype.kanbanBoard")
     assert not [c for c in srv.calls if c.method == "POST"]
 
 

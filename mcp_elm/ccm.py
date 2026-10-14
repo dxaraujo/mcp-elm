@@ -20,10 +20,10 @@ CREATE_ITERATION = "/ccm/service/com.ibm.team.apt.internal.service.rest.IPlanPro
 NO_ITERATION_TYPE = "com.ibm.team.apt.web.ui.internal.iteration.type.none"
 # serviço interno usado pela UI web ao salvar um plano novo (IPlanRestService.putItems)
 PUT_PLAN = "/ccm/service/com.ibm.team.apt.internal.service.rest.IPlanRestService/putItems"
-# tipos de plano suportados (id do planType -> nome amigável). Só estes dois são aceitos na criação;
-# o servidor pode normalizar outros ids conforme a configuração de processo, então restringimos aqui
+# tipos de plano que o fluxo cria (id do planType -> nome amigável): por iteração, um backlog do produto e um
+# plano da sprint (ex.: "Backlog Jandaia" e "Sprint 01 - Jandaia" na PAB). Só estes são aceitos na criação
 PLAN_TYPES = {
-    "com.ibm.team.apt.plantype.kanbanBoard": "Quadro de tarefas Kanban",
+    "com.ibm.team.apt.plantype.default": "Plano da sprint",
     "com.ibm.team.apt.plantype.product.backlog": "Backlog do Produto",
 }
 # token do guard da UI web para o IPlanRestService; o servidor devolve o atual no WebServiceUsageException
@@ -31,7 +31,8 @@ PLAN_GUARD_TOKEN = "_eugWIJstEfGZGNAHniZkPA"
 GUARD_ERROR = "com.ibm.team.rtc.common.internal.service.web.guard.WebServiceUsageException"
 # prefixos de tipo de item nos handles da UI ("39;<uuid>")
 PLAN_RECORD, PLAN_TYPE, ITERATION_ITEM, TEAM_AREA_ITEM, PROJECT_AREA_ITEM = 16, 8, 35, 39, 40
-PLAN_FIELDS = "apt/iterationPlanRecord[contextId={pa}]/(name|itemId|archived|owner/itemId|iteration/itemId)"
+PLAN_FIELDS = ("apt/iterationPlanRecord[contextId={pa}]/"
+               "(name|itemId|archived|planType|modified|owner/itemId|iteration/itemId)")
 # campos que já são parâmetros de ccm_create_workitem (summary, description)
 PARAMETER_FIELDS = {"dcterms:title", "dcterms:description"}
 ITERATION = "/ccm/oslc/iterations/{id}"
@@ -218,18 +219,39 @@ def ccm_create_iteration(
     return created[0]
 
 
+def _plan_records(pa: str) -> list:
+    """Registros Reportable dos planos não arquivados da project area."""
+    return [r for r in reportable(REPORTABLE_PLANS, PLAN_FIELDS.format(pa=pa), "iterationPlanRecord")
+            if r.findtext("archived") != "true"]
+
+
 @tool
 def ccm_list_iteration_plans(project_area_identifier: str, iteration_identifiers: list[str] | None = None) -> list[dict]:
     """Planos de iteração não arquivados, opcionalmente só das iterações informadas:
-    [{name, identifier, team-area (time dono; None se o dono é a project area), iteration}]. elm.json:
+    [{name, identifier, team-area (time dono; None se o dono é a project area), iteration, plan-type}]. elm.json:
     iterations[nome da iteração].plans {name: {identifier, team-area}} (sem team-area quando None)."""
     pa, wanted = project_area_identifier, set(iteration_identifiers or [])
     plans = [{"name": r.findtext("name"), "identifier": r.findtext("itemId"),
               "team-area": None if r.findtext("owner/itemId") == pa else r.findtext("owner/itemId"),
-              "iteration": r.findtext("iteration/itemId")}
-             for r in reportable(REPORTABLE_PLANS, PLAN_FIELDS.format(pa=pa), "iterationPlanRecord")
-             if r.findtext("archived") != "true"]
+              "iteration": r.findtext("iteration/itemId"), "plan-type": r.findtext("planType")}
+             for r in _plan_records(pa)]
     return [p for p in plans if not wanted or p["iteration"] in wanted]
+
+
+@tool
+def ccm_list_plan_types(project_area_identifier: str) -> list[dict]:
+    """Tipos de plano em uso na project area (planos não arquivados), do mais usado ao menos usado:
+    [{id, name (só para os tipos conhecidos), plans (quantidade), last-modified ('AAAA-MM-DD', Brasília)}].
+    `id` é o `plan_type` aceito por ccm_create_iteration_plan. Tipo definido no processo e nunca usado não aparece."""
+    usage: dict[str, list] = {}
+    for r in _plan_records(project_area_identifier):
+        entry = usage.setdefault(r.findtext("planType"), [0, ""])
+        entry[0] += 1
+        entry[1] = max(entry[1], r.findtext("modified") or "")
+    rows = [{"id": t, "name": PLAN_TYPES.get(t), "plans": n,
+             # '2026-10-14T10:00:00.000-0300' -> '2026-10-14' (o Reportable já vem no fuso do servidor)
+             "last-modified": m[:10] or None} for t, (n, m) in usage.items() if t]
+    return sorted(rows, key=lambda x: (-x["plans"], x["id"]))
 
 
 @tool
@@ -237,9 +259,9 @@ def ccm_create_iteration_plan(
     project_area_identifier: str, name: str, iteration: str, plan_type: str, team_area: str | None = None,
 ) -> dict:
     """Cria um plano de iteração, como 'Create Plan' da UI web. `iteration`: identifier de ccm_list_iterations.
-    `plan_type`: id do tipo de plano; só 'com.ibm.team.apt.plantype.kanbanBoard' (Quadro de tarefas Kanban) e
+    `plan_type`: id do tipo de plano; só 'com.ibm.team.apt.plantype.default' (Plano da sprint) e
     'com.ibm.team.apt.plantype.product.backlog' (Backlog do Produto) são aceitos. `team_area`: identifier do time
-    dono (ccm_list_team_areas); padrão: a project area. Retorna {name, identifier, team-area, iteration}."""
+    dono (ccm_list_team_areas); padrão: a project area. Retorna {name, identifier, team-area, iteration, plan-type}."""
     pa = project_area_identifier
     if plan_type not in PLAN_TYPES:
         opcoes = ", ".join(f"{i} ({n})" for i, n in PLAN_TYPES.items())

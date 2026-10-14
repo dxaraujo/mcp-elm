@@ -245,9 +245,10 @@ Todas as tools devolvem JSON. Erros chegam à IA como texto (`ToolError`) com a 
 | `ccm_list_workitem_fields` | `project_area_identifier`, `workitem_type` | `[{name, attribute, required, kind}]` (sem os tipos de link) | setup: `fields` (inclua sempre os `required`) |
 | `ccm_list_link_types` | `project_area_identifier`, `workitem_type` | `[{name, attribute}]` | setup: `link-types` (só os que o projeto usa; nome à escolha) |
 | `ccm_list_iterations` | `project_area_identifier` | `[{name, identifier, start-date?, end-date?, parent?}]` | setup: `iterations` |
-| `ccm_list_iteration_plans` | `project_area_identifier`, `iteration_identifiers[]?` | `[{name, identifier, team-area, iteration}]` | setup: `plans` |
+| `ccm_list_iteration_plans` | `project_area_identifier`, `iteration_identifiers[]?` | `[{name, identifier, team-area, iteration, plan-type}]` | setup: `plans` |
+| `ccm_list_plan_types` | `project_area_identifier` | `[{id, name?, plans, last-modified}]` | tipos de plano em uso na PA |
 | `ccm_create_iteration` | `project_area_identifier`, `parent`, `name`, `start_date`, `end_date?`, `iteration_id?`, `iteration_type?` | iteração criada | setup (permissão "Modify structures of iterations") |
-| `ccm_create_iteration_plan` | `project_area_identifier`, `name`, `iteration`, `plan_type`, `team_area?` | plano criado | setup; `plan_type` ∈ {`com.ibm.team.apt.plantype.kanbanBoard`, `com.ibm.team.apt.plantype.product.backlog`} |
+| `ccm_create_iteration_plan` | `project_area_identifier`, `name`, `iteration`, `plan_type`, `team_area?` | plano criado | setup; `plan_type` ∈ {`com.ibm.team.apt.plantype.default` (plano da sprint), `com.ibm.team.apt.plantype.product.backlog`} |
 | `ccm_list_workitems` | `project_area_identifier`, ao menos um de `iteration`/`team_areas`/`owner`; `state?` (nome), `workitem_type?` | `[{id, title, type, state, owner, iteration, url}]` (≤1000) | consultas do dia a dia; `team_areas` inclui subtimes |
 | `ccm_get_workitem` | `workitem_id`, `fields` (= `workitem-types[tipo].fields`), `link_types?` (= `link-types`) | documento Markdown + YAML (ver 5.7) | ler um work item |
 | `ccm_list_field_values` | `project_area_identifier`, `workitem_type`, `attribute` | `{kind, required, values: [{identifier, name, default}]}` | valores válidos antes de criar/atualizar |
@@ -738,7 +739,7 @@ allowed-tools: Read, Write, mcp__elm__whoami, mcp__elm__list_project_areas,
 ## Criar iteração/plano (só se pedido)
 - `ccm_create_iteration(parent, name, start_date, end_date)` — datas AAAA-MM-DD.
 - `ccm_create_iteration_plan(name, iteration, plan_type, team_area?)` — plan_type:
-  `com.ibm.team.apt.plantype.kanbanBoard` ou `com.ibm.team.apt.plantype.product.backlog`.
+  `com.ibm.team.apt.plantype.default` (plano da sprint) ou `com.ibm.team.apt.plantype.product.backlog`.
 - Confirme com o usuário antes. Permission Denied = falta de permissão; não tente variações.
 - Depois, atualize `iterations` no elm.json.
 

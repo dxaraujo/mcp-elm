@@ -88,7 +88,7 @@ Saída com as chaves do elm.json (`elm/pa_*.json`; a skill grava o arquivo, o MC
 
 | Skill | Tools |
 |---|---|
-| elm-setup (ccm) | whoami, list_project_areas("CCM"), ccm_list_team_areas, ccm_list_members, ccm_list_workitem_types, ccm_list_workitem_fields, ccm_list_link_types, ccm_list_iterations, ccm_list_iteration_plans, ccm_create_iteration, ccm_create_iteration_plan |
+| elm-setup (ccm) | whoami, list_project_areas("CCM"), ccm_list_team_areas, ccm_list_members, ccm_list_workitem_types, ccm_list_workitem_fields, ccm_list_link_types, ccm_list_iterations, ccm_list_iteration_plans, ccm_list_plan_types, ccm_create_iteration, ccm_create_iteration_plan |
 | elm-setup (rm) | list_project_areas("RM"), get_project_area(include_associations), rm_get_configuration, rm_list_members, rm_list_folders, rm_list_requirement_types |
 | elm-ccm | ccm_list_workitems, ccm_get_workitem, ccm_list_field_values, ccm_create_workitem, ccm_update_workitem, ccm_list_workitem_states (+ add_comment_to_workitem, link_*) |
 | elm-rm | rm_search_requirements, rm_count_folder, rm_list_folder, rm_list_modified, rm_sync_plan, rm_download_requirements, rm_upload_requirements, rm_get_requirement, rm_create_requirement, rm_update_requirement (+ link_workitem_and_requirement) |
