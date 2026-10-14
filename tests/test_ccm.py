@@ -445,3 +445,10 @@ def test_update_parent_goes_as_workitem_url(srv):
     srv.routes[("PUT", WI7)] = lambda req: (sent.update(body=req.body.decode()), (200, {}, b""))[1]
     ccm.ccm_update_workitem("7", parent="8")
     assert "parentworkitem.parent" in sent["body"] and "/resource/itemName/com.ibm.team.workitem.WorkItem/8" in sent["body"]
+
+
+def test_rich_text_fields_get_markdown_converted():
+    props = [{"predicate": "rtc_ext:criterio", "value_type": "rdf:XMLLiteral"},
+             {"predicate": "rtc_ext:codigo", "value_type": "xsd:string"}]
+    out = ccm._rich({"rtc_ext:criterio": "Dado a\\\nQuando b", "rtc_ext:codigo": "X\\\nY"}, props)
+    assert out == {"rtc_ext:criterio": "Dado a<br/>Quando b", "rtc_ext:codigo": "X\\\nY"}

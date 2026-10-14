@@ -71,6 +71,12 @@ def _props(project_area_identifier: str, workitem_type: str) -> list[dict]:
     return oslc.shape(t["shape"])["properties"] if t["shape"] else []
 
 
+def _rich(fields: dict | None, props: list[dict]) -> dict:
+    """Campos de texto rico (rdf:XMLLiteral no shape) recebem Markdown e vão como HTML do EWM, como a descrição."""
+    xml = {p["predicate"] for p in props if p["value_type"] == "rdf:XMLLiteral"}
+    return {k: to_ewm_html(v) if k in xml and isinstance(v, str) else v for k, v in (fields or {}).items()}
+
+
 def _is_link(prop: dict) -> bool:
     """Tipo de link (pai, filhos, requisito, teste, commit...), não campo."""
     predicate = prop["predicate"]
@@ -433,10 +439,10 @@ def ccm_create_workitem(
 ) -> dict:
     """Cria um work item. `description`: Markdown (vira o texto formatado do EWM; 'Tarefa 123' no texto faz o
     EWM criar o link de menção). `fields`: {chave do elm.json (fields[nome]): identifier de ccm_list_field_values
-    ou valor}. `parent`: id do work item pai. Retorna {id, title, type, state, owner, iteration, url}."""
+    ou valor; campos de texto rico aceitam Markdown}. `parent`: id do work item pai. Retorna {id, title, type, state, owner, iteration, url}."""
     attributes = {"dcterms:title": summary,
                   **({"dcterms:description": to_ewm_html(description)} if description else {}),
-                  **(fields or {})}
+                  **(_rich(fields, _props(project_area_identifier, workitem_type)) if fields else {})}
     links = [{"endpointId": "parent", "targetWorkItemId": parent}] if parent else []
     return _summary(workitems.create_workitem(project_area_identifier, workitem_type, json.dumps(attributes),
                                               json.dumps(links)))
@@ -479,6 +485,8 @@ def ccm_update_workitem(
     url = workitems.workitem_url(workitem_id)
     resource = oslc.get(url)
     pa = _project_area(resource)
+    if shape := _first(resource, "oslc:instanceShape"):
+        fields = _rich(fields, oslc.shape(shape["url"])["properties"])
     attributes = {attribute: workitems.node(pa, attribute, value) for attribute, value in (fields or {}).items()}
     if not state:
         return _summary(oslc.update(url, attributes))

@@ -264,7 +264,8 @@ def node(project_area_id: str, pred: str, value) -> URIRef | Literal:
     url = get_session().url
     if value.startswith(("http://", "https://")):
         return URIRef(value)
-    if pred == "dcterms:description" and _is_xml(value):  # descrição formatada (<br/>, <b>, &amp;...)
+    # texto formatado (<br/>, <b>, &amp;...): descrição e campos de texto rico, que chegam já convertidos pelo ccm
+    if _is_xml(value) and (pred == "dcterms:description" or ("<" in value and pred not in TEXT_PREDICATES)):
         return Literal(value, datatype=RDF.XMLLiteral)
     if pred in USER_PREDICATES:
         return URIRef(common.user_url(value))
