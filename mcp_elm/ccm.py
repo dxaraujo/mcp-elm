@@ -459,16 +459,23 @@ def ccm_list_workitem_states(workitem_id: str) -> dict:
     return {"state": current, "actions": [{"name": a["title"], "result-state": a["resultState"]} for a in actions]}
 
 
+PARENT = "rtc_cm:com.ibm.team.workitem.linktype.parentworkitem.parent"
+
+
 @tool
 def ccm_update_workitem(
     workitem_id: str, fields: dict | None = None, state: str | None = None, description: str | None = None,
+    parent: str | None = None,
 ) -> dict:
     """Atualiza campos ({chave do elm.json: identifier ou valor}), a descrição (Markdown; substitui a descrição
-    inteira) e/ou muda o estado pelo nome ('Pronto'). Retorna {id, title, type, state, owner, iteration, url}."""
-    if not fields and not state and description is None:
-        raise ValueError("Informe fields, description e/ou state.")
+    inteira), o pai (`parent`: id do novo pai) e/ou muda o estado pelo nome ('Pronto').
+    Retorna {id, title, type, state, owner, iteration, url}."""
+    if not fields and not state and description is None and not parent:
+        raise ValueError("Informe fields, description, parent e/ou state.")
     if description is not None:
         fields = {**(fields or {}), "dcterms:description": to_ewm_html(description)}
+    if parent:  # o servidor só aceita o pai como URL do work item (com o id puro responde 400)
+        fields = {**(fields or {}), PARENT: workitems.workitem_url(parent)}
     url = workitems.workitem_url(workitem_id)
     resource = oslc.get(url)
     pa = _project_area(resource)

@@ -437,3 +437,11 @@ def test_add_timesheet_accepts_today():
     with pytest.raises(Exception) as exc_info:
         ccm.ccm_add_timesheet("123", [{"date": today, "hours": 2}], time_code="Horas Diretas")
     assert "futuras" not in str(exc_info.value).lower()
+
+
+def test_update_parent_goes_as_workitem_url(srv):
+    srv.routes[("GET", WI7)] = lambda req: (200, {"ETag": '"1"'}, fixture("workitem_7.xml"))
+    sent = {}
+    srv.routes[("PUT", WI7)] = lambda req: (sent.update(body=req.body.decode()), (200, {}, b""))[1]
+    ccm.ccm_update_workitem("7", parent="8")
+    assert "parentworkitem.parent" in sent["body"] and "/resource/itemName/com.ibm.team.workitem.WorkItem/8" in sent["body"]
