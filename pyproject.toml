@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.urls]
-Repository = "https://github.com/dxaraujo/mcp-elm"
+Repository = "https://github.com/dxaraujo/kiro/tree/main/mcps/elm"
 
 [project.scripts]
 mcp-elm = "mcp_elm.server:main"
