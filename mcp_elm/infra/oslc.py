@@ -26,7 +26,7 @@ OSLC_QM = Namespace("http://open-services.net/ns/qm#")
 OSLC_CONFIG = Namespace("http://open-services.net/ns/config#")
 RTC_CM = Namespace("http://jazz.net/xmlns/prod/jazz/rtc/cm/1.0/")
 RTC_EXT = Namespace("http://jazz.net/xmlns/prod/jazz/rtc/ext/1.0/")
-CELM = Namespace("http://jazz.net/xmlns/prod/jazz/celm/1.0/")
+CALM = Namespace("http://jazz.net/xmlns/prod/jazz/calm/1.0/")
 JFS = Namespace("http://jazz.net/xmlns/prod/jazz/jfs/1.0/")
 JP = Namespace("http://jazz.net/xmlns/prod/jazz/process/1.0/")
 JP06 = Namespace("http://jazz.net/xmlns/prod/jazz/process/0.6/")
@@ -39,7 +39,7 @@ XHTML = "http://www.w3.org/1999/xhtml"
 PREFIXES = {
     "rdf": RDF, "rdfs": RDFS, "xsd": XSD, "dcterms": DCTERMS, "foaf": FOAF,
     "oslc": OSLC, "oslc_rm": OSLC_RM, "oslc_cm": OSLC_CM, "oslc_cmx": OSLC_CMX, "oslc_qm": OSLC_QM,
-    "oslc_config": OSLC_CONFIG, "rtc_cm": RTC_CM, "rtc_ext": RTC_EXT, "celm": CELM, "jfs": JFS,
+    "oslc_config": OSLC_CONFIG, "rtc_cm": RTC_CM, "rtc_ext": RTC_EXT, "calm": CALM, "jfs": JFS,
     "jp": JP, "nav": RM_NAV, "jazz_rm": JAZZ_RM, "rqm_qm": RQM, "process": PROCESS,
 }
 

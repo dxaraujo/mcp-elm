@@ -86,7 +86,7 @@ def _is_link(prop: dict) -> bool:
     """Tipo de link (pai, filhos, requisito, teste, commit...), não campo."""
     predicate = prop["predicate"]
     return ".linktype." in predicate.lower() or (
-        predicate.startswith(("oslc_cm:", "celm:")) and prop["value_type"] not in VALUE_KINDS)
+        predicate.startswith(("oslc_cm:", "calm:")) and prop["value_type"] not in VALUE_KINDS)
 
 
 def _kind(prop: dict) -> str:

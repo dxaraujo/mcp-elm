@@ -2,19 +2,19 @@
 <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
     xmlns:dcterms="http://purl.org/dc/terms/"
     xmlns:oslc_cm="http://open-services.net/ns/cm#"
-    xmlns:celm="http://jazz.net/xmlns/prod/jazz/celm/1.0/"
+    xmlns:calm="http://jazz.net/xmlns/prod/jazz/calm/1.0/"
     xmlns:rtc_cm="http://jazz.net/xmlns/prod/jazz/rtc/cm/1.0/">
   <oslc_cm:ChangeRequest rdf:about="https://elm.test/ccm/resource/itemName/com.ibm.team.workitem.WorkItem/42">
     <dcterms:identifier>42</dcterms:identifier>
     <dcterms:title>Corrigir login</dcterms:title>
     <dcterms:description rdf:parseType="Literal">Falha ao <b>logar</b> &amp; sair</dcterms:description>
     <rtc_cm:filedAgainst rdf:resource="https://elm.test/ccm/resource/itemOid/com.ibm.team.workitem.Category/_C1"/>
-    <celm:implementsRequirement rdf:resource="https://elm.test/rm/resources/_R1"/>
+    <calm:implementsRequirement rdf:resource="https://elm.test/rm/resources/_R1"/>
     <oslc_cm:testedByTestCase rdf:resource="https://elm.test/qm/resources/_T1"/>
   </oslc_cm:ChangeRequest>
   <rdf:Statement>
     <rdf:subject rdf:resource="https://elm.test/ccm/resource/itemName/com.ibm.team.workitem.WorkItem/42"/>
-    <rdf:predicate rdf:resource="http://jazz.net/xmlns/prod/jazz/celm/1.0/implementsRequirement"/>
+    <rdf:predicate rdf:resource="http://jazz.net/xmlns/prod/jazz/calm/1.0/implementsRequirement"/>
     <rdf:object rdf:resource="https://elm.test/rm/resources/_R1"/>
     <dcterms:title>REQ-1 Login seguro</dcterms:title>
   </rdf:Statement>

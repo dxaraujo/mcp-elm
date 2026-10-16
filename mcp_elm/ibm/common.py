@@ -268,7 +268,7 @@ def search_global_configuration(
 # --- links de rastreabilidade (gravados sempre no work item ou no teste; o DOORS Next mostra o backlink)
 
 REQUIREMENT_LINKS = {
-    "celm:implementsRequirement", "oslc_cm:implementsRequirement", "oslc_cm:affectsRequirement",
+    "calm:implementsRequirement", "oslc_cm:implementsRequirement", "oslc_cm:affectsRequirement",
     "oslc_cm:tracksRequirement", "oslc_qm:validatesRequirement", "oslc_qm:validatesRequirementCollection",
     "oslc_rm:elaboratedBy", "oslc_rm:elaborates", "oslc_rm:satisfiedBy", "oslc_rm:satisfies",
     "oslc_rm:decomposedBy", "oslc_rm:decomposes", "oslc_rm:constrainedBy", "oslc_rm:constrains",
@@ -281,10 +281,10 @@ WORKITEM_LINKS = {
 TESTARTIFACT_LINKS = {
     "oslc_rm:validatedBy", "oslc_cm:testedByTestCase", "oslc_cm:affectsTestResult",
     "oslc_cm:blocksTestExecutionRecord", "oslc_cm:relatedTestCase", "oslc_cm:relatedTestExecutionRecord",
-    "oslc_cm:relatedTestPlan", "oslc_cm:relatedTestScript", "celm:testedByTestCase",
+    "oslc_cm:relatedTestPlan", "oslc_cm:relatedTestScript", "calm:testedByTestCase",
 }
 WORKITEM_TO_REQUIREMENT = {
-    "implements": "celm:implementsRequirement", "implementedby": "celm:implementsRequirement",
+    "implements": "calm:implementsRequirement", "implementedby": "calm:implementsRequirement",
     "affects": "oslc_cm:affectsRequirement", "affectedby": "oslc_cm:affectsRequirement",
     "tracks": "oslc_cm:tracksRequirement", "trackedby": "oslc_cm:tracksRequirement",
 }
@@ -329,7 +329,9 @@ def link_workitem_and_requirement(
 ) -> dict:
     """Liga work item e requisito (gravado no work item; as formas *by gravam o mesmo link).
     Retorna o work item atualizado."""
-    return oslc.update(workitem_url, {WORKITEM_TO_REQUIREMENT[link_type]: requirement_url}, append=True)
+    # o link guarda a URI do requisito, sem ?oslc_config.context (o EWM resolve a versão pela configuração)
+    return oslc.update(workitem_url, {WORKITEM_TO_REQUIREMENT[link_type]: requirement_url.split("?")[0]},
+                       append=True)
 
 
 @tool

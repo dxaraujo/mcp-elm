@@ -137,7 +137,7 @@ def test_resource_dict():
     r = oslc.resource(oslc.parse(fixture("workitem_42.xml")), URIRef(WI))
     assert (r["id"], r["title"], r["types"]) == ("42", "Corrigir login", ["oslc_cm:ChangeRequest"])
     assert r["properties"]["dcterms:description"] == "Falha ao logar & sair"
-    assert r["links"]["celm:implementsRequirement"] == [
+    assert r["links"]["calm:implementsRequirement"] == [
         {"url": f"{SERVER}/rm/resources/_R1", "title": "REQ-1 Login seguro"}]
 
 
@@ -180,7 +180,7 @@ def test_update_sends_etag(fake):
         return 200, {}, b""
 
     fake.routes = {("GET", WI): ok("workitem_42.xml", ETag='"v1"'), ("PUT", WI): put}
-    oslc.update(WI, {"celm:implementsRequirement": f"{SERVER}/rm/resources/_R2"}, append=True)
+    oslc.update(WI, {"calm:implementsRequirement": f"{SERVER}/rm/resources/_R2"}, append=True)
     assert captured["req"].headers["If-Match"] == '"v1"'
     assert b"_R1" in captured["req"].body and b"_R2" in captured["req"].body  # append mantém o existente
 
