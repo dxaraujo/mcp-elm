@@ -2,8 +2,13 @@
 from __future__ import annotations
 
 import json
+import mimetypes
+import re
 from collections import Counter
 from datetime import date, datetime, time
+from pathlib import Path
+
+from urllib3.filepost import encode_multipart_formdata
 
 from .ibm import common, workitems
 from .infra import oslc
@@ -911,3 +916,75 @@ def ccm_add_timesheet(
 
     # Reler o work item para retornar o estado atualizado
     return ccm_list_timesheet(workitem_id)
+
+
+# --- Anexos
+
+# serviço interno usado pela UI web para subir anexos; responde HTML com o JSON dentro de <textarea>
+ATTACHMENT_REST = "/ccm/service/com.ibm.team.workitem.service.internal.rest.IAttachmentRestService/"
+ATTACHMENT_LINK_TYPE = "com.ibm.team.workitem.linktype.attachment"
+_UPLOADED = re.compile(r"<textarea>(.*)</textarea>", re.S)
+
+
+def _ui_headers() -> dict:
+    session = get_session()
+    jsession = next((c.value for c in session.session.cookies if c.name == "JSESSIONID" and c.path.startswith("/ccm")),
+                    None)
+    return {"Accept": "text/json", "X-Jazz-CSRF-Prevent": jsession or ""}
+
+
+def _attachments(dto: dict) -> list[dict]:
+    links = next((lt.get("linkDTOs", []) for lt in dto.get("linkTypes", []) if lt.get("endpointId") == "attachment"), [])
+    return [{"id": t.get("id"), "uuid": t.get("itemId"), "name": t.get("name"), "size": t.get("contentLength"),
+             "content_type": t.get("contentType"), "created": local_datetime(t.get("creationDate")), "url": link["url"]}
+            for link in links if (t := link.get("target") or {})]
+
+
+@tool
+def ccm_list_attachments(workitem_id: str) -> list[dict]:
+    """Anexos do work item: [{id, name, size, content_type, created, url}]."""
+    return [{k: v for k, v in a.items() if k != "uuid"} for a in _attachments(_get_wi_via_rest(workitem_id)["dto"])]
+
+
+@tool
+def ccm_put_attachment(workitem_id: str, path: str) -> dict:
+    """Anexa o arquivo local `path` ao work item, com o nome do arquivo. Anexo de mesmo nome já ligado ao item é
+    substituído (fica só a última versão; o antigo sai do item). Retorna {id, name, size, url, replaced: [ids]}."""
+    file = Path(path).expanduser()
+    if not file.is_file():
+        raise ValueError(f"Arquivo não encontrado: {path}")
+    wi = _get_wi_via_rest(workitem_id)
+    content_type = mimetypes.guess_type(file.name)[0] or "application/octet-stream"
+    body, multipart = encode_multipart_formdata({"attach": (file.name, file.read_bytes(), content_type)})
+    resp = get_session().request("POST", ATTACHMENT_REST, data=body,
+                                 params={"projectId": wi["project_area_id"], "multiple": "true"},
+                                 headers={**_ui_headers(), "Content-Type": multipart})
+    match = _UPLOADED.search(resp.text)
+    if not match:
+        raise RuntimeError(f"Upload do anexo recusado: {resp.text[:200]}")
+    new = json.loads(match.group(1))["files"][0]
+    old = [a for a in _attachments(wi["dto"]) if a["name"] == file.name]
+    link = {"type": ATTACHMENT_LINK_TYPE, "end": "attachment", "name": file.name, "comment": ""}
+    form = [("itemId", wi["item_id"]), ("type", wi["type"]), ("stateId", wi["state_id"]),
+            ("projectAreaItemId", wi["project_area_id"]),
+            ("updateLinks", json.dumps({**link, "cmd": "addLink", "itemId": new["uuid"]})),
+            *(("updateLinks", json.dumps({**link, "cmd": "removeLink", "itemId": a["uuid"]})) for a in old),
+            *(("additionalSaveParameters", p) for p in SAVE_PARAMS)]
+    _ui_post_workitem(form)
+    return {"id": new["id"], "name": new["name"], "size": new["size"], "url": new["url"],
+            "replaced": [a["id"] for a in old]}
+
+
+@tool
+def ccm_get_attachment(workitem_id: str, name: str, dest_dir: str) -> dict:
+    """Baixa o anexo `name` do work item para `dest_dir/<name>` (cria a pasta; sobrescreve o arquivo).
+    Com mais de um anexo de mesmo nome, baixa o mais recente. Retorna {path, size}."""
+    found = sorted((a for a in _attachments(_get_wi_via_rest(workitem_id)["dto"]) if a["name"] == name),
+                   key=lambda a: a["id"] or 0)
+    if not found:
+        raise LookupError(f"Work item {workitem_id} não tem anexo '{name}'.")
+    target = Path(dest_dir).expanduser() / Path(name).name  # o nome vem do servidor: nunca sai de dest_dir
+    content = get_session().request("GET", found[-1]["url"], headers={"Accept": "*/*"}).content
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(content)
+    return {"path": str(target), "size": len(content)}

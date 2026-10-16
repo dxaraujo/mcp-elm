@@ -452,3 +452,53 @@ def test_rich_text_fields_get_markdown_converted():
              {"predicate": "rtc_ext:codigo", "value_type": "xsd:string"}]
     out = ccm._rich({"rtc_ext:criterio": "Dado a\\\nQuando b", "rtc_ext:codigo": "X\\\nY"}, props)
     assert out == {"rtc_ext:criterio": "Dado a<br/>Quando b", "rtc_ext:codigo": "X\\\nY"}
+
+
+def _wi_with_attachments(*attachments):
+    links = [{"url": f"{SERVER}/att/{uuid}", "target": {"id": n, "itemId": uuid, "name": name, "contentLength": 3}}
+             for n, uuid, name in attachments]
+    return {"item_id": "_WI", "type": "task", "state_id": "s1", "project_area_id": "_PA1",
+            "dto": {"linkTypes": [{"endpointId": "attachment", "linkDTOs": links}]}}
+
+
+def test_put_attachment_uploads_and_replaces_same_name(srv, monkeypatch, tmp_path):
+    import json
+    monkeypatch.setattr(ccm, "_get_wi_via_rest", lambda wid: _wi_with_attachments(
+        (10, "_OLD", "rascunho.md"), (11, "_KEEP", "prd.md")))
+    sent = {}
+    srv.routes[("POST", f"{SERVER}{ccm.ATTACHMENT_REST}")] = lambda req: (sent.update(upload=req), (
+        200, {}, '<html><body><textarea>{"files":[{"size":3,"name":"rascunho.md","id":12,"uuid":"_NEW",'
+                 '"url":"u"}]}</textarea></body></html>'))[1]
+    srv.routes[("POST", f"{SERVER}{ccm.WORKITEM_REST}")] = lambda req: (sent.update(save=req), (
+        200, {}, json.dumps({"soapenv:Body": {"response": {"returnValue": {"value": {"workItem": {}}}}}})))[1]
+    file = tmp_path / "rascunho.md"
+    file.write_text("# v2")
+
+    out = ccm.ccm_put_attachment("7", str(file))
+
+    assert out == {"id": 12, "name": "rascunho.md", "size": 3, "url": "u", "replaced": [10]}
+    assert "projectId=_PA1" in sent["upload"].url and b"# v2" in sent["upload"].body
+    save = sent["save"].body
+    assert "addLink" in save and "_NEW" in save and "removeLink" in save and "_OLD" in save and "_KEEP" not in save
+
+
+def test_put_attachment_rejected_upload_raises(srv, monkeypatch, tmp_path):
+    monkeypatch.setattr(ccm, "_get_wi_via_rest", lambda wid: _wi_with_attachments())
+    srv.routes[("POST", f"{SERVER}{ccm.ATTACHMENT_REST}")] = (200, {}, "<html><body>No project area set</body></html>")
+    file = tmp_path / "a.md"
+    file.write_text("x")
+    with pytest.raises(RuntimeError, match="No project area set"):
+        ccm.ccm_put_attachment("7", str(file))
+
+
+def test_get_attachment_latest_and_stays_in_dest(srv, monkeypatch, tmp_path):
+    monkeypatch.setattr(ccm, "_get_wi_via_rest", lambda wid: _wi_with_attachments(
+        (20, "_A", "../fora.md"), (21, "_B", "../fora.md")))
+    srv.routes[("GET", f"{SERVER}/att/_B")] = (200, {}, b"nova")
+
+    out = ccm.ccm_get_attachment("7", "../fora.md", str(tmp_path / "dest"))
+
+    assert out == {"path": str(tmp_path / "dest" / "fora.md"), "size": 4}
+    assert (tmp_path / "dest" / "fora.md").read_bytes() == b"nova"
+    with pytest.raises(LookupError):
+        ccm.ccm_get_attachment("7", "nada.md", str(tmp_path))
