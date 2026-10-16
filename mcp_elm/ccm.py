@@ -748,7 +748,7 @@ def ccm_list_timesheet(workitem_id: str) -> dict:
         })
     # ordenar por data
     entries.sort(key=lambda x: x["date"] or "")
-    total_hours = wi["time_spent_ms"] / MS_PER_HOUR
+    total_hours = max(wi["time_spent_ms"], 0) / MS_PER_HOUR  # o EWM grava -1 ms para "sem horas"
     return {"entries": entries, "total_hours": total_hours}
 
 

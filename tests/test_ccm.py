@@ -457,6 +457,12 @@ def test_add_timesheet_accepts_today():
     assert "futuras" not in str(exc_info.value).lower()
 
 
+def test_list_timesheet_without_hours_is_zero(monkeypatch):
+    """O EWM grava timeSpent = -1 ms em item sem horas: o total sai 0, não -2.8e-07."""
+    monkeypatch.setattr(ccm, "_get_wi_via_rest", lambda _id: {"time_spent_ms": -1, "timesheet_entries": []})
+    assert ccm.ccm_list_timesheet("123") == {"entries": [], "total_hours": 0}
+
+
 def test_update_parent_goes_as_workitem_url(srv):
     srv.routes[("GET", WI7)] = lambda req: (200, {"ETag": '"1"'}, fixture("workitem_7.xml"))
     sent = {}
