@@ -143,7 +143,7 @@ def test_linked_by_kind(fake):
 
 
 @pytest.mark.parametrize("link_type,predicate", [
-    ("implements", b"jazz/calm/1.0/implementsRequirement"), ("trackedby", b"tracksRequirement")])
+    ("implements", b"oslc_cm:implementsRequirement"), ("trackedby", b"tracksRequirement")])
 def test_link_workitem_and_requirement(fake, link_type, predicate):
     sent = {}
     fake.routes = {("GET", WI): ok("workitem_42.xml", ETag='"1"'),

@@ -284,7 +284,7 @@ TESTARTIFACT_LINKS = {
     "oslc_cm:relatedTestPlan", "oslc_cm:relatedTestScript", "calm:testedByTestCase",
 }
 WORKITEM_TO_REQUIREMENT = {
-    "implements": "calm:implementsRequirement", "implementedby": "calm:implementsRequirement",
+    "implements": "oslc_cm:implementsRequirement", "implementedby": "oslc_cm:implementsRequirement",
     "affects": "oslc_cm:affectsRequirement", "affectedby": "oslc_cm:affectsRequirement",
     "tracks": "oslc_cm:tracksRequirement", "trackedby": "oslc_cm:tracksRequirement",
 }
