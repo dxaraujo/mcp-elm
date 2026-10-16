@@ -1,6 +1,6 @@
 [project]
 name = "mcp-elm"
-version = "1.0.37"
+version = "1.0.38"
 description = "MCP server para IBM ELM (DOORS Next, EWM, ETM) via OSLC"
 readme = "README.md"
 license = "MIT"

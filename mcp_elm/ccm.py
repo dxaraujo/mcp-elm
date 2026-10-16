@@ -500,19 +500,20 @@ def ccm_update_workitem(
     if not candidates:
         states = sorted({a["resultState"] for a in actions if a["resultState"]})
         raise ValueError(f"Estado '{state}' não existe no workflow. Estados: {', '.join(states)}.")
-    # o workflow não diz de qual estado cada ação parte: tenta as ações que levam ao destino até o servidor aceitar
-    first_error = None
+    # o workflow não diz de qual estado cada ação parte: tenta as ações que levam ao destino até o estado mudar
+    # (o servidor aceita em silêncio, sem mudar nada, uma ação que não sai do estado atual)
+    first_error, updated = None, None
     for action in candidates:
         try:
             updated = _summary(oslc.update(url, attributes, params={"_action": action["id"]}))
-            break
         except ElmHttpError as exc:
             first_error = first_error or exc
-    else:
+            continue
+        if (updated["state"] or "").lower() == state.lower():
+            return updated
+    if updated is None:
         raise first_error
-    if (updated["state"] or "").lower() != state.lower():
-        raise ValueError(f"O servidor não mudou o estado: continua '{updated['state']}' (pedido: '{state}').")
-    return updated
+    raise ValueError(f"O servidor não mudou o estado: continua '{updated['state']}' (pedido: '{state}').")
 
 
 # --- Timesheet (Time Tracking)

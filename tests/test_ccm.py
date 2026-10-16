@@ -229,6 +229,24 @@ def test_update_tries_actions_to_same_state_and_verifies(srv):
     assert ccm.ccm_update_workitem("7", state="Em Testes")["state"] == "Em Testes"
 
 
+def test_update_skips_action_accepted_without_changing_state(srv):
+    """O servidor aceita (200) uma ação que não sai do estado atual, sem mudar nada: tenta a próxima."""
+    srv.routes[("GET", f"{SERVER}/ccm/oslc/workflows/_PA1/states/wf")] = ok("wf_states.xml")
+    srv.routes[("GET", f"{SERVER}/ccm/oslc/workflows/_PA1/actions/wf")] = ok("wf_actions.xml")
+    srv.routes[("GET", f"{SERVER}/ccm/oslc/workflows/_PA1/states/wf/wf.state.s2")] = ok("wf_states.xml")
+    state = {"now": "wf.state.s1"}
+    srv.routes[("GET", WI7)] = lambda req: (200, {"ETag": '"1"'}, fixture("workitem_7.xml").replace(
+        b"wf.state.s1", state["now"].encode()))
+
+    def put(req):
+        if "_action=wf.action.a9" in req.url:
+            state["now"] = "wf.state.s2"
+        return 200, {}, b""  # a11 também "aceita", mas não muda o estado
+
+    srv.routes[("PUT", WI7)] = put
+    assert ccm.ccm_update_workitem("7", state="Em Testes")["state"] == "Em Testes"
+
+
 def test_update_raises_when_state_did_not_change(srv):
     srv.routes[("GET", WI7)] = ok("workitem_7.xml", ETag='"1"')
     srv.routes[("GET", f"{SERVER}/ccm/oslc/workflows/_PA1/states/wf")] = ok("wf_states.xml")
