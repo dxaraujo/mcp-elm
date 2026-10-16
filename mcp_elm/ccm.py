@@ -511,7 +511,7 @@ def ccm_update_workitem(
             continue
         if (updated["state"] or "").lower() == state.lower():
             return updated
-    if updated is None:
+    if first_error:  # a ação recusada é a que sai do estado atual; as aceitas em silêncio não diziam nada
         raise first_error
     raise ValueError(f"O servidor não mudou o estado: continua '{updated['state']}' (pedido: '{state}').")
 
