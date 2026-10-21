@@ -110,3 +110,25 @@ def test_qm_components_filtered_by_project_area(srv):
         {comp("_K1", "_PA1", "Principal")}{comp("_K2", "_PA2", "Outro")}</rdf:Description></rdf:RDF>''')
     assert [c["title"] for c in test.get_qm_component("_PA1")] == ["Principal"]
     assert test.get_qm_component("_PA1", component_name="xyz") == []
+
+
+def test_create_testcase_payload(srv):
+    sent = {}
+
+    def post(req):
+        sent["body"] = req.body.decode()
+        return 201, {"Location": TC}, b""
+
+    srv.routes[("POST", QUERY)] = post
+    hf = f"{SERVER}/rm/resources/HF_1"
+    tc = test.create_testcase("_PA1", "Multa & juros", "dado X, quando Y, então Z", validates_requirements=[hf])
+    assert tc["url"] == TC
+    body = sent["body"]
+    assert "Multa &amp; juros" in body and "dado X" in body and hf in body
+    assert "validatesRequirement" in body and "<oslc_qm:TestCase" in body
+
+
+def test_create_testcase_rejects_empty_title(srv):
+    with pytest.raises(ValueError):
+        test.create_testcase("_PA1", "  ")
+    assert not any(c.method == "POST" for c in srv.calls)

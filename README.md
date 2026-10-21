@@ -68,7 +68,7 @@ evitar consultas desnecessárias ao servidor.
 | elm-setup | Cria/atualiza a configuração do projeto em `elm/pa_<project area em snake_case>.json` (um arquivo por project area do CCM) |
 | elm-ccm | Work items: item de trabalho (WI), tarefa, defeito, item de backlog (IB)... |
 | elm-rm | Requisitos: RF, RNF, HU, UC, regra, mensagem, especificação... |
-| elm-qm | Testes (só leitura): caso de teste (CT), plano (PT), execução (TER)... |
+| elm-qm | Testes: leitura de caso de teste (CT), plano (PT), execução (TER)... e criação de caso de teste |
 | elm-gc | Comum: usuários, project areas, associações, configuração global e links de rastreabilidade |
 
 Instalação por projeto (links relativos, sem cópia):
@@ -92,7 +92,7 @@ Saída com as chaves do elm.json (`elm/pa_*.json`; a skill grava o arquivo, o MC
 | elm-setup (rm) | list_project_areas("RM"), get_project_area(include_associations), rm_get_configuration, rm_list_members, rm_list_folders, rm_list_requirement_types |
 | elm-ccm | ccm_list_workitems, ccm_get_workitem, ccm_list_field_values, ccm_create_workitem, ccm_update_workitem, ccm_list_workitem_states (+ add_comment_to_workitem, link_*) |
 | elm-rm | rm_search_requirements, rm_count_folder, rm_list_folder, rm_list_modified, rm_sync_plan, rm_download_requirements, rm_upload_requirements, rm_get_requirement, rm_create_requirement, rm_update_requirement (+ link_workitem_and_requirement) |
-| elm-qm | search_testartifact, get_testartifact, get_testartifact_schema, get_qm_component, get_qm_component_configuration |
+| elm-qm | search_testartifact, get_testartifact, get_testartifact_schema, create_testcase, get_qm_component, get_qm_component_configuration |
 | elm-gc | whoami, get_user, list_project_areas, get_project_area, get_global_configuration, search_global_configuration, list_linked_*, link_* |
 
 ### Leitura em Markdown + YAML

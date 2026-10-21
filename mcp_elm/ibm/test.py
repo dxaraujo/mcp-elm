@@ -1,9 +1,10 @@
-"""Test: artefatos de teste, schema, busca, comentários, componentes e configurações do ETM."""
+"""Test: artefatos de teste (leitura e criação de caso de teste), schema, busca, componentes e configurações do ETM."""
 from __future__ import annotations
 
 from typing import Literal
 
-from rdflib import URIRef
+from rdflib import Literal as RdfLiteral, URIRef
+from rdflib.namespace import DCTERMS
 
 from ..infra import oslc
 from ..infra.http import get_session
@@ -115,6 +116,28 @@ def search_testartifact(
     context = _configuration(configuration)
     return oslc.query(_base(project_area_uuid, artifact_type, context), where=where, select=select,
                       limit=oslc.MAX_LIMIT, configuration=context)
+
+
+@tool
+def create_testcase(
+    project_area_uuid: str, title: str, description: str | None = None,
+    validates_requirements: list[str] | None = None, configuration: str | None = None,
+) -> dict:
+    """Cria um caso de teste pela creation factory de oslc_qm:TestCase da project area. `description`: o cenário
+    (dado/quando/então, texto). `validates_requirements`: URLs dos requisitos que ele valida (link valida, gravado
+    na criação). `configuration`: UUID ou URL da configuração local (opt-in). Retorna o caso criado."""
+    if not title.strip():
+        raise ValueError("title vazio.")
+    context = _configuration(configuration)
+    factory = oslc.creation_factories(oslc.provider("qm", project_area_uuid), oslc.OSLC_QM.TestCase,
+                                      context)[0]["creation"]
+    graph = oslc.new_resource(oslc.OSLC_QM.TestCase, {
+        DCTERMS.title: RdfLiteral(title),
+        DCTERMS.description: RdfLiteral(description) if description else None,
+    })
+    for url in validates_requirements or []:
+        graph.add((URIRef(""), oslc.OSLC_QM.validatesRequirement, URIRef(url)))
+    return oslc.get(oslc.create(factory, graph, context), context)
 
 
 @tool
