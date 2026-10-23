@@ -6,6 +6,7 @@ Recurso: {"url", "id", "title", "types": [...], "properties": {qname: valor|[val
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 from functools import lru_cache
 from html import unescape
 from urllib.parse import unquote
@@ -103,7 +104,21 @@ def parse(content: bytes | str, base: str | None = None) -> Graph:
     return g
 
 
+def _data_ewm(o: Literal) -> Literal:
+    """xsd:dateTime como o EWM grava (2026-10-23T14:17:54.000Z): relido pelo rdflib, volta como +00:00, e o EWM
+    recusa ("Illegal argument") num atributo de data customizado (Risco, Reunião) — toda transição travava."""
+    v = o.toPython()
+    if not isinstance(v, datetime):
+        return o
+    v = v.astimezone(timezone.utc) if v.tzinfo else v
+    return Literal(v.strftime("%Y-%m-%dT%H:%M:%S.") + f"{v.microsecond // 1000:03d}Z", datatype=XSD.dateTime,
+                   normalize=False)
+
+
 def serialize(g: Graph) -> bytes:
+    for s, p, o in [t for t in g if isinstance(t[2], Literal) and t[2].datatype == XSD.dateTime]:
+        g.remove((s, p, o))
+        g.add((s, p, _data_ewm(o)))
     for p, ns in PREFIXES.items():
         g.bind(p, ns)
     # pretty-xml grava XMLLiteral como rdf:parseType="Literal" (exigido pelo DOORS Next para primaryText)

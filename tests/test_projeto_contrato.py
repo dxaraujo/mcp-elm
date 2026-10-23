@@ -89,3 +89,14 @@ def test_envelope_ok_e_erros():
     assert falha(Erro("conflito", "maria", "dono")) == {"codigo": "conflito", "detalhe": "maria", "campo": "dono"}
     with pytest.raises(ZeroDivisionError):  # bug não vira envelope
         operacao(lambda: 1 / 0)()
+
+
+def test_serialize_grava_data_como_o_ewm():
+    """O rdflib relê 2026-10-23T14:17:54.000Z e o regrava +00:00, que o EWM recusa em atributo de data customizado."""
+    from rdflib import Graph, Literal, URIRef
+    from rdflib.namespace import XSD
+    from mcp_elm import oslc
+    g = Graph()
+    g.add((URIRef("http://x/1"), URIRef("http://x/d"), Literal("2026-10-23T14:17:54+00:00", datatype=XSD.dateTime)))
+    out = oslc.serialize(g).decode()
+    assert "2026-10-23T14:17:54.000Z" in out and "+00:00" not in out
