@@ -1,6 +1,8 @@
 import json
 import os
+import time
 from datetime import date, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -192,3 +194,22 @@ def test_setup_descobrir_ccm(elm, fake):
     assert ccm["iteracoes"] == {"Sprint 1": {"id": "_I1", "planos": {"Sprint 1 - Time A": "_P1"}}}
     assert d["qm"] == {"nome": "Testes Alfa", "id": "_QPA"}
     assert ok(chamar("elm_setup_descobrir", ccm="zzz"))["ccm"] == {"pas": []}
+
+
+def test_obrigatorios_do_pa_valem_em_criar_assumir_e_horas(elm, projeto):
+    """Campo que a PA exige por processo (sem o tipo marcar) vira obrigatório: falta → padrão do pa ou precondicao."""
+    arq = next(Path(projeto, ".kiro", "config", "sdd").glob("pa_*.json"))
+    pa = json.loads(arq.read_text())
+    pa["ccm"]["tipos"]["tarefa"]["obrigatorios"] = ["Estimativa", "Prioridade"]
+    arq.write_text(json.dumps(pa))
+    os.utime(arq, (time.time() + 5, time.time() + 5))  # o cache do pa é por mtime
+    e = falha(chamar("elm_criar_wi", projeto=projeto, tipo="tarefa", titulo="x"))
+    assert e["codigo"] == "precondicao" and e["campo"] == "Estimativa"
+    elm.wi(42, "[DEV] x")  # sem estimativa nem prioridade
+    e = falha(chamar("elm_transicao", projeto=projeto, id=42, alvo="assumir"))
+    assert e["codigo"] == "precondicao" and e["campo"] == "Estimativa" and elm.wis[42]["estado"] == "s1"
+    assert ok(chamar("elm_transicao", projeto=projeto, id=42, alvo="assumir", estimativa_h=2))["estado"] == "Em Andamento"
+    assert "http://open-services.net/ns/cm-x#priority" in elm.wis[42]["puts"][0]  # o padrão "Alta" foi junto
+    elm.wi(43, "y", dono="joao", estimate=3_600_000)
+    ok(chamar("elm_lancar_horas", projeto=projeto, id=43, horas=1))
+    assert "http://open-services.net/ns/cm-x#priority" in elm.wis[43]["puts"][0]  # completado antes de lançar

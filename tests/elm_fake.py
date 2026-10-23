@@ -185,6 +185,7 @@ class Elm:
             w["estado"] = ACOES[action][2]
         g = Graph().parse(data=req.body, format="xml")
         s = URIRef(WI.format(i))
+        w.setdefault("puts", []).append({str(p) for p in g.predicates(s)})
         if dono := g.value(s, URIRef("http://purl.org/dc/terms/contributor")):
             w["dono"] = None if str(dono).endswith("unassigned") else unquote(str(dono).rsplit("/", 1)[-1])
         if (est := g.value(s, URIRef(RTC_CM + "estimate"))) is not None:

@@ -289,6 +289,40 @@ def _valor(r: dict, attr: str):
     return _horas(v) if key in DURATIONS else v
 
 
+def _padroes(t: dict, titulo: str) -> dict:
+    """Padrões do tipo, depois os do prefixo do título."""
+    valores = dict(t.get("padroes", {}))
+    for prefixo, extra in t.get("por-prefixo", {}).items():
+        if titulo.startswith(prefixo):
+            valores.update(extra)
+    return valores
+
+
+def _exigidos(cfg: dict, r: dict, estimativa_h=None) -> dict:
+    """Campos de `obrigatorios` do pa (a PA os exige por regra de processo para criar, mudar de estado ou lançar
+    horas, mesmo sem o tipo marcar) que o item ainda não tem → o padrão do pa vira atributo a gravar junto; sem
+    padrão → precondicao com o campo, antes de o servidor recusar."""
+    chave, t = _tipo_de(cfg, r)
+    if t is None:
+        return {}
+    valores, attrs, props = _padroes(t, r.get("title") or ""), {}, None
+    for campo in t.get("obrigatorios", []):
+        if (attr := t["campos"].get(campo)) is None:
+            raise Erro("config", f"obrigatório '{campo}' fora de campos", f"ccm.tipos.{chave}.campos")
+        if _valor(r, attr) not in (None, "", []):
+            continue
+        pred = oslc.qname(oslc.expand(attr))
+        if pred in DURATIONS:
+            if estimativa_h is None:
+                raise Erro("precondicao", f"{campo} vazio: informe estimativa_h", campo)
+            continue  # a própria chamada grava
+        if campo not in valores:
+            raise Erro("precondicao", f"{campo} vazio e sem padrão no pa", campo)
+        props = props or _props(cfg, t["id"])
+        attrs[pred] = _no(cfg, props, pred, valores[campo], campo)
+    return attrs
+
+
 def _comentarios(r: dict, n: int) -> list[str]:
     url = next((link["url"] for pred, links in r["links"].items()
                 if pred == "oslc:discussedBy" or pred.endswith("comments") for link in links), None)
@@ -366,11 +400,11 @@ def listar_wi(cfg: dict, iteracao=None, dono=None, tipo=None, pai=None, titulo_p
 def criar_wi(cfg: dict, tipo: str, titulo: str, pai=None, dono=None, estimativa_h=None, iteracao=None,
              descricao_md=None, campos: dict | None = None) -> dict:
     t = _tipo_cfg(cfg, tipo)
-    valores = dict(t.get("padroes", {}))  # padrões, depois o do prefixo do título, depois o da chamada
-    for prefixo, extra in t.get("por-prefixo", {}).items():
-        if titulo.startswith(prefixo):
-            valores.update(extra)
-    valores.update(campos or {})
+    valores = {**_padroes(t, titulo), **(campos or {})}  # padrões, depois o do prefixo do título, depois o da chamada
+    for campo in t.get("obrigatorios", []):  # exigidos pela PA por processo, ainda que o tipo não marque
+        pred = oslc.qname(oslc.expand(t["campos"].get(campo, "")))
+        if campo not in valores and not (pred in DURATIONS and estimativa_h is not None):
+            raise Erro("precondicao", f"obrigatório no pa sem valor: {campo}", campo)
     servidor = _tipo_servidor(cfg, t["id"])
     props = _props(cfg, t["id"])
     attrs = {**_campos(cfg, t, props, valores),
@@ -512,6 +546,7 @@ def transicao(cfg: dict, wi_id, alvo: str, estimativa_h=None, forcar: bool = Fal
             pai_aberto = _grupo(pai, _workflow(_first(pai, STATE)["url"])[0]) == "open"
             if pai_aberto and _login_link(_first(pai, OWNER)) is None:  # confere antes de mexer na tarefa
                 raise Erro("precondicao", f"pai {pai['id']} sem dono", "dono do pai")
+    attrs.update(_exigidos(cfg, r, estimativa_h if estimativa_h is not None else _valor(r, ESTIMATE)))
     estado, ja = _ir(url, r, alvo, attrs)
     out = {"id": int(wi_id), "estado": estado, "dono": dono, "ja_estava": ja and not attrs}
     if pai is not None:
@@ -675,9 +710,12 @@ def lancar_horas(cfg: dict, wi_id, horas_: float, data: str | None = None) -> di
     if dia > date.today():
         raise Erro("entrada", f"data futura: {dia.isoformat()}", "data")
     eu = whoami()
-    dono = _login_link(_first(oslc.get(wi_url(wi_id)), OWNER))
+    r = oslc.get(wi_url(wi_id))
+    dono = _login_link(_first(r, OWNER))
     if dono != eu:
         raise Erro("entrada", f"só o dono lança horas (dono: {dono or 'ninguém'})", "dono")
+    if exigidos := _exigidos(cfg, r, _valor(r, ESTIMATE)):  # ex.: o Clarity, que a PA exige para lançar
+        oslc.update(wi_url(wi_id), exigidos)
     dto = _dto(wi_id)
     no_dia = sum(e["ms"] for e in dto["lancamentos"] if e["data"] == dia.isoformat() and e["pessoa"] == eu) / MS_H
     if no_dia + horas_ > MAX_HORAS_DIA:
