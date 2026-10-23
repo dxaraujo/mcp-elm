@@ -13,7 +13,7 @@ import os
 import posixpath
 import re
 import sqlite3
-import time
+import threading
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -26,8 +26,11 @@ from .contrato import Erro
 
 MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 RRF_K = 60
-# shortcut: orçamento fixo por chamada; tornar parâmetro se algum cliente tiver timeout menor que ~60 s
-TIME_BUDGET = 40
+# testes: True indexa na própria chamada; no servidor, sempre numa thread (o 1º uso baixa o modelo: minutos)
+SINCRONO = False
+_jobs: dict[str, threading.Thread] = {}
+_falhas: dict[str, str] = {}
+_lock = threading.Lock()
 SNIPPET_MAX = 800
 CHUNK_MAX = 1500
 RESERVED = {"index.md", "log.md"}  # reservados pelo OKF em qualquer pasta, não documentos
@@ -209,7 +212,7 @@ def _write(con: sqlite3.Connection, doc: dict) -> None:
 
 
 def _indexar(root: str, docs: dict, forcar: bool = False) -> dict:
-    """Remove do índice os apagados e (re)indexa os novos ou alterados (sha256) até o TIME_BUDGET."""
+    """Remove do índice os apagados e (re)indexa os novos ou alterados (sha256)."""
     with connect(root) as con:
         if forcar:
             con.execute("update docs set hash = ''")  # continua buscável enquanto reindexa
@@ -219,10 +222,8 @@ def _indexar(root: str, docs: dict, forcar: bool = False) -> dict:
             _delete(con, p)
         con.commit()
         pending = [p for p, d in docs.items() if indexed.get(p) != d["hash"]]
-        done, deadline = 0, time.monotonic() + TIME_BUDGET
+        done = 0
         for p in pending:
-            if time.monotonic() > deadline:
-                break
             _write(con, docs[p])
             con.commit()  # por documento: reinício do MCP no meio do lote não perde o progresso
             done += 1
@@ -274,14 +275,49 @@ def _bundle(cfg: dict) -> tuple[str, dict]:
     return root, docs
 
 
-def reindexar(root: str) -> dict | None:
-    """Fim do elm_sync baixar: indexa o que mudou no bundle (None se ele estiver vazio)."""
-    docs = scan(root)
-    return _indexar(root, docs) if docs else None
+def _progresso(root: str, docs: dict) -> dict:
+    with connect(root) as con:
+        indexed = dict(con.execute("select path, hash from docs"))
+    restantes = sum(indexed.get(p) != d["hash"] for p, d in docs.items()) + sum(p not in docs for p in indexed)
+    job = _jobs.get(root)
+    return {"documentos": len(docs), "restantes": restantes, "indexando": bool(job and job.is_alive()),
+            **({"erro_indice": _falhas[root]} if root in _falhas else {})}
+
+
+def _trabalho(root: str) -> None:
+    try:
+        _indexar(root, scan(root))
+        _falhas.pop(root, None)
+    except Exception as exc:  # na thread: a próxima chamada mostra o erro e dispara de novo
+        _falhas[root] = f"{type(exc).__name__}: {exc}"[:200]
+
+
+def disparar(root: str, docs: dict, forcar: bool = False) -> dict:
+    """Indexa em segundo plano e devolve o progresso na hora: nenhuma chamada espera o modelo nem o lote."""
+    if forcar:
+        with connect(root) as con:
+            con.execute("update docs set hash = ''")  # continua buscável enquanto reindexa
+    elif not _progresso(root, docs)["restantes"]:
+        return _progresso(root, docs)  # nada mudou: sem thread
+    if SINCRONO:
+        _trabalho(root)
+    else:
+        with _lock:
+            job = _jobs.get(root)
+            if not (job and job.is_alive()):
+                _jobs[root] = threading.Thread(target=_trabalho, args=(root,), daemon=True, name=f"indice {root}")
+                _jobs[root].start()
+    return _progresso(root, docs)
+
+
+def aguardar(root: str) -> None:
+    """Espera a indexação em curso (testes)."""
+    if job := _jobs.get(root):
+        job.join()
 
 
 def indexar(cfg: dict, forcar: bool = False) -> dict:
-    return _indexar(*_bundle(cfg), forcar)
+    return disparar(*_bundle(cfg), forcar)
 
 
 def buscar(cfg: dict, texto: str, limite: int = 8, pasta: str | None = None, tipo: str | None = None) -> dict:
@@ -289,7 +325,9 @@ def buscar(cfg: dict, texto: str, limite: int = 8, pasta: str | None = None, tip
         raise Erro("entrada", "texto vazio", "texto")
     limite = max(1, limite)
     root, docs = _bundle(cfg)
-    idx = _indexar(root, docs)
+    idx = _progresso(root, docs)
+    if idx["restantes"]:  # dispara e busca no que já está no índice
+        idx = disparar(root, docs)
     with connect(root) as con:
         hits = _search(con, texto, limite * 5, pasta, tipo)
     out: dict[str, dict] = {}

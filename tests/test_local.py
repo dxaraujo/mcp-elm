@@ -70,15 +70,14 @@ def test_chunks_por_heading_e_paragrafo(raiz):
 
 
 def test_indexacao_incremental(projeto, raiz, monkeypatch):
-    assert call("elm_indexar_local", projeto) == {"documentos": 3, "indexados": 3, "removidos": 0, "restantes": 0}
-    assert call("elm_indexar_local", projeto)["indexados"] == 0
+    assert call("elm_indexar_local", projeto) == {"documentos": 3, "restantes": 0, "indexando": False}
+    assert call("elm_indexar_local", projeto)["restantes"] == 0
     with open(os.path.join(raiz, RN), "a", encoding="utf-8") as f:
         f.write("\nNovo parágrafo.\n")
     os.remove(os.path.join(raiz, LOGIN))
-    assert call("elm_indexar_local", projeto) == {"documentos": 2, "indexados": 1, "removidos": 1, "restantes": 0}
-    assert call("elm_indexar_local", projeto, forcar=True)["indexados"] == 2
-    monkeypatch.setattr(local, "TIME_BUDGET", -1)
-    assert call("elm_indexar_local", projeto, forcar=True)["restantes"] == 2
+    assert call("elm_indexar_local", projeto) == {"documentos": 2, "restantes": 0, "indexando": False}
+    with local.connect(raiz) as con:
+        assert {p for (p,) in con.execute("select path from docs")} == {RN, UC}  # o apagado saiu
     assert os.path.isfile(os.path.join(raiz, "sqlite3", "okf.db"))
     assert open(os.path.join(raiz, "sqlite3", ".gitignore")).read() == "*\n"
 
@@ -98,9 +97,19 @@ def test_busca_indexa_antes_e_filtra(projeto, raiz):
     assert all(h["path"] != LOGIN for h in call("elm_buscar_req_local", projeto, texto="login portal senha")["itens"])
 
 
-def test_busca_no_limite_de_tempo_usa_o_que_tem(projeto, raiz, monkeypatch):
-    monkeypatch.setattr(local, "TIME_BUDGET", -1)
+def test_indexacao_em_segundo_plano_responde_na_hora(projeto, raiz, monkeypatch):
+    """O 1º uso baixa o modelo (minutos): a chamada não espera; busca o que já há e avisa o que falta."""
+    import threading
+    from conftest import fake_embed
+    solta = threading.Event()
+    monkeypatch.setattr(local, "SINCRONO", False)
+    monkeypatch.setattr(local, "embed", lambda t: (solta.wait(5), fake_embed(t))[1])
+    assert call("elm_indexar_local", projeto) == {"documentos": 3, "restantes": 3, "indexando": True}
     assert call("elm_buscar_req_local", projeto, texto="CPF") == {"itens": [], "indexando": True, "restantes": 3}
+    solta.set()
+    local.aguardar(raiz)
+    assert call("elm_indexar_local", projeto) == {"documentos": 3, "restantes": 0, "indexando": False}
+    assert call("elm_buscar_req_local", projeto, texto="CPF")["itens"]
 
 
 def test_ler_por_id_e_por_path(projeto, raiz):

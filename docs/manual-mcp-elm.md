@@ -66,8 +66,8 @@ relatório de concluídas sem horas). Anexos: `caminho` é relativo ao projeto; 
 pasta, `log.md`, um `.md` por requisito). `plano` lista as pastas do pa e classifica: novo, sincronizado,
 desatualizado, atualizado, normalizado, conflito. `baixar` sem ids leva a fila (novo, desatualizado, erro); com ids,
 fica a versão do ELM. `enviar` sem ids sobe atualizado/normalizado só se o ELM não mudou desde o download (senão
-conflito); com ids, fica a versão do md. `baixar` termina reindexando o bundle local (abaixo); se passar de ~40 s,
-devolve `indexando: true, restantes: n`.
+conflito); com ids, fica a versão do md. Indexar é à parte (`elm_indexar_local`, abaixo): quem baixa decide se
+indexa agora.
 
 ### Bundle local
 
@@ -78,13 +78,13 @@ Quatro tools leem o bundle baixado, sem ir ao ELM — mesmo nome da operação r
 | `elm_buscar_req_local` | busca híbrida (sentido + palavra), filtros `pasta` (1ª pasta do path) e `tipo` (`type` do frontmatter) | `itens[{path, id, titulo, tipo, pasta, score, trechos[{secao, texto}]}], indexando?, restantes?` |
 | `elm_ler_req_local` | documento por id ou path relativo, com links de saída e de entrada | `path, markdown, links{saida[], entrada[]}` |
 | `elm_listar_req_local` | inventário (sem corpo), mesmos filtros | `itens[{path, id, titulo, tipo, pasta, descricao, indexado}]` |
-| `elm_indexar_local` | indexa o que mudou (sha256), até ~40 s por chamada; `forcar` reindexa tudo | `documentos, indexados, removidos, restantes` |
+| `elm_indexar_local` | indexa o que mudou (sha256) numa thread e responde na hora; chamar de novo mostra o progresso; `forcar` reindexa tudo | `documentos, restantes, indexando, erro_indice?` |
 
 O índice fica em `<bundle>/sqlite3/okf.db` (com `.gitignore`): chunks por heading com vetor do
 `paraphrase-multilingual-MiniLM-L12-v2` (fastembed, carregado só na 1ª busca/indexação) + FTS5, fundidos por RRF.
-`elm_buscar_req_local` reindexa antes, incrementalmente; se o tempo acabar, busca com o que já está indexado e devolve
-`indexando: true, restantes: n`. `elm_indexar_local` é para a 1ª indexação de um bundle grande: chame até
-`restantes` = 0.
+A indexação roda numa thread do servidor (o 1º uso baixa o modelo, que leva minutos): nenhuma chamada espera.
+`elm_buscar_req_local` com arquivos alterados dispara a indexação e busca no que já está no índice, devolvendo
+`indexando: true, restantes: n`. Medido: 1.291 documentos em ~1 min com o modelo já baixado.
 
 **Nada baixado** (pasta de `rm.download` ausente ou sem `.md`): buscar, ler, listar e indexar devolvem
 `nao_encontrado` com `campo: "bundle"` e o detalhe indica baixar com `elm_sync` (`direcao: "baixar"`) ou pesquisar no

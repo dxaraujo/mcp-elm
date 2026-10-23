@@ -84,6 +84,7 @@ def fake_embed(texts):
 @pytest.fixture(autouse=True)
 def _sem_modelo(monkeypatch):
     monkeypatch.setattr(local, "embed", fake_embed)
+    monkeypatch.setattr(local, "SINCRONO", True)  # indexa na própria chamada; o teste do segundo plano desliga
 
 
 def _clear_caches():

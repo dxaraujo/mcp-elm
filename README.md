@@ -66,15 +66,15 @@ Um único TextContent, sem `structuredContent`:
 | `elm_publicar_req` | cria ou atualiza requisito | `id, url, acao` |
 | `elm_criar_ct` | cria caso de teste já ligado | `id, url` |
 | `elm_iteracao` | acha ou cria iteração e planos do time | `id, planos, criados[]` |
-| `elm_sync` | bundle do DOORS Next (plano, baixar, enviar); baixar reindexa | `baixar[], enviar[], conflitos[]` · `feitos[], conflitos[], indexando?` |
+| `elm_sync` | bundle do DOORS Next (plano, baixar, enviar) | `baixar[], enviar[], conflitos[]` · `feitos[], conflitos[]` |
 | `elm_buscar_req_local` | busca no bundle baixado (sentido + palavra) | `itens[], indexando?, restantes?` |
 | `elm_ler_req_local` | lê documento do bundle (id ou path) com links | `path, markdown, links` |
 | `elm_listar_req_local` | inventário do bundle | `itens[]` |
-| `elm_indexar_local` | indexa o bundle (~40 s por chamada) | `documentos, indexados, removidos, restantes` |
+| `elm_indexar_local` | indexa o bundle em segundo plano; responde na hora com o progresso | `documentos, restantes, indexando` |
 | `elm_setup_descobrir` | dados para montar o pa | `ccm, rm?, qm?, valores_de?` |
 
-As `_local` leem o bundle em `<projeto>/<rm.download>` (índice em `<bundle>/sqlite3/okf.db`); `elm_sync baixar`
-já reindexa. Sem nada baixado devolvem `nao_encontrado` com `campo: "bundle"`: baixe com `elm_sync` ou pesquise no
+As `_local` leem o bundle em `<projeto>/<rm.download>` (índice em `<bundle>/sqlite3/okf.db`); depois do
+`elm_sync baixar`, indexe com `elm_indexar_local`. Sem nada baixado devolvem `nao_encontrado` com `campo: "bundle"`: baixe com `elm_sync` ou pesquise no
 ELM remoto (`elm_buscar_req`/`elm_ler_req`). Detalhes no manual.
 
 ## Testes e paridade

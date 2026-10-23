@@ -206,8 +206,8 @@ def elm_iteracao(projeto: Projeto, nome: str, inicio: str | None = None, fim: st
 @tool
 def elm_sync(projeto: Projeto, direcao: Literal["plano", "baixar", "enviar"], ids: list[int] | None = None,
              pa: Pa = None) -> str:
-    """Bundle do DOORS Next em rm.download; baixar já reindexa o local. → dados: plano {baixar[], enviar[],
-    conflitos[]}; baixar/enviar {feitos[], conflitos[], erros?, indexando?, restantes?}"""
+    """Bundle do DOORS Next em rm.download (indexar é à parte: elm_indexar_local). → dados: plano {baixar[],
+    enviar[], conflitos[]}; baixar/enviar {feitos[], conflitos[], erros?}"""
     return sync.sync(prj.carregar(projeto, pa), direcao, ids)
 
 
@@ -218,7 +218,7 @@ TipoReq = Annotated[str | None, Field(description="type do frontmatter")]
 @tool
 def elm_buscar_req_local(projeto: Projeto, texto: str, limite: int = 8, pasta: Pasta = None, tipo: TipoReq = None,
                          pa: Pa = None) -> str:
-    """Busca híbrida (sentido + palavra) no bundle baixado; indexa antes o que mudou. → dados: {itens[{path, id,
+    """Busca híbrida (sentido + palavra) no bundle baixado; o que mudou indexa em segundo plano. → dados: {itens[{path, id,
     titulo, tipo, pasta, score, trechos[{secao, texto}]}], indexando?, restantes?}"""
     return local.buscar(prj.carregar(projeto, pa), texto, limite, pasta, tipo)
 
@@ -239,8 +239,8 @@ def elm_listar_req_local(projeto: Projeto, pasta: Pasta = None, tipo: TipoReq = 
 @tool
 def elm_indexar_local(projeto: Projeto, forcar: Annotated[bool, Field(description="reindexa tudo")] = False,
                       pa: Pa = None) -> str:
-    """Indexa o bundle baixado (~40 s por chamada); repita até restantes=0. → dados: {documentos, indexados,
-    removidos, restantes}"""
+    """Indexa o bundle baixado em segundo plano e responde na hora; chame de novo para ver o progresso.
+    → dados: {documentos, restantes, indexando, erro_indice?}"""
     return local.indexar(prj.carregar(projeto, pa), forcar)
 
 

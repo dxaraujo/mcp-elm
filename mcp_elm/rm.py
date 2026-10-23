@@ -106,7 +106,7 @@ def buscar(cfg: dict, texto: str, limite: int = 20) -> dict:
 def documento(cfg: dict, req_id, bundle_ids: set[str] | None = None, artefatos: dict | None = None) -> dict:
     """Requisito em partes: {recurso, tipo, pasta, corpo, links, normalizado, caminho}.
 
-    `bundle_ids` (bundle da elm-sync): artefato do bundle vira embed com alvo = arquivo relativo; o resto, link
+    `bundle_ids` (bundle da sdd-sync): artefato do bundle vira embed com alvo = arquivo relativo; o resto, link
     para a URL. Sem ele, todo artefato citado vira [id título](URL). `normalizado`: algum link mudou de forma (link
     da UI web, embed fora do bundle, hyperlink para artefato do bundle) e o arquivo difere do texto no ELM."""
     config, bundle = stream(cfg), bundle_ids is not None
