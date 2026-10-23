@@ -6,9 +6,26 @@ LLM passa só ids e conteúdo. Manual: [docs/manual-mcp-elm.md](docs/manual-mcp-
 
 ## Instalação
 
+Publicado no [PyPI](https://pypi.org/project/mcp-elm/) e já incluído no `mcp.json` do power `sdd`; requer o
+[uv](https://docs.astral.sh/uv/). Em outro cliente MCP:
+
+```json
+{
+  "mcpServers": {
+    "elm": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["mcp-elm@latest"],
+      "env": { "UV_SYSTEM_CERTS": "true" }
+    }
+  }
+}
+```
+
+Desenvolvimento:
+
 ```bash
 uv sync
-claude mcp add elm -- uv run --directory /caminho/para/mcps/elm mcp-elm
 uv run mcp dev mcp_elm/server.py   # depuração com o MCP Inspector
 ```
 
