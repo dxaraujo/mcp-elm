@@ -154,7 +154,7 @@ def test_lancar_horas_valida_e_devolve_so_o_lancado(elm, projeto):
     assert d == {"lancado": {"data": "2026-01-02", "horas": 2.0}, "total_h": 12.0}
     form = elm.salvos[-1]
     item = json.loads(form["updateLinks"][0])["item"]
-    assert item["timeCode"] == "Horas Diretas" and item["workType"] == "Tarefa" and form["attributeValues"] == ["43200000"]
+    assert item["timeCode"] == "Horas Alfa" and item["workType"] == "Tarefa" and form["attributeValues"] == ["43200000"]
     amanha = (date.today() + timedelta(days=1)).isoformat()
     assert falha(chamar("elm_lancar_horas", projeto=projeto, id=42, horas=1, data=amanha))["campo"] == "data"
     assert falha(chamar("elm_lancar_horas", projeto=projeto, id=42, horas=7, data="2026-01-02"))["campo"] == "horas"

@@ -67,7 +67,7 @@
           "required": ["time-code", "work-type"],
           "additionalProperties": false,
           "properties": {
-            "time-code": { "type": "string", "description": "Time code do lançamento (ex.: Horas Diretas)." },
+            "time-code": { "type": "string", "description": "Time code do lançamento (o nome do time code na PA)." },
             "work-type": { "type": "string", "description": "Tipo de trabalho do lançamento (ex.: Tarefa)." }
           }
         }

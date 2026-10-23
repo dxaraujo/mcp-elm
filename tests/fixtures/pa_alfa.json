@@ -29,7 +29,7 @@
     "iteracoes": {
       "Sprint 1": { "id": "_I1", "planos": { "Sprint 1 - Time A": "_P1" } }
     },
-    "horas": { "time-code": "Horas Diretas", "work-type": "Tarefa" }
+    "horas": { "time-code": "Horas Alfa", "work-type": "Tarefa" }
   },
   "rm": {
     "nome": "Requisitos Alfa",
