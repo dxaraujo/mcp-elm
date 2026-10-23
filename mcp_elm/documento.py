@@ -1,9 +1,8 @@
-"""Documento Markdown + YAML das tools de leitura (rm_get_requirement, ccm_get_workitem).
+"""Documento Markdown + YAML (elm_ler_wi, elm_ler_req, bundle) e conversões XHTML <-> Markdown.
 
-Cabeçalho YAML com os campos, corpo em Markdown. Todo artefato citado no texto do DOORS Next, embutido ou
-hyperlink, vira `[id título](alvo)` (alvo = URL do ELM ou caminho do arquivo); o que é embed fica na lista
-`embedded` do cabeçalho. Na gravação, o link cujo artefato está em `embedded` volta a ser embed e o resto,
-hyperlink. Alvos aceitos na gravação: URL do ELM, id (`2001`) ou arquivo (`../03-Regras/2001-x.md`).
+Todo artefato citado no texto do DOORS Next, embutido ou hyperlink, vira `[id título](alvo)` (alvo = URL do ELM ou
+arquivo do bundle). Na gravação, o link cujo artefato está em `embedded` volta a ser embed e o resto, hyperlink.
+Alvos aceitos na gravação: URL do ELM, id (`2001`) ou arquivo (`../03-Regras/2001-x.md`).
 """
 from __future__ import annotations
 

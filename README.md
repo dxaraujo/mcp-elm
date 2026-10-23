@@ -1,17 +1,21 @@
 # mcp-elm
 
-Servidor MCP para o IBM ELM via OSLC: **rm** (DOORS Next), **ccm** (EWM) e **qm** (ETM).
-Ele fornece as capacidades que as skills vão consumir. As tools seguem os nomes e parâmetros do
-[IBM Engineering AI Hub MCP 1.3.0](https://www.ibm.com/docs/en/engineering-lifecycle-management-suite/engineering-ai-hub/1.3.0?topic=tools-mcp-engineering-ai-hub).
+Servidor MCP do IBM ELM — **EWM** (work items), **DOORS Next** (requisitos) e **ETM** (casos de teste) — para o
+power `sdd`. Expõe **operações**: o servidor lê a configuração da project area no projeto (`pa_<nome>.json`) e a
+LLM passa só ids e conteúdo. Manual: [docs/manual-mcp-elm.md](docs/manual-mcp-elm.md).
+
+## Instalação
+
+```bash
+uv sync
+claude mcp add elm -- uv run --directory /caminho/para/mcps/elm mcp-elm
+uv run mcp dev mcp_elm/server.py   # depuração com o MCP Inspector
+```
 
 ## Credenciais
 
-| SO | Arquivo |
-|---|---|
-| Linux/Mac | `~/.config/mcp-elm/elm.properties` |
-| Windows | `%APPDATA%\mcp-elm\elm.properties` |
-
-Para usar outro caminho, defina a variável de ambiente `MCP_ELM_CONFIG`.
+`~/.config/mcp-elm/elm.properties` (Windows: `%APPDATA%\mcp-elm\elm.properties`; outro caminho: `MCP_ELM_CONFIG`).
+CA próprio: `export REQUESTS_CA_BUNDLE=/caminho/ca.pem`. Login pelo form Jazz, com Basic se o servidor pedir.
 
 ```ini
 [DEFAULT]
@@ -20,234 +24,55 @@ user = SEU_USUARIO
 password = SUA_SENHA
 ```
 
-Certificado com CA próprio: `export REQUESTS_CA_BUNDLE=/caminho/ca.pem`.
+## Configuração do projeto
 
-A autenticação usa o form Jazz (`j_security_check`). Se o servidor responder 401 pedindo Basic, o Basic é usado automaticamente.
+`<projeto>/.kiro/config/sdd/pa_<nome>.json`, um por project area, gravado pela skill `sdd-setup`. O schema é o do
+power sdd ([pa.schema.json](../../powers/sdd/skills/sdd-setup/assets/pa.schema.json)); o pacote leva uma cópia
+(`mcp_elm/pa.schema.json`) — mantenha as duas iguais.
 
-## Instalação
+Toda tool (menos `elm_setup_descobrir`) recebe `projeto` (caminho **absoluto** do workspace: o Kiro não inicia o MCP
+de um power no workspace) e `pa` (o `<nome>`; omitido só quando há um arquivo).
 
-```bash
-uv sync
-claude mcp add elm -- uv run --directory /caminho/para/mcp-elm mcp-elm
-# depuração com o MCP Inspector
-uv run mcp dev mcp_elm/server.py
+## Resposta
+
+Um único TextContent, sem `structuredContent`:
+
+```json
+{"ok":true,"dados":{...}}
+{"ok":false,"erro":{"codigo":"precondicao","detalhe":"...","campo":"Estimativa"}}
 ```
 
-## Contrato de saída
+`elm_ler_wi` e `elm_ler_req` devolvem Markdown (YAML + corpo); erro nelas sai no envelope. Códigos: `config`,
+`credencial`, `nao_encontrado`, `permissao`, `precondicao`, `conflito`, `entrada`.
 
-- Recursos OSLC: `{url, id, title, types, properties{}, links{}}`, com chaves em qname (`dcterms:title`).
-  Cada link é `{url, title?}`. `get_workitem` e `search_workitems` trazem o `title` dos recursos ligados (estado,
-  prioridade, iteração...) na mesma requisição (`oslc.properties`/`oslc.select` com `{dcterms:title}`) e completam
-  o nome dos usuários do JTS pela lista em cache do Reportable REST.
-- Dados da API de processo e do Reportable REST usam os nomes de campo da doc IBM
-  (`get_user` → `userUUID, userId, name, emailAddress, archived`; `get_project_area` → `name, project_area_uuid,
-  summary, description, cm_enabled, team_areas, timelines, associations`).
-- Entradas por UUID/URL, como na doc IBM. Descubra-os com `list_project_areas`, `get_project_area`,
-  `get_project_components` (rm) e `get_qm_component` (qm).
-- `configuration`/`configuration_url`/`global_configuration_url`/`gc_uri`/`gc_context` vão no header
-  `Configuration-Context`. No DOORS Next, sem configuração, é usada a primeira stream do componente.
+## Tools
 
-## Tools (IBM Engineering AI Hub 1.3.0)
-
-| Conjunto | Tools |
-|---|---|
-| Common | get_user, get_project_area, get_global_configuration, search_global_configuration, list_project_areas, list_linked_requirements, list_linked_workitems, list_linked_testartifacts, link_workitem_and_requirement, link_workitem_and_testartifact, link_testartifact_and_requirement |
-| Requirements | get_project_components, get_rm_component_types, list_rm_component_folders, get_rm_component_configuration, get_requirement, search_requirement, create_requirement |
-| Work Items | create_workitem, get_workitem, get_workitem_schema, list_workitem_categories, list_workitem_releases, search_workitems, add_comment_to_workitem |
-| Test | get_testartifact, get_testartifact_schema, search_testartifact, get_qm_component, get_qm_component_configuration |
-
-Aliases da doc (`get_rm_component`, `get_project_component_types`...) não são registrados: vale o primeiro nome.
-
-## Skills
-
-As skills ficam em `skills/` e documentam, para a IA, as tools, suas entradas e saídas, os fluxos e os erros, para
-evitar consultas desnecessárias ao servidor.
-
-| Skill | Assunto |
-|---|---|
-| elm-setup | Cria/atualiza a configuração do projeto em `elm/pa_<project area em snake_case>.json` (um arquivo por project area do CCM) |
-| elm-ccm | Work items: item de trabalho (WI), tarefa, defeito, item de backlog (IB)... |
-| elm-rm | Requisitos: RF, RNF, HU, UC, regra, mensagem, especificação... |
-| elm-qm | Testes: leitura de caso de teste (CT), plano (PT), execução (TER)... e criação de caso de teste |
-| elm-gc | Comum: usuários, project areas, associações, configuração global e links de rastreabilidade |
-
-Instalação por projeto (links relativos, sem cópia):
-
-```bash
-mkdir -p .claude/skills .kiro/skills
-for s in elm-setup elm-ccm elm-rm elm-qm elm-gc; do
-  ln -sfn ../../skills/$s .claude/skills/$s   # Claude Code
-  ln -sfn ../../skills/$s .kiro/skills/$s     # Kiro
-done
-```
-
-### Tools das skills
-
-Saída com as chaves do elm.json (`elm/pa_*.json`; a skill grava o arquivo, o MCP não o lê). Listas voltam como
-`[{name, identifier, ...}]` e a skill grava o mapa `{name: identifier}`.
-
-| Skill | Tools |
-|---|---|
-| elm-setup (ccm) | whoami, list_project_areas("CCM"), ccm_list_team_areas, ccm_list_members, ccm_list_workitem_types, ccm_list_workitem_fields, ccm_list_link_types, ccm_list_iterations, ccm_list_iteration_plans, ccm_list_plan_types, ccm_create_iteration, ccm_create_iteration_plan |
-| elm-setup (rm) | list_project_areas("RM"), get_project_area(include_associations), rm_get_configuration, rm_list_members, rm_list_folders, rm_list_requirement_types |
-| elm-ccm | ccm_list_workitems, ccm_get_workitem, ccm_list_field_values, ccm_create_workitem, ccm_update_workitem, ccm_list_workitem_states (+ add_comment_to_workitem, link_*) |
-| elm-rm | rm_search_requirements, rm_count_folder, rm_list_folder, rm_list_modified, rm_sync_plan, rm_download_requirements, rm_upload_requirements, rm_get_requirement, rm_create_requirement, rm_update_requirement (+ link_workitem_and_requirement) |
-| elm-qm | search_testartifact, get_testartifact, get_testartifact_schema, create_testcase, get_qm_component, get_qm_component_configuration |
-| elm-gc | whoami, get_user, list_project_areas, get_project_area, get_global_configuration, search_global_configuration, list_linked_*, link_* |
-
-### Leitura em Markdown + YAML
-
-`ccm_get_workitem` e `rm_get_requirement` devolvem um documento Markdown com cabeçalho YAML. O MCP não traduz
-nomes:
-
-- **Work item:** o cabeçalho traz só os campos e links mapeados no elm.json, com o nome de lá. A skill passa
-  `fields=workitem-types[tipo].fields` e `link_types=ccm.link-types` e, para gravar, procura a chave no mesmo mapa
-  (`fields["Estimativa"]` → `rtc_cm:estimate`).
-- **Requisito:** o cabeçalho traz os links preenchidos, com os nomes do DOORS Next (só leitura: não são gravados), e
-  `embedded` (artefatos embutidos no texto). A gravação é só de título e texto. O elm.json do RM guarda só tipos e pastas.
-
-O cabeçalho do requisito segue o [Google OKF v0.2](https://okf.md/): primeiro os campos OKF padrão (`type`,
-`title`, `description?`, `resource`, `tags` = [pasta]), depois `sources` (a fonte no DOORS Next: `author` = quem
-criou, `last_modified` = última modificação no ELM e `last_modified_by` = quem modificou por último) e `generated` (quem gerou e **quando o documento foi gerado**), ambos em ISO 8601 UTC, e, por
-fim, as extensões RM. `sources[0].last_modified` > `generated.at` indica cópia desatualizada; `rm_list_modified`
-devolve essa data para um ou vários ids sem ler o conteúdo. Para download/sync de uma pasta, use
-`rm_count_folder` (total pelo servidor) e `rm_list_folder` (todos os `{id, title, modified}`, sem teto) como
-inventário: só a pasta, sem subpastas; `count` diferente do tamanho da lista indica listagem inconsistente. Para o bundle da elm-sync, o MCP cuida de tudo sem passar listas nem conteúdo pela conversa
-(ver [Sincronismo do bundle](#sincronismo-do-bundle-elm-sync)). Extensões RM: `id`, `created` (UTC), `links` e `embedded`, só quando preenchidos. `verified`, `status` e
-`stale_after` só aparecem quando o artefato traz um sinal real (requisitos do DOORS Next não os definem).
-
-Exemplo (dados fictícios):
-
-```markdown
----
-type: Caso de Uso
-title: UC - Cadastrar cliente
-resource: "https://elm.example.com/rm/resources/TX_exemplo2010"
-tags:
-  - "03-Casos de Uso"
-sources:
-  - id: doors-next
-    resource: "https://elm.example.com/rm/resources/TX_exemplo2010"
-    author: "human:ana.souza"
-    last_modified: "2026-01-10T13:05:00Z"
-    last_modified_by: "human:bruno.lima"
-generated:
-  by: "process:elm-mcp/1.0.14"
-  at: "2026-01-11T19:20:00Z"
-id: 2010
-created: "2026-01-05T13:00:00Z"
-links:
-  Vincular A:
-    - "2002: RN - Cliente deve ser maior de idade"
-embedded:
-  - "2001: RN - Validar CPF do cliente"
----
-## Fluxo Básico
-
-1. O usuário informa os dados do cliente.
-2. O sistema valida o documento: [2001 RN - Validar CPF do cliente](https://elm.example.com/rm/resources/TX_exemplo2001)
-```
-
-O corpo é Markdown nos dois sentidos: `text` (RM) e `description` (WI) aceitam Markdown na gravação. No RM, a
-leitura sai sempre no mesmo padrão: todo artefato, embutido ou hyperlink, é `[<id> <título>](<alvo>)`, com o alvo =
-URL do ELM; o que é embed está na lista `embedded` do cabeçalho (artefato ilegível sai como link e fica fora da
-lista). Na gravação, o link cujo artefato está em `embedded` (parâmetro de
-`rm_create_requirement`/`rm_update_requirement`) vira embed e o resto, hyperlink; alvo por URL (inclusive link da UI
-web com `artifactURI`), id (`2001`) ou arquivo cujo nome começa pelo id. No EWM a descrição só tem texto, `<br/>`, `<b>`, `<i>` e `<a>` (listas viram `• ` / `1. `); para citar outro
-WI, escreva "Tarefa 1002" no texto e o EWM cria o link "Menções". `[texto](url)` é hyperlink comum.
-
-### Sincronismo do bundle (elm-sync)
-
-O bundle é uma pasta de md, um por requisito (`<pasta>/<id>-<slug>.md`), com `sync.md` (situação de cada artefato),
-`index.md` na raiz e em cada pasta (OKF §8, como o `build_index` do okf-kit) e `log.md` (cada sync registra, sob
-`## AAAA-MM-DD`, o que criou, atualizou, subiu, moveu ou apagou). O sincronismo baixa primeiro e depois sobe o que foi editado no md:
-
-1. `rm_sync_plan(folders, dest)`: lista as pastas, regrava `sync.md`, apaga os removidos e devolve um resumo com
-   `a_baixar`, `a_subir` e `conflitos`;
-2. `rm_download_requirements(dest)` até `restantes = 0`;
-3. para cada item de `conflitos`, a skill **pergunta ao usuário qual versão fica**. Se for o ELM, chama
-   `rm_download_requirements(dest, requirement_ids=[id])`; se for o md, chama `rm_upload_requirements(dest, requirement_ids=[id])`;
-4. `rm_upload_requirements(dest)` até `restantes = 0` (sobe título e corpo e rebaixa o requisito).
-
-| Estado | Quando | Ação |
+| Tool | Faz | `dados` |
 |---|---|---|
-| `novo` | id ainda não baixado | download |
-| `sincronizado` | md == ELM | — |
-| `desatualizado` | `modified` do ELM ≠ `Última atualização ELM` | download |
-| `atualizado` | md alterado (sha256 ≠ `Hash`) e ELM sem mudança | upload |
-| `normalizado` | md **não** alterado (hash igual), mas o ELM foge da regra embed/link do bundle (diferença invisível no md) | upload |
-| `conflito` | md alterado **e** ELM mudou | perguntar ao usuário: md ou ELM |
-| `erro: <msg>` | falha no download | download de novo |
+| `elm_status` | confere conexão e pa | `login, servidor, pas[], valido, faltando[]` |
+| `elm_ler_wi` | lê um work item | Markdown |
+| `elm_listar_wi` | lista por iteração, dono, tipo, pai, prefixo, estado | `itens[], truncado, total` |
+| `elm_criar_wi` | cria com padrões do pa | `id, url, valores_usados` |
+| `elm_atualizar_wi` | atualiza um ou vários | `atualizados[], falhas[]` |
+| `elm_transicao` | assumir · concluir · reabrir | `id, estado, dono, ja_estava, pai?` |
+| `elm_comentar` | comenta | `id` |
+| `elm_anexo` | listar · enviar · baixar | `anexos[]` · `nome` · `caminho` |
+| `elm_horas` | horas do WI ou da iteração | `lancamentos[], total_h` · `linhas[], total_h` |
+| `elm_lancar_horas` | lança horas (só o dono) | `lancado, total_h` |
+| `elm_ligar` | implementa, rastreia, afeta, testado por, valida, depende, relacionado | `ja_existia` |
+| `elm_buscar_req` | busca requisitos por texto | `itens[], truncado` |
+| `elm_ler_req` | lê um requisito | Markdown |
+| `elm_publicar_req` | cria ou atualiza requisito | `id, url, acao` |
+| `elm_criar_ct` | cria caso de teste já ligado | `id, url` |
+| `elm_iteracao` | acha ou cria iteração e planos do time | `id, planos, criados[]` |
+| `elm_sync` | bundle do DOORS Next (plano, baixar, enviar) | `baixar[], enviar[], conflitos[]` · `feitos[], conflitos[]` |
+| `elm_setup_descobrir` | dados para montar o pa | `ccm, rm?, qm?, valores_de?` |
 
-Mudar de pasta é tratado como remoção na antiga e criação na nova: o arquivo é apagado e a linha volta a `novo`
-(com edição local no md, vira `conflito` e o arquivo fica).
+## Testes e paridade
 
-```markdown
----
-type: Relatório de Sincronismo
-title: Sincronismo ELM → OKF
-description: Situação de cada artefato do DOORS Next baixado neste bundle.
-generated:
-  by: "process:elm-mcp/1.0.14"
-  at: "2026-10-07T12:00:00Z"
----
-| Artefato | Pasta | Última atualização ELM | Hash | Status |
-|---|---|---|---|---|
-| [123 — Login](</01-Requisitos/123-login.md>) | 01-Requisitos | 2026-10-01T13:45:10Z | 9f2c…e1 | sincronizado |
-| 125 — Sessão | 01-Requisitos |  |  | novo |
+```bash
+uv run --with pytest python -m pytest -q
+uv run python paridade/paridade.py <projeto> --pa <nome> --wi <id> --req <id> [--iteracao <nome>]
 ```
 
-`Última atualização ELM` é o `modified` do ELM no último download/upload, e `Hash` é o sha256 completo do arquivo
-gravado (abreviado no exemplo).
-
-No corpo do md do bundle vale uma regra fixa: **artefato do bundle (id no `sync.md`) é sempre embed; o resto é
-sempre link**. Por isso o md do bundle não tem `embedded`, e o `links:` do cabeçalho é só de leitura. O download
-grava o artefato do bundle como `[id título](../03-Regras/2001-x.md)` e o de fora como `[id título](URL do ELM)`.
-Se o ELM estiver diferente da regra (um embed de fora ou um hyperlink para o bundle), a linha fica `normalizado` e o
-upload corrige. Formatos sugeridos para escrever no md:
-
-| Referência | Formato |
-|---|---|
-| embed (artefato do bundle) | `[<id>](<id>)` |
-| link para artefato de outra PA | `[<id>](<URL do ELM>)` |
-| link externo | `[<texto descritivo>](<url>)` |
-
-Um plano do elm.json vira filtro de `ccm_list_workitems` com `iteration=iterations[it].identifier` e
-`team_areas=[iterations[it].plans[nome].team-area]` (plano sem `team-area`: omita `team_areas`).
-
-## Limites em relação à doc IBM
-
-- `ccm_create_iteration` e `ccm_create_iteration_plan` usam os serviços internos da UI web
-  (`IPlanProcessRestService/createIteration` e `IPlanRestService/putItems`), pois o EWM não tem API pública para
-  criá-los. Exigem as permissões de processo correspondentes (ex.: "Modify structures of iterations").
-
-- Fora do escopo: Models e Source control; `create_requirement_change_set` e `deliver_requirement_change_set`
-  (removidos a pedido); `add_comment_to_testartifact` (o ETM não expõe comentários de revisão
-  formal numa API pública).
-- `search_workitems`: `filter` só com AND (OR com uma expressão; outras chaves ou lista vazia dão erro), operadores is/equals, is not, in, before/after e
-  contains (summary/description). `termExpressions`/`similarityExpressions` não são suportados. Estado e tipo são
-  filtrados pelo id (`com.ibm.team.workitem.taskWorkflow.state.s2`, `task`).
-- `get_workitem_schema`: `include=approvals` não é suportado.
-- `search_testartifact`: `customAttributeFilters`, `categoryFilters` e `linkFilters` não são suportados.
-- `rm_update_requirement`: `text` substitui o texto inteiro; atributos e links não são gravados. `ccm_update_workitem`: `description` substitui a descrição inteira.
-- `rm_search_requirements`: exige ao menos um filtro (`text`, `folder` ou `requirement_type`). O DOORS Next
-  responde HTTP 400 quando `text` vem junto com `folder`/`requirement_type`: busque só pelo texto e filtre o
-  resultado pelo `type`/`folder`.
-- `get_rm_component_types`: `filter_text_only` é redundante. `list_rm_component_folders`: `include_private` é ignorado.
-- `get_qm_component`/`get_qm_component_configuration`: dependem da query de componentes do provider de configuração do
-  ETM, que pode exigir permissão de administrador (403) e só faz sentido em project areas opt-in.
-
-## Arquitetura
-
-```
-mcp_elm/
-  server.py   instância MCP + @tool (erros esperados viram ToolError com a mensagem)
-  infra/      config, auth (login Jazz), http (sessão, XML, Reportable), oslc (RDF, query, descoberta),
-              document (leitura em Markdown + YAML)
-  ibm/        um módulo por conjunto de tools da doc: common, requirements, workitems, test
-  ccm.py rm.py qm.py   tools das skills (prefixos ccm_/rm_); compõem ibm/ e infra/
-skills/       SKILL.md de elm-setup, elm-ccm, elm-rm, elm-qm e elm-gc
-elm/          configuração do projeto (pa_<project area>.json), gravada pela elm-setup
-```
-
-Testes: `uv run pytest` (servidor Jazz falso em `tests/conftest.py`).
+A paridade compara as leituras com o 1.0.43 (commit `a73e925`) contra o ELM real; veja o manual.

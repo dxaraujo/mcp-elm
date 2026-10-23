@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:dcterms="http://purl.org/dc/terms/">
-  <rdf:Description rdf:about="https://elm.test/ccm/oslc/enumerations/_PA1/priority"><dcterms:title>priority</dcterms:title></rdf:Description>
-  <rdf:Description rdf:about="https://elm.test/ccm/oslc/enumerations/_PA1/priority/priority.literal.l1"><dcterms:identifier>priority.literal.l1</dcterms:identifier><dcterms:title>Alta</dcterms:title></rdf:Description>
-  <rdf:Description rdf:about="https://elm.test/ccm/oslc/enumerations/_PA1/priority/priority.literal.l2"><dcterms:identifier>priority.literal.l2</dcterms:identifier><dcterms:title>Não designado</dcterms:title></rdf:Description>
-  <rdf:Description rdf:about="https://elm.test/ccm/oslc/enumerations/_PA1/priority/priority.literal.l9"><dcterms:identifier>priority.literal.l9</dcterms:identifier><dcterms:title>Arquivada</dcterms:title></rdf:Description>
-</rdf:RDF>

@@ -1,7 +1,7 @@
 [project]
 name = "mcp-elm"
-version = "1.0.43"
-description = "MCP server para IBM ELM (DOORS Next, EWM, ETM) via OSLC"
+version = "2.0.0"
+description = "MCP do IBM ELM (EWM, DOORS Next, ETM) para o power sdd: operações que leem o pa do projeto"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -12,6 +12,7 @@ dependencies = [
     "markdown-it-py>=3",
     "requests>=2.31",
     "rdflib>=7.0",
+    "jsonschema>=4",
 ]
 
 [project.urls]
@@ -22,6 +23,9 @@ mcp-elm = "mcp_elm.server:main"
 
 [dependency-groups]
 dev = ["pytest>=8"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["mcp_elm"]
 
 [build-system]
 requires = ["hatchling"]

@@ -1,8 +1,7 @@
-"""OSLC genérico: vocabulário, RDF <-> recurso, get/query/create/update, descoberta e configurações.
+"""OSLC genérico: vocabulário, RDF <-> recurso, get/query/create/update e descoberta.
 
-Recurso devolvido pelas tools:
-    {"url", "id", "title", "types": [...], "properties": {qname: valor|[valores]},
-     "links": {qname: [{"url", "title"?}]}}
+Recurso: {"url", "id", "title", "types": [...], "properties": {qname: valor|[valores]},
+"links": {qname: [{"url", "title"?}]}}
 """
 from __future__ import annotations
 
@@ -43,7 +42,6 @@ PREFIXES = {
     "jp": JP, "nav": RM_NAV, "jazz_rm": JAZZ_RM, "rqm_qm": RQM, "process": PROCESS,
 }
 
-APPS = ("rm", "ccm", "qm", "gc")
 ROOTSERVICES = "/{app}/rootservices"
 # rootservices usa os namespaces OSLC 1.0 (xmlns/...) para apontar os catálogos de domínio
 CATALOGS = {
@@ -341,17 +339,19 @@ def create(factory_url: str, g: Graph, configuration: str | None = None) -> str:
 
 
 def update(
-    url: str, attributes: dict, *, append: bool = False,
+    url: str, attributes, *, append: bool = False,
     configuration: str | None = None, params: dict | None = None,
-) -> dict:
-    """GET + ETag + PUT. `append=True` acrescenta valores (links) sem remover os existentes."""
+) -> None:
+    """GET + ETag + PUT. `append=True` acrescenta valores (links) sem remover os existentes. `attributes` pode ser
+    função do recurso lido -> atributos (decide pelo tipo sem um GET a mais)."""
     g, subject, etag = fetch(url, configuration)
+    if callable(attributes):
+        attributes = attributes(resource(g, subject))
     (add_properties if append else set_properties)(g, subject, attributes)
     headers = {"Content-Type": RDF_XML}
     if etag:
         headers["If-Match"] = etag
     get_session().request("PUT", url, data=serialize(g), headers=headers, params=params, configuration=configuration)
-    return get(url, configuration)
 
 
 # --- descoberta
@@ -371,25 +371,12 @@ def clear_cache() -> None:
     _cached.cache_clear()
 
 
-def catalog_url(app: str, kind: str = "oslc") -> str:
-    """Catálogo de service providers. kind='oslc' (domínio) ou 'config' (componentes/configurações)."""
-    if app not in APPS:
-        raise ValueError(f"App inválido '{app}'. Use: {', '.join(APPS)}")
-    g = _cached(get_session().url(ROOTSERVICES.format(app=app)))
-    if kind == "config":
-        url = next((o for p, o in g.predicate_objects()
-                    if str(p).endswith("cmServiceProviders") and "config" in str(p)), None)
-    else:
-        url = next(g.objects(None, CATALOGS[app]), None) if app in CATALOGS else None
+def providers(app: str) -> list[dict]:
+    """Service providers do catálogo de domínio (um por project area): [{title, url, project_area_uuid}]."""
+    url = next(_cached(get_session().url(ROOTSERVICES.format(app=app))).objects(None, CATALOGS[app]), None)
     if url is None:
-        raise RuntimeError(f"rootservices de /{app} não publica o catálogo '{kind}' "
-                           "(gerenciamento de configuração habilitado?).")
-    return str(url)
-
-
-def providers(app: str, kind: str = "oslc") -> list[dict]:
-    """Service providers (um por project area): [{title, url, project_area_uuid}]."""
-    g = _cached(catalog_url(app, kind))
+        raise RuntimeError(f"rootservices de /{app} não publica o catálogo de service providers")
+    g = _cached(str(url))
     out = []
     for sp in g.objects(None, OSLC.serviceProvider):
         details = g.value(sp, OSLC.details)
@@ -399,11 +386,11 @@ def providers(app: str, kind: str = "oslc") -> list[dict]:
     return sorted(out, key=lambda x: x["title"].lower())
 
 
-def provider(app: str, project_area_uuid: str, kind: str = "oslc") -> str:
+def provider(app: str, project_area_uuid: str) -> str:
     """URL do service provider da project area (pelo UUID)."""
-    found = next((p["url"] for p in providers(app, kind) if p["project_area_uuid"] == project_area_uuid), None)
+    found = next((p["url"] for p in providers(app) if p["project_area_uuid"] == project_area_uuid), None)
     if found is None:
-        raise LookupError(f"Project area {project_area_uuid} não está no catálogo '{kind}' de /{app}.")
+        raise LookupError(f"project area {project_area_uuid} não está no catálogo de /{app}")
     return found
 
 
@@ -441,13 +428,6 @@ def creation_factories(provider_url: str, resource_type, configuration: str | No
     if not found:
         raise LookupError(f"{provider_url} não tem creation factory para {qname(str(resource_type))}.")
     return found
-
-
-def resource_shapes(provider_url: str, resource_type) -> list[str]:
-    """Shapes publicados para o tipo em query capabilities e creation factories."""
-    svc = services(provider_url)
-    return sorted({s for c in svc["query_capabilities"] + svc["creation_factories"]
-                   if str(resource_type) in c["resource_types"] for s in c["resource_shapes"]})
 
 
 def shape(url: str, configuration: str | None = None) -> dict:

@@ -1,645 +1,271 @@
-"""Tools do DOORS Next para as skills (elm-setup e elm-rm): saída com as chaves do elm.json."""
+"""DOORS Next: buscar, ler e publicar requisitos na configuração (stream) do pa; documento OKF do bundle."""
 from __future__ import annotations
 
-import glob
-from concurrent.futures import ThreadPoolExecutor
-import os
 import posixpath
 import re
 from datetime import datetime, timezone
 from html import unescape
 from importlib import metadata
-from typing import Literal
 
-from . import bundle
-from .ibm import common, requirements
-from .infra import oslc
-from .infra.document import (artifact_ref, document, link_targets, one_line, read_document, resource_url, slug,
-                              to_markdown, to_xhtml, utc_datetime)
-from .infra.http import get_session
-from .server import tool
+from rdflib import Literal as RdfLiteral, URIRef
+from rdflib.namespace import DCTERMS, RDF
 
-PROJECT_AREA = "/rm/process/project-areas/{pa}"
-COMPONENT = "/rm/cm/component/{id}"
-# ponytail: configuration é sempre id de stream (o que rm_get_configuration devolve); aceitar baseline se precisar
-STREAM = "/rm/cm/stream/{id}"
-FOLDER = "/rm/folders/{id}"
-TYPE = "/rm/types/{id}"
-SEARCH_SELECT = "dcterms:identifier,dcterms:title,dcterms:modified,oslc:instanceShape,nav:parent"
-MODIFIED_SELECT = "dcterms:identifier,dcterms:title,dcterms:modified"
-# passadas extras só se a listagem ordenada ainda não alcançar o oslc:totalCount (índice do servidor instável)
-LIST_PASSES = 3
-# paginação estável na listagem de pasta
-BY_ID = "+dcterms:identifier"
-# propriedades que já têm lugar próprio na saída (não entram em links)
-CORE = {"dcterms:title", "dcterms:identifier", "dcterms:description", "jazz_rm:primaryText", "nav:parent",
-        "oslc:instanceShape"}
-# preenchidos pelo servidor: não são campos que a skill grava
-SYSTEM = CORE | {"dcterms:created", "dcterms:modified", "dcterms:creator", "dcterms:contributor",
-                 "oslc_config:component", "process:projectArea"}
-VALUE_KINDS = {"xsd:string": "text", "rdf:XMLLiteral": "text", "xsd:integer": "integer", "xsd:int": "integer",
-               "xsd:long": "integer", "xsd:double": "number", "xsd:float": "number", "xsd:decimal": "number",
-               "xsd:dateTime": "date", "xsd:date": "date", "xsd:boolean": "boolean"}
-# valueType de link para outro recurso (vazio: o DOORS Next omite em alguns tipos de link)
+from . import oslc
+from .contrato import Erro
+from .documento import document, one_line, resource_url, slug, to_markdown, to_xhtml, utc_datetime
+from .http import get_session
+
+COMPONENT, STREAM = "/rm/cm/component/{id}", "/rm/cm/stream/{id}"
+FOLDER, TYPE = "/rm/folders/{id}", "/rm/types/{id}"
+SEARCH_SELECT = "dcterms:identifier,dcterms:title,dcterms:modified,oslc:instanceShape"
+# preenchidos pelo servidor ou com lugar próprio: não entram em `links` do documento
+SYSTEM = {"dcterms:title", "dcterms:identifier", "dcterms:description", "jazz_rm:primaryText", "nav:parent",
+          "oslc:instanceShape", "dcterms:created", "dcterms:modified", "dcterms:creator", "dcterms:contributor",
+          "oslc_config:component", "process:projectArea"}
 RESOURCE_TYPES = {"oslc:Resource", "oslc:AnyResource", "oslc:LocalResource", ""}
-PERSON = "http://xmlns.com/foaf/0.1/Person"
-# link que o DOORS Next deriva dos embeds do texto: já aparece em `embedded`
-EMBEDDING = "http://www.ibm.com/xmlns/rdm/types/Embedding"
-
-
-def _generator() -> str:
-    """Ator OKF `generated.by`: 'process:elm-mcp/<versão>' pela metadata da distribuição 'mcp-elm'.
-    Sem a distribuição instalada (rodando do fonte) cai para 'process:elm-mcp' em vez de levantar."""
-    try:
-        return f"process:elm-mcp/{metadata.version('mcp-elm')}"
-    except metadata.PackageNotFoundError:
-        return "process:elm-mcp"
-
-
-def _area_url(project_area_identifier: str) -> str:
-    return get_session().url(PROJECT_AREA.format(pa=project_area_identifier))
+EMBEDDING = "http://www.ibm.com/xmlns/rdm/types/Embedding"  # derivado dos embeds do texto
+_EMBED = re.compile(r"<a\s[^>]*>")
 
 
 def _url(template: str, identifier: str) -> str:
     return get_session().url(template.format(id=identifier))
 
 
-@tool
-def rm_get_configuration(project_area_identifier: str) -> dict:
-    """Componente e stream padrão da project area do DOORS Next: {component, configuration} (identifiers do
-    primeiro componente e da primeira stream). elm.json: rm.component e rm.configuration."""
-    components = requirements.get_project_components(project_area_identifier)
-    if not components:
-        raise LookupError(f"Project area {project_area_identifier} não tem componentes no DOORS Next.")
-    component = components[0]["url"]
-    return {"component": oslc.item_id(component), "configuration": oslc.item_id(requirements.default_stream(component))}
+def _rm(cfg: dict) -> dict:
+    if "rm" not in cfg:
+        raise Erro("config", "pa sem a seção rm (DOORS Next)", "rm")
+    return cfg["rm"]
 
 
-@tool
-def rm_list_members(project_area_identifier: str) -> list[dict]:
-    """Membros da project area do DOORS Next: [{identifier (login), name}]. elm.json: rm.members {identifier: name}."""
-    names = {c["userId"]: c["name"] for c in common.contributors()}
-    members = [{"identifier": login, "name": names.get(login)}
-               for login in dict.fromkeys(common.area_members(_area_url(project_area_identifier)))]
-    return sorted(members, key=lambda m: (m["name"] or m["identifier"]).lower())
+def stream(cfg: dict) -> str:
+    return _url(STREAM, _rm(cfg)["configuracao"])
 
 
-@tool
-def rm_list_folders(project_area_identifier: str, component: str, configuration: str) -> list[dict]:
-    """Pastas do componente com o caminho como nome: [{name ('01-Requisitos'), identifier ('FR_...')}].
-    elm.json: rm.folders {name: identifier}. O prefixo 'root/' é removido do nome."""
-    folders = requirements.list_rm_component_folders(_url(COMPONENT, component), _url(STREAM, configuration))
-    by_url = {f["url"]: f for f in folders}
-
-    def path(folder: dict) -> str:
-        parent = by_url.get(folder["parent"])
-        return f"{path(parent)}/{folder['title']}" if parent else folder["title"]
-
-    result = []
-    for f in folders:
-        name = path(f)
-        # Remove o prefixo 'root/' ou 'root' se for a pasta raiz
-        if name == "root":
-            continue  # Não inclui a pasta raiz
-        if name.startswith("root/"):
-            name = name[5:]  # Remove 'root/'
-        result.append({"name": name, "identifier": oslc.item_id(f["url"])})
-    return result
+def _base(cfg: dict) -> str:
+    return oslc.query_base(oslc.provider("rm", _rm(cfg)["id"]), oslc.OSLC_RM.Requirement, stream(cfg))
 
 
-@tool
-def rm_list_requirement_types(project_area_identifier: str, component: str, configuration: str) -> list[dict]:
-    """Tipos de requisito criáveis: [{name, identifier ('OT_...')}]. elm.json: rm.requirements-types
-    {name: identifier}."""
-    return [{"name": s["title"], "identifier": oslc.item_id(s["url"])}
-            for s in requirements.get_rm_component_types(project_area_identifier, component,
-                                                         _url(STREAM, configuration))]
+def gerador() -> str:
+    """Ator OKF `generated.by`: 'process:elm-mcp/<versão>' (sem a distribuição instalada, sem versão)."""
+    try:
+        return f"process:elm-mcp/{metadata.version('mcp-elm')}"
+    except metadata.PackageNotFoundError:
+        return "process:elm-mcp"
 
 
-# --- elm-rm
-
-def _kind(prop: dict) -> str:
-    if prop["allowed_values"]:
-        return "enumeration"
-    if PERSON in prop["range"]:
-        return "member"
-    if prop["value_type"] in VALUE_KINDS:
-        return VALUE_KINDS[prop["value_type"]]
-    return "link" if prop["value_type"] in RESOURCE_TYPES else "text"
-
-
-def _link(resource: dict, predicate: str) -> dict | None:
-    return next(iter(resource["links"].get(predicate, [])), None)
+def recurso(cfg: dict, req_id) -> dict:
+    """Requisito pelo id numérico, lido na stream do pa."""
+    if not str(req_id).isdigit():
+        raise Erro("entrada", f"id de requisito inválido: {req_id}", "id")
+    found = oslc.query(_base(cfg), where=oslc.where_eq("dcterms:identifier", int(req_id)),
+                       select="dcterms:identifier", limit=1, configuration=stream(cfg))
+    if not found:
+        raise Erro("nao_encontrado", f"requisito {req_id} não encontrado", "id")
+    return oslc.get(found[0]["url"], stream(cfg))
 
 
-def _summary(resource: dict, configuration: str) -> dict:
-    """Requisito enxuto: {id, title, type, folder, modified (ISO 8601 UTC), path, url}."""
-    shape, folder = _link(resource, "oslc:instanceShape"), _link(resource, "nav:parent")
-    return {"id": resource["id"], "title": resource["title"],
-            "type": oslc.shape(shape["url"], configuration)["title"] if shape else None,
-            "folder": (folder.get("title") or oslc.title(folder["url"], configuration)) if folder else None,
-            "modified": utc_datetime(resource["properties"].get("dcterms:modified")),
-            "path": _file_path(resource, configuration), "url": resource["url"]}
+def url_req(cfg: dict, req_id) -> str:
+    # o link guarda a URI sem ?oslc_config.context (o ELM resolve a versão pela configuração)
+    return recurso(cfg, req_id)["url"].split("?")[0]
 
 
-def _folder_path(url: str, configuration: str) -> str:
-    """Pasta -> caminho como em rm_list_folders / rm.folders ('01-Req/Funcionais'), sem a pasta 'root'."""
-    folder = oslc.cached(url, configuration)
-    if folder["title"] == "root":  # a raiz pode ter nav:parent no servidor: o caminho começa abaixo dela
+def _link(r: dict, pred: str) -> dict | None:
+    return next(iter(r["links"].get(pred, [])), None)
+
+
+def _tipo(r: dict, config: str) -> str | None:
+    shape = _link(r, "oslc:instanceShape")
+    return oslc.shape(shape["url"], config)["title"] if shape else None
+
+
+def _pasta(url: str, config: str) -> str:
+    """Caminho da pasta sem a 'root' ('01-Req/Funcionais')."""
+    folder = oslc.cached(url, config)
+    if folder["title"] == "root":
         return ""
     parent = _link(folder, "nav:parent")
-    if parent is None:  # ponytail: pasta sem nav:parent no servidor cai só no próprio título
-        return folder["title"] or ""
-    return posixpath.join(_folder_path(parent["url"], configuration), folder["title"] or "")
+    return posixpath.join(_pasta(parent["url"], config), folder["title"] or "") if parent else folder["title"] or ""
 
 
-def _file_path(resource: dict, configuration: str) -> str:
-    """Arquivo do artefato no bundle baixado (elm-download): '<caminho da pasta>/<id>-<slug do título>.md'."""
-    folder = _link(resource, "nav:parent")
-    name = f"{resource['id']}-{slug(one_line(resource['title']) or '')}.md"
-    return posixpath.join(_folder_path(folder["url"], configuration), name) if folder else name
+def caminho(r: dict, config: str) -> str:
+    """Arquivo do requisito no bundle: '<pasta>/<id>-<slug do título>.md'."""
+    folder = _link(r, "nav:parent")
+    name = f"{r['id']}-{slug(one_line(r['title']) or '')}.md"
+    return posixpath.join(_pasta(folder["url"], config), name) if folder else name
 
 
-def _artifact(url: str, configuration: str) -> dict | None:
-    """Artefato pela URL; None se não puder ser lido (sem permissão, removido...)."""
-    try:
-        return oslc.get(url, configuration)
-    except RuntimeError:  # ElmHttpError: um artefato ilegível não derruba a leitura do requisito
-        return None
+def buscar(cfg: dict, texto: str, limite: int = 20) -> dict:
+    config = stream(cfg)
+    # só o texto: no 1.0.43 texto junto com pasta/tipo dava HTTP 400
+    found = oslc.query(_base(cfg), search_terms=texto, select=SEARCH_SELECT, limit=limite + 1, configuration=config)
+    return {"itens": [{"id": int(r["id"]), "titulo": one_line(r["title"]), "tipo": _tipo(r, config),
+                       "modificado": utc_datetime(r["properties"].get("dcterms:modified"))} for r in found[:limite]],
+            "truncado": len(found) > limite}
 
 
-def _artifact_url(project_area_identifier: str, component: str, configuration: str, requirement_id: str) -> str:
-    return requirements.get_requirement(project_area_identifier, component, requirement_id,
-                                        configuration_url=configuration)["url"].split("?")[0]
+def documento(cfg: dict, req_id, bundle_ids: set[str] | None = None, artefatos: dict | None = None) -> dict:
+    """Requisito em partes: {recurso, tipo, pasta, corpo, links, normalizado, caminho}.
 
+    `bundle_ids` (bundle da elm-sync): artefato do bundle vira embed com alvo = arquivo relativo; o resto, link
+    para a URL. Sem ele, todo artefato citado vira [id título](URL). `normalizado`: algum link mudou de forma (link
+    da UI web, embed fora do bundle, hyperlink para artefato do bundle) e o arquivo difere do texto no ELM."""
+    config, bundle = stream(cfg), bundle_ids is not None
+    r = recurso(cfg, req_id)
+    artefatos = {} if artefatos is None else artefatos  # um GET por artefato citado, reaproveitado no download
+    own_dir = posixpath.dirname(caminho(r, config)) if bundle else ""
+    normalizado = False
 
-def _xhtml(project_area_identifier: str, component: str, configuration: str, text: str,
-           embedded: list[str] | None) -> str:
-    """`text` em Markdown ([x](alvo) cita o artefato, ou embute se ele está em `embedded`; alvo = id, URL ou arquivo
-    do bundle) ou XHTML."""
-    if text.lstrip().startswith("<"):
-        return text
-    return to_xhtml(text, lambda ref: _artifact_url(project_area_identifier, component, configuration, ref)
-                    if ref.isdigit() else get_session().url(ref), embedded or ())
-
-
-@tool
-def rm_search_requirements(
-    project_area_identifier: str, component: str, configuration: str, text: str | None = None,
-    folder: str | None = None, requirement_type: str | None = None,
-) -> list[dict]:
-    """Requisitos (até 1000): [{id, title, type, folder, modified, url}], modified em ISO 8601 UTC. Filtros
-    combinam com 'e': texto no título/corpo, pasta (identifier de rm.folders) e tipo (identifier de
-    rm.requirements-types). Exige ao menos um filtro."""
-    if not (text or folder or requirement_type):
-        raise ValueError("Informe ao menos um filtro: text, folder ou requirement_type.")
-    configuration = _url(STREAM, configuration)
-    clauses = [oslc.where_eq("nav:parent", _url(FOLDER, folder))] if folder else []
-    if requirement_type:
-        clauses.append(oslc.where_eq("oslc:instanceShape", _url(TYPE, requirement_type)))
-    found = oslc.query(requirements.requirements_base(project_area_identifier, configuration),
-                       where=" and ".join(clauses) or None, search_terms=text, select=SEARCH_SELECT,
-                       limit=oslc.MAX_LIMIT, configuration=configuration)
-    return [_summary(r, configuration) for r in found]
-
-
-@tool
-def rm_list_modified(project_area_identifier: str, component: str, configuration: str,
-                     requirement_ids: list[str]) -> list[dict]:
-    """Última modificação de um ou vários requisitos pelo id numérico, sem ler o conteúdo: [{id, title, modified}],
-    modified em ISO 8601 UTC (mesmo formato do generated.at do OKF). Ids não encontrados não voltam."""
-    configuration = _url(STREAM, configuration)
-    base = requirements.requirements_base(project_area_identifier, configuration)
-    ids = list(dict.fromkeys(str(i) for i in requirement_ids))
-    found = []
-    for start in range(0, len(ids), 100):  # ponytail: bloco fixo de 100 ids por limite de URL
-        found += oslc.query(base, where=oslc.where_in("dcterms:identifier", ids[start:start + 100]),
-                            select=MODIFIED_SELECT, limit=oslc.MAX_LIMIT, configuration=configuration)
-    return [{"id": r["id"], "title": one_line(r["title"]),
-             "modified": utc_datetime(r["properties"].get("dcterms:modified"))} for r in found]
-
-
-def _folder_query(project_area_identifier: str, configuration: str, folder: str) -> tuple[str, str]:
-    """(query base, oslc.where) dos requisitos diretamente na pasta (nav:parent; subpastas ficam de fora)."""
-    return (requirements.requirements_base(project_area_identifier, configuration),
-            oslc.where_eq("nav:parent", _url(FOLDER, folder)))
-
-
-@tool
-def rm_count_folder(project_area_identifier: str, component: str, configuration: str, folder: str) -> dict:
-    """Quantos requisitos estão diretamente na pasta (identifier de rm.folders; subpastas não entram, chame uma
-    vez por pasta de rm_list_folders): {folder, count}. O número vem do servidor (oslc:totalCount), sem teto.
-    Serve para conferir download/sync: count != len(rm_list_folder) indica listagem inconsistente no servidor."""
-    configuration = _url(STREAM, configuration)
-    base, where = _folder_query(project_area_identifier, configuration, folder)
-    return {"folder": folder, "count": oslc.count(base, where=where, order_by=BY_ID, configuration=configuration)}
-
-
-@tool
-def rm_list_folder(project_area_identifier: str, component: str, configuration: str, folder: str) -> list[dict]:
-    """Todos os requisitos diretamente na pasta (identifier de rm.folders; subpastas não entram), sem teto:
-    [{id, title, modified}] ordenado por id, modified em ISO 8601 UTC (como rm_list_modified). Inventário para
-    download/sync: compare com rm_count_folder e com o generated.at dos arquivos baixados.
-    Pagina ordenado por dcterms:identifier (sem ordem, itens pulam de página); se ainda faltar, repete a listagem
-    unindo os ids até alcançar o oslc:totalCount (máx. LIST_PASSES vezes)."""
-    configuration = _url(STREAM, configuration)
-    base, where = _folder_query(project_area_identifier, configuration, folder)
-    merged: dict[str, dict] = {}
-    for _ in range(LIST_PASSES):
-        for r in oslc.query(base, where=where, select=MODIFIED_SELECT, order_by=BY_ID, limit=None,
-                            configuration=configuration):
-            merged[r["id"]] = r
-        if len(merged) >= oslc.count(base, where=where, order_by=BY_ID, configuration=configuration):
-            break
-    return sorted(({"id": r["id"], "title": one_line(r["title"]),
-                    "modified": utc_datetime(r["properties"].get("dcterms:modified"))} for r in merged.values()),
-                  key=lambda r: int(r["id"]))
-
-
-@tool
-def rm_get_requirement(project_area_identifier: str, component: str, configuration: str, requirement_id: str,
-                       links: Literal["elm", "bundle"] = "elm") -> str:
-    """Requisito pelo id numérico em Markdown + YAML, conforme Google OKF v0.2. Cabeçalho, nesta ordem:
-    campos OKF (type, title, description?, resource, tags) + provenance (sources) + trust (generated) + extensões RM
-    (id, created, links, embedded).
-    - type, title: tipo e título do requisito; description: resumo (dcterms:description), só se preenchido.
-    - resource: URI canônico do artefato; tags: [pasta].
-    - sources (OKF §5.1): [{id: doors-next, resource, author, last_modified, last_modified_by}]: author =
-      'human:<login de quem criou>', last_modified = última modificação no DOORS Next, last_modified_by =
-      'human:<login de quem modificou por último>'.
-    - generated {by, at} (OKF §5.2): by = 'process:elm-mcp/<versão>'; at = quando este documento foi gerado.
-      Timestamps em ISO 8601 UTC ('...Z'): last_modified > generated.at => o documento está desatualizado.
-    - verified/status/stale_after: só com sinal real do artefato (o DOORS Next não os define); nunca inventados.
-    - id; created (UTC); links {nome: ['id: título', ...]} (só leitura: relacionamentos OSLC, nomes do DOORS Next);
-      embedded ['id: título', ...] = artefatos embutidos no texto (só com links='elm').
-    Corpo: o texto em Markdown; todo artefato citado ou embutido é [id título](alvo). Artefato ilegível fica
-    [texto](URL do ELM).
-    links='elm': alvo = URL do artefato no ELM; é embed se está em `embedded` (mande-o em rm_update_requirement).
-    links='bundle' (bundle da elm-sync): artefato do bundle = embed, alvo = caminho relativo do arquivo
-    ('../03-Regras/2001-rn-validar-cpf.md', mesmo `path` de rm_search_requirements); o resto (outra PA, fora das
-    pastas) = link, alvo = URL do ELM. Sem `embedded` no cabeçalho: a regra já diz o que é embed."""
-    return _requirement(project_area_identifier, component, configuration, requirement_id, links)[0]
-
-
-def _requirement(project_area_identifier: str, component: str, configuration: str, requirement_id: str,
-                 links: str, bundle_ids: set[str] | None = None) -> tuple[str, dict]:
-    """(documento de rm_get_requirement, {path, title, last_modified, generated_at, modified}) para gravar no bundle.
-    `bundle_ids`: ids do inventário do bundle (None = todo artefato legível); no bundle, artefato dele vira o
-    arquivo (embed) e o resto, a URL (link). modified = algum link foi normalizado (link da UI web, embed fora do
-    bundle ou hyperlink para artefato do bundle): o arquivo difere do texto no ELM e precisa subir."""
-    configuration = _url(STREAM, configuration)
-    resource = requirements.get_requirement(project_area_identifier, component, requirement_id,
-                                            configuration_url=configuration)
-    props, res_links = resource["properties"], resource["links"]
-    shape = _link(resource, "oslc:instanceShape")
-    # um GET por artefato, mesmo se ligado e embutido; no bundle, vale para todo o download (os mesmos
-    # artefatos são citados por muitos requisitos)
-    artifacts: dict[str, dict | None] = _BUNDLE_ARTIFACTS if links == "bundle" else {}
-    own_dir = posixpath.dirname(_file_path(resource, configuration)) if links == "bundle" else ""
-    normalized = False
-
-    def artifact(url: str) -> dict | None:
+    def artefato(url: str) -> dict | None:
         url = get_session().url(url.split("?")[0])
-        if url not in artifacts:
-            artifacts[url] = _artifact(url, configuration)
-        return artifacts[url]
+        if url not in artefatos:
+            try:
+                artefatos[url] = oslc.get(url, config)
+            except RuntimeError:  # ilegível (sem permissão, removido) não derruba a leitura
+                artefatos[url] = None
+        return artefatos[url]
 
-    html = oslc.markup(resource["url"], "jazz_rm:primaryText", configuration) or ""
-    embeds = [unescape(m.group(1)) for tag in re.findall(r"<a\s[^>]*>", html) if 'class="embedded"' in tag
-              for m in [re.search(r'href="([^"]+)"', tag)] if m]
+    html = oslc.markup(r["url"], "jazz_rm:primaryText", config) or ""
+    embeds = embeds_de(html)
 
-    def ref(href: str) -> tuple[str, str] | None:
-        """Embed/hyperlink no corpo -> ('id título', alvo); None se não for artefato legível do RM."""
-        nonlocal normalized
+    def ref(href: str):
+        nonlocal normalizado
         url = resource_url(href)
-        found = artifact(url) if "/rm/resources/" in url else None
+        found = artefato(url) if "/rm/resources/" in url else None
         if found is None:
             return None
-        normalized |= url != href
-        in_bundle = links == "bundle" and (bundle_ids is None or found["id"] in bundle_ids)
-        if links == "bundle":
-            normalized |= in_bundle != (href in embeds)  # artefato do bundle = embed; o resto = link
-        target = (posixpath.relpath(_file_path(found, configuration), own_dir or ".") if in_bundle
-                  else found["url"].split("?")[0])
-        return f"{found['id']} {one_line(found['title'])}", target
+        normalizado |= url != href
+        no_bundle = bundle and found["id"] in bundle_ids
+        if bundle:
+            normalizado |= no_bundle != (href in embeds)  # artefato do bundle = embed; o resto = link
+        alvo = posixpath.relpath(caminho(found, config), own_dir or ".") if no_bundle else found["url"].split("?")[0]
+        return f"{found['id']} {one_line(found['title'])}", alvo
 
-    def label(link: dict) -> str:
+    def rotulo(link: dict) -> str:
         url = link["url"]
         if "/rm/resources/" in url:
-            found = artifact(url)
+            found = artefato(url)
             return f"{found['id']}: {one_line(found['title'])}" if found else url.split("?")[0]
         if "/jts/users/" in url:
             return url.rsplit("/", 1)[-1]
-        return one_line(link.get("title")) or oslc.title(url, configuration) or url
+        return one_line(link.get("title")) or oslc.title(url, config) or url
 
-    related = {}
-    for prop in oslc.shape(shape["url"], configuration)["properties"] if shape else []:
+    links = {}
+    shape = _link(r, "oslc:instanceShape")
+    for prop in oslc.shape(shape["url"], config)["properties"] if shape else []:
         key = prop["predicate"]
-        if prop["title"] and key not in SYSTEM and key != EMBEDDING and key in res_links and _kind(prop) == "link":
-            related[prop["title"]] = [label(link) for link in res_links[key]]
-    summary = _summary(resource, configuration)
-    body = to_markdown(html, ref)
-    # no bundle a regra (artefato do bundle = embed) dispensa a lista; ilegível virou link e não entra
-    embedded = [] if links == "bundle" else list(dict.fromkeys(label({"url": u}) for u in embeds if ref(u)))
-    login = lambda predicate: next((link["url"].rsplit("/", 1)[-1] for link in res_links.get(predicate, [])), None)
-    actor = lambda predicate: f"human:{user}" if (user := login(predicate)) else None
-    url = resource["url"].split("?")[0]  # URI canônico do artefato
-    # OKF §5.1/§5.2: a última modificação no ELM é da fonte (sources.last_modified); generated.at é quando o
-    # documento foi escrito, para comparar e saber se a cópia baixada está desatualizada
-    source = {"id": "doors-next", "resource": url, "author": actor("dcterms:creator"),
-              "last_modified": utc_datetime(props.get("dcterms:modified")),
-              "last_modified_by": actor("dcterms:contributor")}
-    generated = {"by": _generator(), "at": utc_datetime(datetime.now(timezone.utc))}
-    # verified/status/stale_after: OMITIDOS por padrão — requisitos do DOORS Next não têm sinal de
-    # aprovação/revisão, estado de workflow nem atributo de validade/expiração definidos pelo servidor (ver
-    # .agents/tasks/okf-rm-output/plan.md). Emitir só se um sinal real do servidor for encontrado; não inventar.
-    head = {
-        # OKF
-        "type": summary["type"], "title": one_line(resource["title"]),
-        "description": one_line(props.get("dcterms:description")) or None,
-        "resource": url, "tags": [summary["folder"]] if summary["folder"] else None,
-        "sources": [{k: v for k, v in source.items() if v}], "generated": generated,
-        # extensões RM
-        "id": int(resource["id"]), "created": utc_datetime(props.get("dcterms:created")),
-        "links": related or None, "embedded": embedded or None}
-    return document(head, body), {"path": _file_path(resource, configuration), "title": head["title"],
-                                  "last_modified": source["last_modified"], "generated_at": generated["at"],
-                                  "modified": normalized}
+        if (prop["title"] and key not in SYSTEM and key != EMBEDDING and key in r["links"]
+                and not prop["allowed_values"] and prop["value_type"] in RESOURCE_TYPES):
+            links[prop["title"]] = [rotulo(link) for link in r["links"][key]]
+    folder = _link(r, "nav:parent")
+    return {"recurso": r, "tipo": _tipo(r, config), "corpo": to_markdown(html, ref), "links": links,
+            "pasta": _pasta(folder["url"], config) if folder else None, "caminho": caminho(r, config),
+            "normalizado": normalizado}
 
 
-# artefatos citados já lidos no download do bundle; rm_sync_plan limpa (novo inventário = dados novos)
-_BUNDLE_ARTIFACTS: dict[str, dict | None] = {}
-# downloads em paralelo: o tempo é latência do servidor (~0,2 s por GET), não CPU
-# ponytail: número fixo; ajustar se o servidor reclamar de carga
-WORKERS = 8
+def embeds_de(html: str) -> list[str]:
+    """hrefs dos artefatos embutidos no XHTML do DOORS Next."""
+    return [unescape(m.group(1)) for tag in _EMBED.findall(html) if 'class="embedded"' in tag
+            for m in [re.search(r'href="([^"]+)"', tag)] if m]
 
 
-def _root(dest: str) -> str:
-    """Raiz do bundle: `dest` tem de ser absoluto (o cwd do MCP não é o repositório)."""
-    if not os.path.isabs(dest):
-        raise ValueError(f"dest precisa ser caminho absoluto: {dest}")
-    return os.path.realpath(dest)
+def okf(doc: dict) -> str:
+    """Arquivo do bundle (Google OKF v0.2): cabeçalho OKF + provenance + extensões RM, e o corpo."""
+    r = doc["recurso"]
+    props, url = r["properties"], r["url"].split("?")[0]
+    login = lambda pred: next((f"human:{link['url'].rsplit('/', 1)[-1]}" for link in r["links"].get(pred, [])), None)  # noqa: E731
+    # verified/status/stale_after omitidos: o DOORS Next não tem sinal real deles; nunca inventados
+    source = {"id": "doors-next", "resource": url, "author": login("dcterms:creator"),
+              "last_modified": utc_datetime(props.get("dcterms:modified")), "last_modified_by": login("dcterms:contributor")}
+    head = {"type": doc["tipo"], "title": one_line(r["title"]),
+            "description": one_line(props.get("dcterms:description")) or None, "resource": url,
+            "tags": [doc["pasta"]] if doc["pasta"] else None, "sources": [{k: v for k, v in source.items() if v}],
+            "generated": {"by": gerador(), "at": utc_datetime(datetime.now(timezone.utc))},
+            "id": int(r["id"]), "created": utc_datetime(props.get("dcterms:created")), "links": doc["links"] or None}
+    return document(head, doc["corpo"])
 
 
-def _write_requirement(pa: str, component: str, configuration: str, rid: str, root: str,
-                       bundle_ids: set[str] | None) -> dict:
-    """Grava o requisito em '<root>/<pasta>/<id>-<slug>.md' e apaga outros '<id>-*.md' (título/pasta mudou).
-    Devolve o meta de _requirement mais o `hash` do arquivo gravado."""
-    doc, meta = _requirement(pa, component, configuration, rid, "bundle", bundle_ids)
-    target = os.path.realpath(os.path.join(root, meta["path"]))
-    if not target.startswith(root + os.sep):
-        raise ValueError(f"caminho fora de dest: {meta['path']}")
-    os.makedirs(os.path.dirname(target), exist_ok=True)
-    with open(target, "w", encoding="utf-8") as f:
-        f.write(doc)
-    for old in glob.glob(os.path.join(glob.escape(root), "**", f"{rid}-*.md"), recursive=True):
-        if os.path.realpath(old) != target:
-            os.remove(old)
-    return {**meta, "hash": bundle.file_hash(target)}
+def ler(cfg: dict, req_id) -> str:
+    doc = documento(cfg, req_id)
+    r = doc["recurso"]
+    head = {"id": int(r["id"]), "titulo": one_line(r["title"]), "tipo": doc["tipo"], "pasta": doc["pasta"],
+            "modificado": utc_datetime(r["properties"].get("dcterms:modified")), "url": r["url"].split("?")[0],
+            "links": doc["links"] or None}
+    return document(head, doc["corpo"])
 
 
-def _downloaded(row: dict, meta: dict) -> None:
-    """Linha do sync.md depois de gravar o arquivo: data do ELM e hash deste momento; 'normalizado' se o md ficou
-    diferente do ELM (link normalizado) e precisa subir."""
-    row.update(title=meta["title"], folder=row["folder"] or posixpath.dirname(meta["path"]), path=meta["path"],
-               elm=meta["last_modified"] or "", hash=meta["hash"],
-               status="normalizado" if meta["modified"] else "sincronizado")
+def xhtml(cfg: dict, texto_md: str, embutir) -> RdfLiteral:
+    """Markdown -> jazz_rm:primaryText. `[x](id)` cita o requisito; vira embed se ele está em `embutir`."""
+    body = texto_md if texto_md.lstrip().startswith("<") else to_xhtml(
+        texto_md, lambda ref: url_req(cfg, ref) if ref.isdigit() else get_session().url(ref), embutir)
+    return RdfLiteral(f'<div xmlns="{oslc.XHTML}">{body}</div>', datatype=RDF.XMLLiteral)
 
 
-def _message(exc: Exception) -> str:
-    return " ".join(str(exc).replace("|", "/").split())[:200]
+def atualizar(cfg: dict, req_id, titulo: str, texto_md: str, embutir=None, modificado_em: str | None = None) -> dict:
+    config = stream(cfg)
+    r = recurso(cfg, req_id)
+    no_elm = utc_datetime(r["properties"].get("dcterms:modified"))
+    if modificado_em and no_elm and no_elm > utc_datetime(modificado_em):
+        raise Erro("conflito", f"ELM modificado em {no_elm}, depois de {utc_datetime(modificado_em)}", "modificado_em")
+    if embutir is None:  # sem a lista, mantém como embed o que já é embed no ELM
+        embutir = embeds_de(oslc.markup(r["url"], "jazz_rm:primaryText", config) or "")
+    oslc.update(r["url"], {"dcterms:title": titulo, "jazz_rm:primaryText": xhtml(cfg, texto_md, embutir)},
+                configuration=config)
+    return {"id": int(r["id"]), "url": r["url"].split("?")[0], "acao": "atualizado"}
 
 
-def _in_order(rows: dict[str, dict], statuses: tuple[str, ...]) -> list[str]:
-    return [r["id"] for r in sorted(rows.values(), key=lambda r: (r["folder"], int(r["id"])))
-            if r["status"].startswith(statuses)]
+def publicar(cfg: dict, sigla: str, titulo: str, texto_md: str, req_id=None, modificado_em: str | None = None,
+             embutir: list[str] | None = None) -> dict:
+    if req_id:
+        return atualizar(cfg, req_id, titulo, texto_md, embutir, modificado_em)
+    rm, config = _rm(cfg), stream(cfg)
+    art = rm["artefatos"].get(sigla)
+    if art is None:
+        raise Erro("config", f"sigla '{sigla}' não está em rm.artefatos ({', '.join(rm['artefatos'])})",
+                   f"rm.artefatos.{sigla}")
+    tipo = _url(TYPE, art["tipo-id"])
+    factories = oslc.creation_factories(oslc.provider("rm", rm["id"]), oslc.OSLC_RM.Requirement, config)
+    factory = next((f["creation"] for f in factories if tipo in f["resource_shapes"]), factories[0]["creation"])
+    g = oslc.new_resource(oslc.OSLC_RM.Requirement, {
+        DCTERMS.title: RdfLiteral(titulo), DCTERMS.description: RdfLiteral(""),
+        oslc.OSLC.instanceShape: URIRef(tipo), oslc.JAZZ_RM.primaryText: xhtml(cfg, texto_md, embutir or ()),
+        oslc.RM_NAV.parent: URIRef(_url(FOLDER, art["pasta-id"]))})
+    novo = oslc.get(oslc.create(factory, g, config), config)
+    return {"id": int(novo["id"]), "url": novo["url"].split("?")[0], "acao": "criado"}
 
 
-def _remove(root: str, path: str | None) -> None:
-    if path and os.path.realpath(os.path.join(root, path)).startswith(root + os.sep):
-        try:
-            os.remove(os.path.join(root, path))
-        except FileNotFoundError:
-            pass
+# --- descoberta para a sdd-setup
+
+def _pastas(component_url: str, config: str) -> dict[str, str]:
+    """{caminho sem 'root': FR_...} de todas as pastas do componente."""
+    g, subject, _ = oslc.fetch(component_url)
+    pa = next((str(o) for p, o in g.predicate_objects(subject) if str(p).endswith("projectArea")), None)
+    if pa is None:
+        raise Erro("nao_encontrado", f"componente {component_url} não informa a project area")
+    base = oslc.query_base(oslc.provider("rm", oslc.item_id(pa)), oslc.RM_NAV.folder, config)
+    out, pending = {}, [(base, "")]
+    while pending:  # shortcut: 1 query por pasta (nav:subfolders); consulta única se ficar lento
+        url, path = pending.pop(0)
+        for folder in oslc.query(url, select=None, configuration=config, limit=oslc.MAX_LIMIT):
+            name = "" if folder["title"] == "root" and not path else posixpath.join(path, folder["title"] or "")
+            if name:
+                out[name] = oslc.item_id(folder["url"])
+            pending += [(sub["url"], name) for sub in folder["links"].get("nav:subfolders", [])]
+    return out
 
 
-@tool
-def rm_sync_plan(project_area_identifier: str, component: str, configuration: str, folders: dict[str, str],
-                 dest: str) -> dict:
-    """Inventário do bundle da elm-sync sem passar a lista pela conversa. `folders`: rm.folders inteiro
-    {nome: identifier}; `dest`: caminho ABSOLUTO da raiz do bundle (rm.download.path). Lista cada pasta
-    (rm_count_folder + rm_list_folder), compara com o sync.md de dest e o regrava. Estados:
-    'novo' (não baixado), 'sincronizado' (md == ELM), 'desatualizado' (o ELM mudou desde o último download:
-    modified != 'Última atualização ELM'), 'atualizado' (o md mudou: sha256 != Hash; sobe com
-    rm_upload_requirements), 'normalizado' (md NÃO editado, hash igual: o ELM foge da regra embed/link do bundle,
-    diferença que não aparece no md; não é falso positivo, sobe com rm_upload_requirements), 'conflito' (md e ELM
-    mudaram), 'erro: ...'. Mudou de pasta = removido da antiga e
-    novo na nova (o arquivo é apagado; se ele tem edição local, vira 'conflito' e fica). Artefato do sync.md que não
-    está em nenhuma pasta = removido: o arquivo é APAGADO e a linha sai (não apaga nada se alguma pasta vier com
-    count != listados: índice instável, ids em nao_confirmados).
-    Fluxo da elm-sync: 1) rm_sync_plan; 2) rm_download_requirements até restantes = 0; 3) para cada item de
-    `conflitos`, PERGUNTE AO USUÁRIO qual versão fica: ELM -> rm_download_requirements(requirement_ids=[id]);
-    md -> rm_upload_requirements(requirement_ids=[id]); 4) rm_upload_requirements até restantes = 0.
-    Retorna só o resumo: {pastas: {nome: {total, listados, <estado>: n}}, removidos: [{id, title, folder}],
-    inconsistentes: [nomes], nao_confirmados: [ids], a_baixar, a_subir, conflitos: [{id, title, folder, path}]}."""
-    root = _root(dest)
-    _BUNDLE_ARTIFACTS.clear()
-    rows = bundle.read_sync(root)
-    listed: dict[str, dict] = {}
-    summary, inconsistent, moved = {}, [], []
-    for name, identifier in folders.items():
-        total = rm_count_folder(project_area_identifier, component, configuration, identifier)["count"]
-        items = rm_list_folder(project_area_identifier, component, configuration, identifier)
-        if total != len(items):
-            inconsistent.append(name)
-        for item in items:
-            listed[item["id"]] = {**item, "folder": name}
-        summary[name] = {"total": total, "listados": len(items)}
-    for rid, item in listed.items():
-        row = rows.get(rid)
-        if row is None or not row["hash"]:
-            rows[rid] = {"id": rid, "title": item["title"], "folder": item["folder"], "path": None, "elm": "",
-                         "hash": "", "status": "novo"}
-            continue
-        local = (row["status"] in ("atualizado", "conflito")
-                 or bool(row["path"]) and bundle.file_hash(os.path.join(root, row["path"])) != row["hash"])
-        if row["folder"] != item["folder"] and not local:
-            _remove(root, row["path"])
-            moved.append({**row, "path": None})
-            row.update(path=None, elm="", hash="", status="novo")
-        elif row["folder"] != item["folder"]:
-            row["status"] = "conflito"
-        else:
-            elm = (item["modified"] or "") != row["elm"] or row["status"].startswith(("erro", "desatualizado"))
-            row["status"] = ("conflito" if local and elm else "atualizado" if local
-                             else "desatualizado" if elm else "normalizado" if row["status"] == "normalizado"
-                             else "sincronizado")
-        row.update(title=item["title"], folder=item["folder"])
-    gone = [r for rid, r in rows.items() if rid not in listed]
-    removed = [] if inconsistent else gone
-    for r in removed:
-        _remove(root, r["path"])
-        del rows[r["id"]]
-    bundle.write_sync(root, rows, _generator())
-    if removed or moved or not os.path.exists(os.path.join(root, bundle.INDEX)):
-        bundle.write_index(root, rows)
-    bundle.append_log(root, [bundle.log_line("Deletion", [{**r, "path": None} for r in removed]),
-                             bundle.log_line("Move", moved)])
-    for r in rows.values():
-        if r["folder"] in summary:
-            counts = summary[r["folder"]]
-            key = r["status"].split(" ")[0].rstrip(":")
-            counts[key] = counts.get(key, 0) + 1
-    return {"pastas": summary, "removidos": [{k: r[k] for k in ("id", "title", "folder")} for r in removed],
-            "inconsistentes": inconsistent, "nao_confirmados": [] if removed else [r["id"] for r in gone],
-            "a_baixar": len(_in_order(rows, bundle.QUEUE)), "a_subir": len(_in_order(rows, bundle.UPLOAD)),
-            "conflitos": [{k: rows[rid][k] for k in ("id", "title", "folder", "path")}
-                          for rid in _in_order(rows, ("conflito",))]}
-
-
-@tool
-def rm_download_requirements(project_area_identifier: str, component: str, configuration: str, dest: str,
-                             requirement_ids: list[str] | None = None, limit: int = 50) -> dict:
-    """Baixa para o bundle da elm-sync sem passar o conteúdo pela conversa: o mesmo documento de
-    rm_get_requirement(links='bundle') em '<dest>/<caminho da pasta>/<id>-<slug>.md' (apaga '<id>-*.md' antigo
-    se o título ou a pasta mudou). `dest`: caminho ABSOLUTO da raiz do bundle. Sem `requirement_ids`, pega as
-    próximas `limit` linhas novo/desatualizado/erro do sync.md (a fila de rm_sync_plan); com ids, baixa esses,
-    inclusive 'conflito' (o usuário escolheu a versão do ELM: a edição do md é sobrescrita).
-    Linha baixada = 'sincronizado', ou 'normalizado' se o md ficou diferente do ELM (link da UI web, embed de
-    artefato fora do bundle ou hyperlink para artefato do bundle normalizados): sobe com rm_upload_requirements.
-    No md embed e link para o bundle são iguais, então o diff do md não mostra essa diferença.
-    Atualiza as linhas no sync.md a cada chamada (retomada), registra criados/atualizados no log.md e regera os
-    index.md quando a fila zera. Erro num id
-    não para o lote. Retorna {baixados, erros: [{id, error}], restantes}: chame de novo até restantes = 0."""
-    root = _root(dest)
-    rows = bundle.read_sync(root)
-    ids = requirement_ids or _in_order(rows, bundle.QUEUE)[:max(1, limit)]
-    bundle_ids = set(rows) or None  # sem inventário (sync.md vazio): não filtra pelo bundle
-
-    def fetch(rid: str):
-        try:
-            return _write_requirement(project_area_identifier, component, configuration, rid, root, bundle_ids)
-        except Exception as exc:  # um id com erro não derruba o lote
-            return exc
-
-    done, errors, created, updated = 0, [], [], []
-    with ThreadPoolExecutor(WORKERS) as pool:
-        results = list(pool.map(fetch, ids))
-    for rid, meta in zip(ids, results):
-        row = rows.get(rid) or {"id": rid, "title": rid, "folder": "", "path": None, "elm": "", "hash": ""}
-        if not isinstance(meta, Exception):
-            (updated if row["hash"] else created).append(row)
-            _downloaded(row, meta)
-            done += 1
-        else:
-            row["status"] = f"erro: {_message(meta)}"
-            errors.append({"id": rid, "error": _message(meta)})
-        rows[rid] = row
-    bundle.write_sync(root, rows, _generator())
-    bundle.append_log(root, [bundle.log_line("Creation", created), bundle.log_line("Update", updated)])
-    remaining = len(_in_order(rows, bundle.QUEUE))
-    if remaining == 0:
-        bundle.write_index(root, rows)
-    return {"baixados": done, "erros": errors, "restantes": remaining}
-
-
-def _bundle_embeds(configuration: str, body: str, bundle_ids: set[str]) -> list[str]:
-    """Ids dos artefatos do bundle citados no corpo (alvo id, arquivo ou URL): no upload viram embed; o resto, link."""
-    ids = []
-    for target in link_targets(body):
-        ref = artifact_ref(target)
-        if ref and not ref.isdigit():
-            found = _artifact(get_session().url(ref), configuration)
-            ref = found and found["id"]
-        if ref in bundle_ids:
-            ids.append(ref)
-    return list(dict.fromkeys(ids))
-
-
-@tool
-def rm_upload_requirements(project_area_identifier: str, component: str, configuration: str, dest: str,
-                           requirement_ids: list[str] | None = None, limit: int = 50) -> dict:
-    """Sobe para o ELM os md editados do bundle da elm-sync (rode depois de rm_download_requirements zerar).
-    Sem `requirement_ids`, pega as próximas `limit` linhas 'atualizado'/'normalizado' do sync.md e só sobe se o ELM não mudou
-    desde o download (senão a linha vira 'conflito' e nada sobe); com ids, sobe esses sem checar (o usuário
-    escolheu a versão do md num conflito). Envia title (cabeçalho) e o corpo: artefato do bundle vira embed e o
-    resto, link (`links` do cabeçalho não sobe). Formatos no corpo: embed [<id>](<id>); link para artefato de outra
-    PA [<id>](<URL do ELM>); link externo [<texto descritivo>](<url>). Depois rebaixa o requisito (linha
-    'sincronizado'). Erro num id não para o lote e mantém a linha como está.
-    Retorna {enviados, erros: [{id, error}], conflitos: [ids], restantes}: chame de novo até restantes = 0."""
-    pa, root = project_area_identifier, _root(dest)
-    rows = bundle.read_sync(root)
-    ids = requirement_ids or _in_order(rows, bundle.UPLOAD)[:max(1, limit)]
-    stream = _url(STREAM, configuration)
-
-    def push(rid: str):
-        try:
-            row = rows[rid]
-            if not requirement_ids:
-                current = requirements.get_requirement(pa, component, rid, configuration_url=stream)
-                if utc_datetime(current["properties"].get("dcterms:modified")) != row["elm"]:
-                    return "conflito"
-            with open(os.path.join(root, row["path"]), encoding="utf-8") as f:
-                head, body = read_document(f.read())
-            rm_update_requirement(pa, component, configuration, rid, title=head.get("title"), text=body,
-                                  embedded=_bundle_embeds(stream, body, set(rows)))
-            return _write_requirement(pa, component, configuration, rid, root, set(rows))
-        except Exception as exc:  # um id com erro não derruba o lote
-            return exc
-
-    done, errors, conflicts, uploaded = 0, [], [], []
-    with ThreadPoolExecutor(WORKERS) as pool:
-        results = list(pool.map(push, ids))
-    for rid, result in zip(ids, results):
-        if result == "conflito":
-            rows[rid]["status"] = "conflito"
-            conflicts.append(rid)
-        elif isinstance(result, Exception):  # a linha fica como está: a edição do md não se perde
-            errors.append({"id": rid, "error": _message(result)})
-        else:
-            _downloaded(rows[rid], result)
-            uploaded.append(rows[rid])
-            done += 1
-    bundle.write_sync(root, rows, _generator())
-    if uploaded:  # o título pode ter mudado
-        bundle.write_index(root, rows)
-    bundle.append_log(root, [bundle.log_line("Upload", uploaded)])
-    return {"enviados": done, "erros": errors, "conflitos": conflicts,
-            "restantes": len(_in_order(rows, bundle.UPLOAD))}
-
-
-@tool
-def rm_create_requirement(
-    project_area_identifier: str, component: str, configuration: str, requirement_type: str, folder: str,
-    title: str, text: str, embedded: list[str] | None = None,
-) -> dict:
-    """Cria um requisito na pasta e no tipo do elm.json (identifiers). `text`: Markdown ([x](alvo) cita o artefato;
-    alvo = id, URL ou arquivo do bundle '<id>-....md') ou XHTML. `embedded`: artefatos ('id' ou 'id: título') cujos
-    links no texto viram embed; os demais viram hyperlink. Retorna {id, title, url}."""
-    pa = project_area_identifier
-    configuration, requirement_type = _url(STREAM, configuration), _url(TYPE, requirement_type)
-    created = requirements.create_requirement(_area_url(pa), _url(COMPONENT, component), requirement_type, title, "",
-                                              _xhtml(pa, component, configuration, text, embedded),
-                                              configuration_url=configuration, folder_url=_url(FOLDER, folder))
-    return {"id": created["id"], "title": created["title"], "url": created["url"]}
-
-
-@tool
-def rm_update_requirement(
-    project_area_identifier: str, component: str, configuration: str, requirement_id: str,
-    title: str | None = None, text: str | None = None, embedded: list[str] | None = None,
-) -> dict:
-    """Atualiza título e/ou texto (Markdown como em rm_create_requirement ou XHTML; substitui o texto inteiro) do
-    requisito pelo id numérico. Com `text`, mande o `embedded` do cabeçalho de rm_get_requirement para manter os
-    embeds; sem ele todo link vira hyperlink. Retorna {id, title, url}."""
-    if not (title or text is not None):
-        raise ValueError("Informe title e/ou text.")
-    pa, configuration = project_area_identifier, _url(STREAM, configuration)
-    resource = requirements.get_requirement(pa, component, requirement_id, configuration_url=configuration)
-    changes: dict = {}
-    if title:
-        changes["dcterms:title"] = title
-    if text is not None:
-        changes["jazz_rm:primaryText"] = requirements.xhtml(_xhtml(pa, component, configuration, text, embedded))
-    updated = oslc.update(resource["url"], changes, configuration=configuration)
-    return {"id": updated["id"], "title": updated["title"], "url": updated["url"]}
+def descobrir(trecho: str) -> dict:
+    pas = [{"nome": p["title"], "id": p["project_area_uuid"], "url": p["url"]} for p in oslc.providers("rm")
+           if trecho.casefold() in p["title"].casefold()]
+    if len(pas) != 1:
+        return {"pas": [{k: p[k] for k in ("nome", "id")} for p in pas]}
+    pa = pas[0]
+    componentes = oslc.services(pa["url"])["components"]
+    if not componentes:
+        raise Erro("nao_encontrado", f"PA {pa['nome']} sem componente no DOORS Next")
+    config = next((c["url"] for c in oslc.configurations(componentes[0]) if "oslc_config:Stream" in c["types"]), None)
+    if config is None:
+        raise Erro("nao_encontrado", f"componente de {pa['nome']} sem stream")
+    shapes = {s for f in oslc.creation_factories(pa["url"], oslc.OSLC_RM.Requirement, config) for s in f["resource_shapes"]}
+    return {"pa": {"nome": pa["nome"], "id": pa["id"]}, "componente": oslc.item_id(componentes[0]),
+            "stream": oslc.item_id(config), "pastas": _pastas(componentes[0], config),
+            "tipos": {oslc.shape(s, config)["title"]: oslc.item_id(s) for s in sorted(shapes)}}

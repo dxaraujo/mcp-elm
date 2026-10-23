@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/dxaraujo/kiro/main/powers/sdd/skills/sdd-setup/assets/pa.schema.json",
+  "title": "Project area do ELM para o sdd",
+  "description": ".kiro/config/sdd/pa_<nome>.json — um arquivo por project area. Gravado pela sdd-setup e lido pelo MCP mcp-elm (a LLM só passa ids e conteúdo). Ids são os do servidor; nomes são as chaves que as tools aceitam.",
+  "type": "object",
+  "required": ["ccm"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "ccm": {
+      "type": "object",
+      "required": ["nome", "id", "time", "tipos", "horas"],
+      "additionalProperties": false,
+      "properties": {
+        "nome": { "type": "string", "minLength": 1, "description": "Nome da project area do EWM." },
+        "id": { "$ref": "#/$defs/uuid" },
+        "time": {
+          "type": "object",
+          "required": ["nome", "id", "categoria"],
+          "additionalProperties": false,
+          "description": "Time do projeto; a categoria (filedAgainst) é a dele.",
+          "properties": {
+            "nome": { "type": "string" },
+            "id": { "$ref": "#/$defs/uuid" },
+            "categoria": { "$ref": "#/$defs/nomeId" }
+          }
+        },
+        "tipos": {
+          "type": "object",
+          "required": ["ib", "tarefa"],
+          "additionalProperties": false,
+          "description": "Tipos de work item que o fluxo grava.",
+          "properties": {
+            "ib": { "$ref": "#/$defs/tipo" },
+            "defeito": { "$ref": "#/$defs/tipo" },
+            "tarefa": { "$ref": "#/$defs/tipo" }
+          }
+        },
+        "links": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Atributos de link do EWM (qname). Pai, filhos e implementa têm padrão; 'depende' só se a PA tiver.",
+          "properties": {
+            "pai": { "type": "string" },
+            "filhos": { "type": "string" },
+            "implementa": { "type": "string" },
+            "relacionado": { "type": "string" },
+            "depende": { "type": "string" }
+          }
+        },
+        "iteracoes": {
+          "type": "object",
+          "description": "Cache de iterações e planos, mantido pela tool elm_iteracao.",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["id", "planos"],
+            "additionalProperties": false,
+            "properties": {
+              "id": { "$ref": "#/$defs/uuid" },
+              "planos": { "type": "object", "additionalProperties": { "$ref": "#/$defs/uuid" } }
+            }
+          }
+        },
+        "horas": {
+          "type": "object",
+          "required": ["time-code", "work-type"],
+          "additionalProperties": false,
+          "properties": {
+            "time-code": { "type": "string", "description": "Time code do lançamento (ex.: Horas Diretas)." },
+            "work-type": { "type": "string", "description": "Tipo de trabalho do lançamento (ex.: Tarefa)." }
+          }
+        }
+      }
+    },
+    "rm": {
+      "type": "object",
+      "required": ["nome", "id", "componente", "configuracao", "artefatos"],
+      "additionalProperties": false,
+      "properties": {
+        "nome": { "type": "string" },
+        "id": { "$ref": "#/$defs/uuid" },
+        "componente": { "$ref": "#/$defs/uuid" },
+        "configuracao": { "$ref": "#/$defs/uuid", "description": "Stream do componente." },
+        "artefatos": {
+          "type": "object",
+          "description": "Sigla do sdd (HF, REG, GL, ET, …) → tipo e pasta no DOORS Next.",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["tipo", "tipo-id", "pasta", "pasta-id"],
+            "additionalProperties": false,
+            "properties": {
+              "tipo": { "type": "string" },
+              "tipo-id": { "type": "string", "pattern": "^OT_" },
+              "pasta": { "type": "string" },
+              "pasta-id": { "type": "string", "pattern": "^FR_" }
+            }
+          }
+        },
+        "download": { "type": "string", "description": "Pasta do bundle OKF, relativa à raiz do repositório, com '/'." }
+      }
+    },
+    "qm": {
+      "$ref": "#/$defs/nomeId",
+      "description": "Project area do ETM (casos de teste). Ausente → o fluxo não cria CT."
+    }
+  },
+  "$defs": {
+    "uuid": { "type": "string", "pattern": "^_[A-Za-z0-9_-]+$" },
+    "nomeId": {
+      "type": "object",
+      "required": ["nome", "id"],
+      "additionalProperties": false,
+      "properties": { "nome": { "type": "string" }, "id": { "$ref": "#/$defs/uuid" } }
+    },
+    "tipo": {
+      "type": "object",
+      "required": ["id", "campos"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "description": "Identifier do tipo no EWM (ex.: task)." },
+        "campos": {
+          "type": "object",
+          "description": "Nome do campo → attribute (qname). Só os que o fluxo lê ou grava.",
+          "additionalProperties": { "type": "string" }
+        },
+        "padroes": {
+          "type": "object",
+          "description": "Nome do campo → valor (título da enumeração ou texto) aplicado na criação quando a chamada não traz o campo.",
+          "additionalProperties": { "type": "string" }
+        },
+        "por-prefixo": {
+          "type": "object",
+          "description": "Prefixo do título ([DEV], [REV], …) → {campo: valor}, aplicado na criação depois dos padrões.",
+          "additionalProperties": { "type": "object", "additionalProperties": { "type": "string" } }
+        }
+      }
+    }
+  }
+}

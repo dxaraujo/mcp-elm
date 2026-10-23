@@ -1,0 +1,45 @@
+{
+  "$schema": "https://raw.githubusercontent.com/dxaraujo/kiro/main/powers/sdd/skills/sdd-setup/assets/pa.schema.json",
+  "ccm": {
+    "nome": "Projeto Alfa",
+    "id": "_PA1",
+    "time": {
+      "nome": "Time A",
+      "id": "_TA",
+      "categoria": { "nome": "Cat Alfa", "id": "_C1" }
+    },
+    "tipos": {
+      "ib": {
+        "id": "story",
+        "campos": { "Prioridade": "oslc_cmx:priority" }
+      },
+      "tarefa": {
+        "id": "task",
+        "campos": {
+          "Atendido por": "rtc_cm:filedAgainst",
+          "Planejado para": "rtc_cm:plannedFor",
+          "Estimativa": "rtc_cm:estimate",
+          "Prioridade": "oslc_cmx:priority",
+          "Classificação": "rtc_ext:classificação"
+        },
+        "padroes": { "Prioridade": "Alta", "Classificação": "Outra" },
+        "por-prefixo": { "[DEV]": { "Classificação": "Desenvolvimento" } }
+      }
+    },
+    "iteracoes": {
+      "Sprint 1": { "id": "_I1", "planos": { "Sprint 1 - Time A": "_P1" } }
+    },
+    "horas": { "time-code": "Horas Diretas", "work-type": "Tarefa" }
+  },
+  "rm": {
+    "nome": "Requisitos Alfa",
+    "id": "_RPA",
+    "componente": "_CMP",
+    "configuracao": "_ST",
+    "artefatos": {
+      "REG": { "tipo": "Regra", "tipo-id": "OT_REG", "pasta": "03-Regras", "pasta-id": "FR_REG" }
+    },
+    "download": "docs/alm"
+  },
+  "qm": { "nome": "Testes Alfa", "id": "_QPA" }
+}

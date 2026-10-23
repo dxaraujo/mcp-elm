@@ -1,19 +1,42 @@
 """Servidor Jazz falso: um adapter do requests que responde a partir de rotas em memória."""
+import json
+import shutil
 from pathlib import Path
 
 import pytest
 import requests
 from requests.adapters import BaseAdapter
 
-from mcp_elm.infra.config import ElmConfig
-from mcp_elm.infra.http import ElmSession, set_session
+from mcp_elm import ewm, oslc
+from mcp_elm.config import ElmConfig
+from mcp_elm.http import ElmSession, set_session
 
 FIXTURES = Path(__file__).parent / "fixtures"
 SERVER = "https://elm.test"
+NS = " ".join(f'xmlns:{p}="{u}"' for p, u in {
+    "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#", "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
+    "dcterms": "http://purl.org/dc/terms/", "oslc": "http://open-services.net/ns/core#",
+    "oslc_cm": "http://open-services.net/ns/cm#", "oslc_cmx": "http://open-services.net/ns/cm-x#",
+    "oslc_rm": "http://open-services.net/ns/rm#", "oslc_qm": "http://open-services.net/ns/qm#",
+    "rtc_cm": "http://jazz.net/xmlns/prod/jazz/rtc/cm/1.0/", "rtc_ext": "http://jazz.net/xmlns/prod/jazz/rtc/ext/1.0/",
+    "jazz_rm": "http://jazz.net/ns/rm#", "nav": "http://jazz.net/ns/rm/navigation#",
+    "oslc_config": "http://open-services.net/ns/config#", "process": "http://jazz.net/ns/process#"}.items())
 
 
 def fixture(name: str) -> bytes:
     return (FIXTURES / name).read_bytes()
+
+
+def rdf(inner: str, **headers):
+    return 200, {"Content-Type": "application/rdf+xml", **headers}, f'<?xml version="1.0"?><rdf:RDF {NS}>{inner}</rdf:RDF>'
+
+
+def xml(body: str):
+    return 200, {"Content-Type": "application/xml"}, body
+
+
+def js(obj, status: int = 200):
+    return status, {"Content-Type": "application/json"}, json.dumps(obj)
 
 
 class FakeAdapter(BaseAdapter):
@@ -40,15 +63,15 @@ class FakeAdapter(BaseAdapter):
     def close(self):
         pass
 
+    def bodies(self, method: str, fragment: str) -> list[str]:
+        return [c.body.decode() if isinstance(c.body, bytes) else (c.body or "") for c in self.calls
+                if c.method == method and fragment in c.url]
+
 
 def _clear_caches():
-    from mcp_elm.infra import oslc
     oslc.clear_cache()
-    try:
-        from mcp_elm.ibm import common
-        common.contributors.cache_clear()
-    except ImportError:  # antes da Task 3 o módulo não existe
-        pass
+    ewm._logins.cache_clear()
+    ewm._workflow.cache_clear()
 
 
 @pytest.fixture
@@ -64,9 +87,27 @@ def fake():
     _clear_caches()
 
 
-def ok(name: str, **headers):
-    return 200, {"Content-Type": "application/rdf+xml", **headers}, fixture(name)
+@pytest.fixture
+def projeto(tmp_path):
+    """Workspace com um pa fictício (pa_alfa.json)."""
+    pasta = tmp_path / ".kiro" / "config" / "sdd"
+    pasta.mkdir(parents=True)
+    shutil.copy(FIXTURES / "pa_alfa.json", pasta / "pa_alfa.json")
+    return str(tmp_path)
 
 
-def xml_ok(body: str):
-    return 200, {"Content-Type": "application/xml"}, body.encode()
+@pytest.fixture
+def cfg(projeto):
+    from mcp_elm import projeto as prj
+    return prj.carregar(projeto)
+
+
+def chamar(_tool: str, **args):
+    """Chama a tool pelo MCP (como o cliente): um TextContent, sem structuredContent; JSON vira dict."""
+    import asyncio
+
+    from mcp_elm.server import mcp
+    res = asyncio.run(mcp.call_tool(_tool, args))
+    assert len(res.content) == 1 and res.structured_content is None
+    text = res.content[0].text
+    return json.loads(text) if text.startswith("{") else text

@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:dcterms="http://purl.org/dc/terms/">
-  <rdf:Description rdf:about="https://elm.test/ccm/oslc/workflows/_PA1/states/wf/wf.state.s1"><dcterms:title>Novo</dcterms:title></rdf:Description>
-  <rdf:Description rdf:about="https://elm.test/ccm/oslc/workflows/_PA1/states/wf/wf.state.s2"><dcterms:title>Em Testes</dcterms:title></rdf:Description>
-  <rdf:Description rdf:about="https://elm.test/ccm/oslc/workflows/_PA1/states/wf/wf.state.s3"><dcterms:title>Pronto</dcterms:title></rdf:Description>
-</rdf:RDF>

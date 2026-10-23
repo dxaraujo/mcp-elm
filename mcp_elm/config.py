@@ -10,6 +10,10 @@ from pathlib import Path
 REQUIRED = ("server", "user", "password")
 
 
+class CredencialError(RuntimeError):
+    pass
+
+
 @dataclass(frozen=True)
 class ElmConfig:
     server: str
@@ -28,17 +32,14 @@ def default_path() -> Path:
 def load_config(path: Path | None = None) -> ElmConfig:
     path = path or default_path()
     if not path.is_file():
-        raise FileNotFoundError(
-            f"Arquivo de credenciais não encontrado: {path}\n"
-            "Crie-o com:\n[DEFAULT]\nserver = https://elm.SEU-SERVIDOR\nuser = SEU_USUARIO\npassword = SUA_SENHA"
-        )
+        raise CredencialError(f"arquivo de credenciais não encontrado: {path} ([DEFAULT] server, user, password)")
     # interpolation=None: senhas podem conter '%'
     parser = configparser.ConfigParser(interpolation=None)
     parser.read(path, encoding="utf-8")
     section = parser.defaults()
     missing = [k for k in REQUIRED if not section.get(k, "").strip()]
     if missing:
-        raise ValueError(f"Chave(s) ausente(s) em {path} [DEFAULT]: {', '.join(missing)}")
+        raise CredencialError(f"chave(s) ausente(s) em {path} [DEFAULT]: {', '.join(missing)}")
     return ElmConfig(
         server=section["server"].strip().rstrip("/"),
         user=section["user"].strip(),

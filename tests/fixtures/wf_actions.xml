@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?><oslc_cm:Collection xmlns:oslc_cm="http://open-services.net/xmlns/cm/1.0/" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:dc="http://purl.org/dc/terms/" xmlns:rtc_cm="http://jazz.net/xmlns/prod/jazz/rtc/cm/1.0/">
-<rtc_cm:Action rdf:resource="https://elm.test/ccm/oslc/workflows/_PA1/actions/wf/wf.action.a5"><dc:identifier>wf.action.a5</dc:identifier><rtc_cm:resultState rdf:resource="https://elm.test/ccm/oslc/workflows/_PA1/states/wf/wf.state.s3"/><dc:title>Concluir</dc:title></rtc_cm:Action>
-<rtc_cm:Action rdf:resource="https://elm.test/ccm/oslc/workflows/_PA1/actions/wf/wf.action.a9"><dc:identifier>wf.action.a9</dc:identifier><rtc_cm:resultState rdf:resource="https://elm.test/ccm/oslc/workflows/_PA1/states/wf/wf.state.s2"/><dc:title>Testar</dc:title></rtc_cm:Action>
-<rtc_cm:Action rdf:resource="https://elm.test/ccm/oslc/workflows/_PA1/actions/wf/wf.action.a11"><dc:identifier>wf.action.a11</dc:identifier><rtc_cm:resultState rdf:resource="https://elm.test/ccm/oslc/workflows/_PA1/states/wf/wf.state.s2"/><dc:title>Disponibilizar</dc:title></rtc_cm:Action>
-</oslc_cm:Collection>
