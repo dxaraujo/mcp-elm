@@ -208,3 +208,11 @@ def test_obrigatorios_do_pa_travam_a_criacao(elm, projeto):
     assert e["codigo"] == "precondicao" and e["campo"] == "Estimativa" and not getattr(elm, "criado", None)
     e = falha(chamar("elm_criar_wi", projeto=projeto, tipo="tarefa", titulo="x", estimativa_h=1))
     assert e["campo"] == "OTR"  # Prioridade tem padrão no pa; OTR não
+
+
+def test_remover_horas_so_as_minhas_na_data(elm, projeto):
+    elm.wi(42, "x", dono="joao", horas=[("2026-01-02", 2, "joao"), ("2026-01-02", 1, "maria"), ("2026-01-03", 3, "joao")])
+    d = ok(chamar("elm_remover_horas", projeto=projeto, id=42, data="2026-01-02"))
+    assert d == {"removidos": [{"data": "2026-01-02", "horas": 2.0}], "total_h": 4.0}
+    assert elm.wis[42]["horas"] == [("2026-01-02", 1, "maria"), ("2026-01-03", 3, "joao")]
+    assert falha(chamar("elm_remover_horas", projeto=projeto, id=42, data="2026-01-02"))["codigo"] == "nao_encontrado"

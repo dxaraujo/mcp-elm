@@ -4,7 +4,7 @@ import json
 from mcp_elm.server import mcp
 
 TOOLS = {"elm_status", "elm_ler_wi", "elm_listar_wi", "elm_criar_wi", "elm_atualizar_wi", "elm_transicao",
-         "elm_comentar", "elm_anexo", "elm_horas", "elm_lancar_horas", "elm_ligar", "elm_buscar_req", "elm_ler_req",
+         "elm_comentar", "elm_anexo", "elm_horas", "elm_lancar_horas", "elm_remover_horas", "elm_ligar", "elm_buscar_req", "elm_ler_req",
          "elm_publicar_req", "elm_criar_ct", "elm_iteracao", "elm_sync", "elm_setup_descobrir"}
 
 

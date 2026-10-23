@@ -578,8 +578,8 @@ def _dto(wi_id) -> dict:
         "config_state": dto.get("projectAreaConfigurationStateId"),
         "horas_ms": int(spent.get("id", 0)) if isinstance(spent, dict) else 0,
         "lancamentos": [{"data": _dia(t.get("startDate")), "ms": t.get("timeSpent") or 0,
-                         "pessoa": (t.get("creator") or {}).get("userId")}
-                        for _, t in targets(lambda lt: lt.get("id") == TIMESHEET)],
+                         "pessoa": (t.get("creator") or {}).get("userId"), "link": link.get("itemId")}
+                        for link, t in targets(lambda lt: lt.get("id") == TIMESHEET)],
         "anexos": [{"id": t.get("id"), "uuid": t.get("itemId"), "nome": t.get("name"), "tamanho": t.get("contentLength"),
                     "url": link.get("url")} for link, t in targets(lambda lt: lt.get("endpointId") == "attachment")],
     }
@@ -705,6 +705,25 @@ def lancar_horas(cfg: dict, wi_id, horas_: float, data: str | None = None) -> di
     _salvar(dto, [("attributeIdentifiers", "timeSpent"), ("attributeValues", str(total)),
                   ("updateLinks", json.dumps(entrada))])
     return {"lancado": {"data": dia.isoformat(), "horas": horas_}, "total_h": round(total / MS_H, 2)}
+
+
+def remover_horas(cfg: dict, wi_id, data: str | None = None) -> dict:
+    """Remove os lançamentos de quem chama numa data (corrigir um lançamento errado)."""
+    try:
+        dia = (date.fromisoformat(data) if data else date.today()).isoformat()
+    except ValueError as exc:
+        raise Erro("entrada", f"data inválida (AAAA-MM-DD): {data}", "data") from exc
+    eu, dto = whoami(), _dto(wi_id)
+    meus = [e for e in dto["lancamentos"] if e["data"] == dia and e["pessoa"] == eu]
+    if not meus:
+        raise Erro("nao_encontrado", f"nenhum lançamento seu em {dia} no {wi_id}", "data")
+    total = sum(e["ms"] for e in dto["lancamentos"]) - sum(e["ms"] for e in meus)
+    form = [("attributeIdentifiers", "timeSpent"), ("attributeValues", str(total))]
+    form += [("updateLinks", json.dumps({"cmd": "removeLink", "type": TIMESHEET, "end": "target", "itemId": e["link"]}))
+             for e in meus]
+    _salvar(dto, form)
+    return {"removidos": [{"data": dia, "horas": round(e["ms"] / MS_H, 2)} for e in meus],
+            "total_h": round(total / MS_H, 2)}
 
 
 # --- iterações e planos

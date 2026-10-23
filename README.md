@@ -59,6 +59,7 @@ Um único TextContent, sem `structuredContent`:
 | `elm_anexo` | listar · enviar · baixar | `anexos[]` · `nome` · `caminho` |
 | `elm_horas` | horas do WI ou da iteração | `lancamentos[], total_h` · `linhas[], total_h` |
 | `elm_lancar_horas` | lança horas (só o dono) | `lancado, total_h` |
+| `elm_remover_horas` | remove os seus lançamentos numa data | `id, data?` |
 | `elm_ligar` | implementa, rastreia, afeta, testado por, valida, depende, relacionado | `ja_existia` |
 | `elm_buscar_req` | busca requisitos por texto | `itens[], truncado` |
 | `elm_ler_req` | lê um requisito | Markdown |

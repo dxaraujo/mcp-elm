@@ -205,8 +205,8 @@ class Elm:
 
     def _dto(self, i: int):
         w = self.wis[i]
-        horas = [{"target": {"startDate": f"{d}T12:00:00.000Z", "timeSpent": int(h * 3_600_000),
-                             "creator": {"userId": p}}} for d, h, p in w["horas"]]
+        horas = [{"itemId": f"_T{k}", "target": {"startDate": f"{d}T12:00:00.000Z", "timeSpent": int(h * 3_600_000),
+                                                 "creator": {"userId": p}}} for k, (d, h, p) in enumerate(w["horas"])]
         anexos = [{"url": f"{S}/ccm/att/{n}", "target": {"id": k, "itemId": f"_A{k}", "name": n, "contentLength": 3}}
                   for k, n in enumerate(w["anexos"], 1)]
         return envelope({"workItem": {
@@ -217,7 +217,12 @@ class Elm:
                           {"endpointId": "attachment", "linkDTOs": anexos}]}})
 
     def _salvar(self, req):
-        self.salvos.append(parse_qs(req.body if isinstance(req.body, str) else req.body.decode()))
+        form = parse_qs(req.body if isinstance(req.body, str) else req.body.decode())
+        self.salvos.append(form)
+        remover = {json.loads(u)["itemId"] for u in form.get("updateLinks", []) if json.loads(u)["cmd"] == "removeLink"}
+        if remover:  # o itemId do work item é "_W<id>"; o do lançamento, "_T<posição>"
+            w = self.wis[int(form["itemId"][0][2:])]
+            w["horas"] = [x for k, x in enumerate(w["horas"]) if f"_T{k}" not in remover]
         return envelope({"severity": 0, "workItem": {}})
 
     def _criar_iteracao(self, req):

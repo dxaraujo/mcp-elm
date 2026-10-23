@@ -144,6 +144,14 @@ def elm_lancar_horas(projeto: Projeto, id: Id, horas: float,
 
 
 @tool
+def elm_remover_horas(projeto: Projeto, id: Id,
+                      data: Annotated[str | None, Field(description="AAAA-MM-DD; padrão hoje")] = None,
+                      pa: Pa = None) -> str:
+    """Remove os seus lançamentos de horas numa data. → dados: {removidos[{data, horas}], total_h}"""
+    return ewm.remover_horas(prj.carregar(projeto, pa), id, data)
+
+
+@tool
 def elm_ligar(projeto: Projeto, wi: int | None = None, req: int | None = None, ct: int | None = None,
               wi_destino: int | None = None,
               tipo: Literal["implementa", "rastreia", "afeta", "testado_por", "valida", "depende", "relacionado"]

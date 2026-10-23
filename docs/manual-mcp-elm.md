@@ -51,7 +51,8 @@ estado atual: tenta primeiro as que levam ao alvo e, para concluir, as que passa
 
 Pelos serviços internos da UI web (`workItemDTO2`/`workItem2`), como o 1.0.43. `elm_lancar_horas` aceita só o dono
 do work item, até 16 h por dia somando o que a pessoa já lançou no dia, sem data futura; devolve o lançado e o total,
-não o histórico. `elm_horas(iteracao)` soma por tarefa e pessoa; tarefa sem lançamento aparece com 0 h (para o
+não o histórico. `elm_remover_horas(id, data)` remove os lançamentos de quem chama naquela data (`removeLink` do
+link de timesheet) e devolve o novo total. `elm_horas(iteracao)` soma por tarefa e pessoa; tarefa sem lançamento aparece com 0 h (para o
 relatório de concluídas sem horas). Anexos: `caminho` é relativo ao projeto; enviar substitui anexo de mesmo nome.
 
 ## Requisitos e bundle
