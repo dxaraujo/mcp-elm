@@ -188,7 +188,7 @@ def test_setup_descobrir_ccm(elm, fake):
     assert tarefa["id"] == "task" and tarefa["obrigatorios"] == ["Atendido por"]
     assert "Classificação" in tarefa["enumeracoes"] and "Classificação" not in tarefa["valores"] and ccm["links"]["Pai"]  # não obrigatório: só com valores_de
     extra = ok(chamar("elm_setup_descobrir", ccm="alfa", valores_de=["Classificação"]))["ccm"]["tipos"][0]
-    assert extra["valores"]["Classificação"] == ["Desenvolvimento", "Outra"]
+    assert extra["valores"]["Classificação"] == ["Desenvolvimento (Transacional / IA)", "Outra"]
     assert ccm["iteracoes"] == {"Sprint 1": {"id": "_I1", "planos": {"Sprint 1 - Time A": "_P1"}}}
     assert d["qm"] == {"nome": "Testes Alfa", "id": "_QPA"}
     assert ok(chamar("elm_setup_descobrir", ccm="zzz"))["ccm"] == {"pas": []}

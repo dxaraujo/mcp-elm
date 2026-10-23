@@ -12,9 +12,12 @@ from conftest import SERVER, js, rdf, xml
 S = SERVER
 WI = S + "/ccm/resource/itemName/com.ibm.team.workitem.WorkItem/{}"
 WF = S + "/ccm/oslc/workflows/_PA1/states/wf"
-ESTADOS = {"s1": ("Novo", "open"), "s2": ("Em Andamento", "inprogress"), "s3": ("Concluído", "closed")}
+ESTADOS = {"s1": ("Novo", "open"), "s2": ("Em Andamento", "inprogress"), "s3": ("Concluído", "closed"),
+           "s4": ("Cancelado", "closed"), "s5": ("Em Testes", "inprogress")}
 # ação -> (estado de onde parte, estado resultante); o servidor ignora em silêncio ação que não parte do atual
-ACOES = {"a1": ("Iniciar", "s1", "s2"), "a5": ("Concluir", "s2", "s3"), "a7": ("Reabrir", "s3", "s1")}
+# como no PAB: Cancelar (closed) e Testar (inprogress) vêm antes na lista e também partem de "Novo"
+ACOES = {"a4": ("Cancelar", "s1", "s4"), "a9": ("Testar", "s1", "s5"), "a1": ("Iniciar", "s1", "s2"),
+         "a5": ("Concluir", "s2", "s3"), "a7": ("Reabrir", "s3", "s1")}
 PARENT = "rtc_cm:com.ibm.team.workitem.linktype.parentworkitem.parent"
 CHILDREN = "rtc_cm:com.ibm.team.workitem.linktype.parentworkitem.children"
 RTC_CM = "http://jazz.net/xmlns/prod/jazz/rtc/cm/1.0/"
@@ -74,7 +77,7 @@ class Elm:
             f'<rdf:Description rdf:about="{S}/ccm/oslc/enumerations/_PA1/{nome}/{nome}.literal.{i}">'
             f'<dcterms:title>{v}</dcterms:title></rdf:Description>' for i, v in enumerate(vals)))
         r[("GET", S + "/ccm/oslc/enumerations/_PA1/priority")] = enum("priority", ["Alta", "Baixa"])
-        r[("GET", S + "/ccm/oslc/enumerations/_PA1/classif")] = enum("classif", ["Desenvolvimento", "Outra"])
+        r[("GET", S + "/ccm/oslc/enumerations/_PA1/classif")] = enum("classif", ["Desenvolvimento (Transacional / IA)", "Outra"])
         r[("POST", S + "/ccm/oslc/contexts/_PA1/workitems/task")] = self._criar_wi
         r[("GET", S + "/ccm/rpt/repository/foundation")] = xml(
             "<foundation><contributor><userId>joao</userId></contributor>"
@@ -159,6 +162,9 @@ class Elm:
                 f'<dcterms:title>{w["titulo"]}</dcterms:title><dcterms:type>Tarefa</dcterms:type>'
                 f'<rtc_cm:type rdf:resource="{S}/ccm/oslc/types/_PA1/task"/>'
                 f'<rtc_cm:state rdf:resource="{WF}/{w["estado"]}"/>'
+                # o EWM manda inprogress=true em todo estado não fechado, até em "Novo"
+                f'<oslc_cm:closed>{str(ESTADOS[w["estado"]][1] == "closed").lower()}</oslc_cm:closed>'
+                f'<oslc_cm:inprogress>{str(ESTADOS[w["estado"]][1] != "closed").lower()}</oslc_cm:inprogress>'
                 f'<dcterms:contributor rdf:resource="{S}/jts/users/{w["dono"] or "unassigned"}"/>'
                 f'<rtc_cm:plannedFor rdf:resource="{S}/ccm/oslc/iterations/_I1"/>'
                 f'<rtc_cm:estimate rdf:datatype="http://www.w3.org/2001/XMLSchema#long">{w["estimate"]}</rtc_cm:estimate>'

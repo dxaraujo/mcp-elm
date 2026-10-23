@@ -13,7 +13,9 @@ from .http import AuthError, ElmHttpError, mensagem
 CODIGOS = ("config", "credencial", "nao_encontrado", "permissao", "precondicao", "conflito", "entrada")
 # atributo citado entre aspas na mensagem do servidor ("O atributo 'Estimativa' é obrigatório")
 _ATRIBUTO = re.compile(r"['\"“«]([^'\"”»]{1,80})['\"”»]")
-_OBRIGATORIO = re.compile(r"obrigat|required", re.I)
+# o EWM recusa por pré-condição de processo com 403: "'Save Work Item' failed. … The 'Ambiente' attribute needs to be set"
+_ATRIBUTO_EWM = re.compile(r"The ['\"“]([^'\"”]{1,80})['\"”] attribute", re.I)
+_OBRIGATORIO = re.compile(r"obrigat|required|needs to be set|preconditions have not been met", re.I)
 
 
 class Erro(Exception):
@@ -33,7 +35,7 @@ def _http(exc: ElmHttpError) -> Erro:
         return Erro("credencial", msg)
     codigo = ("precondicao" if status == 409 or _OBRIGATORIO.search(msg) else "permissao" if status == 403
               else "nao_encontrado" if status in (404, 410) else "conflito" if status == 412 else "entrada")
-    found = _ATRIBUTO.search(msg) if codigo in ("precondicao", "permissao") else None
+    found = (_ATRIBUTO_EWM.search(msg) or _ATRIBUTO.search(msg)) if codigo in ("precondicao", "permissao") else None
     return Erro(codigo, msg, found.group(1) if found else None)
 
 

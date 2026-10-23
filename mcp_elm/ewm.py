@@ -56,6 +56,9 @@ GRUPOS = (("closed", re.compile(r"conclu|resolv|fechad|finaliz|pronto|done|close
           ("inprogress", re.compile(r"andamento|progress|desenvolv|execu|implement|trabalh|test|revis|verific", re.I)))
 # alvo -> (grupo do estado-alvo, grupos por onde pode passar)
 ALVOS = {"assumir": ("inprogress", ()), "concluir": ("closed", ("inprogress",)), "reabrir": ("open", ())}
+# "Cancelado"/"Inválido" também são do grupo closed, mas não são conclusão; e assumir é começar, não testar
+_DESCARTE = re.compile(r"cancel|inv[aá]lid|rejeit|duplic|descart", re.I)
+_INICIO = re.compile(r"andamento|progress|desenvolv|execu|implement|trabalh", re.I)
 _DC, _RTC = oslc.clark(DCTERMS), oslc.clark(oslc.RTC_CM)
 _ABOUT, _RES = oslc.clark(RDF, "about"), oslc.clark(RDF, "resource")
 _JP, _JP06 = oslc.clark(oslc.JP), oslc.clark(oslc.JP06)
@@ -219,6 +222,9 @@ def _no(cfg: dict, props: dict, pred: str, valor, campo: str):
     opcoes = enumeracao(prop) if prop else None
     if opcoes is not None:
         found = next((o for o in opcoes if (o["title"] or "").casefold() == s.casefold()), None)
+        if found is None:  # o pa pode trazer o começo do título ("Desenvolvimento (Transacional / …)"): só se único
+            inicio = [o for o in opcoes if (o["title"] or "").casefold().startswith(s.casefold())]
+            found = inicio[0] if len(inicio) == 1 else None
         if found is None:
             raise Erro("entrada", f"'{s}' não é valor de {campo}: {', '.join(o['title'] or '' for o in opcoes)}", campo)
         return URIRef(found["url"])
@@ -439,9 +445,9 @@ def _workflow(state_url: str) -> tuple[dict, list]:
 
 def _grupo(r: dict, estados: dict) -> str:
     props = r["properties"]
-    for grupo in ("closed", "inprogress"):  # flags do próprio work item (OSLC CM 2.0), quando vêm
-        if str(props.get(f"oslc_cm:{grupo}")).lower() == "true":
-            return grupo
+    # só a flag closed vale: o EWM manda oslc_cm:inprogress=true também em "Novo" (lá ela quer dizer "não fechado")
+    if str(props.get("oslc_cm:closed")).lower() == "true":
+        return "closed"
     return estados.get(_first(r, STATE)["url"], {}).get("grupo", "open")
 
 
@@ -462,8 +468,10 @@ def _ir(url: str, r: dict, alvo: str, attrs: dict) -> tuple[str, bool]:
         # o workflow não diz de onde cada ação parte: tenta as que levam ao alvo (depois as de passagem) até o
         # estado mudar; o servidor aceita em silêncio, sem mudar nada, uma ação que não sai do estado atual
         candidatas = sorted((a for a in acoes if a["resultado"] != atual
-                             and estados.get(a["resultado"], {}).get("grupo") in (grupo_alvo, *meios)),
-                            key=lambda a: estados[a["resultado"]]["grupo"] != grupo_alvo)
+                             and estados.get(a["resultado"], {}).get("grupo") in (grupo_alvo, *meios)
+                             and not _DESCARTE.search(titulo(a["resultado"]))),
+                            key=lambda a: (estados[a["resultado"]]["grupo"] != grupo_alvo,
+                                           not _INICIO.search(titulo(a["resultado"]))))
         for acao in candidatas:
             try:
                 oslc.update(url, attrs, params={"_action": acao["id"]})

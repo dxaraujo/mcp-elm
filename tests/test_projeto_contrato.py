@@ -80,6 +80,10 @@ def test_envelope_ok_e_erros():
     assert falha(ElmHttpError(_resp(409, oslc_err))) == {
         "codigo": "precondicao", "detalhe": "O atributo 'Estimativa' é obrigatório", "campo": "Estimativa"}
     assert falha(ElmHttpError(_resp(403, '{"errorMessage": "sem permissão em \'Iteração\'"}')))["campo"] == "Iteração"
+    ewm_403 = ('{"errorMessage": "\'Save Work Item\' failed. Preconditions have not been met: '
+               'The \'Ambiente\' attribute needs to be set (work item )."}')
+    assert {k: v for k, v in falha(ElmHttpError(_resp(403, ewm_403))).items() if k != "detalhe"} == {
+        "codigo": "precondicao", "campo": "Ambiente"}
     assert falha(ElmHttpError(_resp(404, "x")))["codigo"] == "nao_encontrado"
     assert falha(requests.ConnectionError("recusado"))["codigo"] == "credencial"
     assert falha(Erro("conflito", "maria", "dono")) == {"codigo": "conflito", "detalhe": "maria", "campo": "dono"}
