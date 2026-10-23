@@ -10,7 +10,7 @@ import requests
 from .config import CredencialError
 from .http import AuthError, ElmHttpError, mensagem
 
-CODIGOS = ("config", "credencial", "nao_encontrado", "permissao", "precondicao", "conflito", "entrada")
+CODIGOS = ("config", "credencial", "indisponivel", "nao_encontrado", "permissao", "precondicao", "conflito", "entrada")
 # atributo citado entre aspas na mensagem do servidor ("O atributo 'Estimativa' é obrigatório")
 _ATRIBUTO = re.compile(r"['\"“«]([^'\"”»]{1,80})['\"”»]")
 # o EWM recusa por pré-condição de processo com 403: "'Save Work Item' failed. … The 'Ambiente' attribute needs to be set"
@@ -48,7 +48,7 @@ def erro(exc: Exception) -> Erro | None:
     if isinstance(exc, (CredencialError, AuthError)):
         return Erro("credencial", str(exc))
     if isinstance(exc, (requests.ConnectionError, requests.Timeout)):
-        return Erro("credencial", f"servidor inacessível: {exc}")
+        return Erro("indisponivel", f"servidor sem resposta: {exc}"[:200])
     if isinstance(exc, LookupError):
         return Erro("nao_encontrado", str(exc))
     if isinstance(exc, ValueError):

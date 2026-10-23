@@ -85,7 +85,8 @@ def test_envelope_ok_e_erros():
     assert {k: v for k, v in falha(ElmHttpError(_resp(403, ewm_403))).items() if k != "detalhe"} == {
         "codigo": "precondicao", "campo": "Ambiente"}
     assert falha(ElmHttpError(_resp(404, "x")))["codigo"] == "nao_encontrado"
-    assert falha(requests.ConnectionError("recusado"))["codigo"] == "credencial"
+    assert falha(requests.ConnectionError("recusado"))["codigo"] == "indisponivel"
+    assert falha(requests.Timeout("lento"))["codigo"] == "indisponivel"
     assert falha(Erro("conflito", "maria", "dono")) == {"codigo": "conflito", "detalhe": "maria", "campo": "dono"}
     with pytest.raises(ZeroDivisionError):  # bug não vira envelope
         operacao(lambda: 1 / 0)()

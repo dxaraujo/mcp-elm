@@ -43,7 +43,7 @@ Um único TextContent, sem `structuredContent`:
 ```
 
 `elm_ler_wi` e `elm_ler_req` devolvem Markdown (YAML + corpo); erro nelas sai no envelope. Códigos: `config`,
-`credencial`, `nao_encontrado`, `permissao`, `precondicao`, `conflito`, `entrada`.
+`credencial`, `indisponivel` (rede ou timeout: tente de novo), `nao_encontrado`, `permissao`, `precondicao`, `conflito`, `entrada`.
 
 ## Tools
 
