@@ -132,7 +132,7 @@
         "obrigatorios": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Campos (nomes de campos) que a PA exige por regra de processo para criar, mudar de estado ou lançar horas, mesmo que o tipo os marque como opcionais. O MCP os trata como obrigatórios: falta → o padrão é gravado junto; sem padrão → erro precondicao com o campo."
+          "description": "Campos (nomes de campos) que a PA exige por regra de processo para criar, mudar de estado ou lançar horas, mesmo que o tipo os marque como opcionais. O MCP os exige já na criação (padrão do pa, campos da chamada ou estimativa_h; senão erro precondicao com o campo), para nenhuma transição ou lançamento depois esbarrar neles."
         },
         "por-prefixo": {
           "type": "object",
