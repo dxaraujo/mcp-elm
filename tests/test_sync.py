@@ -34,6 +34,9 @@ def test_sync_duas_vias_com_conflito(elm, projeto):
     assert "Usa [2 REG-02 CPF](2-reg-02-cpf.md)." in open(um, encoding="utf-8").read()  # embed do bundle = arquivo
     assert os.path.exists(os.path.join(raiz, "index.md")) and os.path.exists(os.path.join(raiz, "log.md"))
     assert {r["status"] for r in sync.read_sync(raiz).values()} == {"sincronizado"}
+    # o baixar já indexou o bundle local: nada pendente
+    assert dados(chamar("elm_indexar_local", projeto=projeto)) == {"documentos": 2, "indexados": 0, "removidos": 0,
+                                                                   "restantes": 0}
 
     _editar(dois, "Texto antigo", "Texto novo")  # só o md mudou -> enviar
     _editar(um, "Usa", "Usa sempre")  # md e ELM mudaram -> conflito
@@ -61,3 +64,11 @@ def test_enviar_recusa_se_o_elm_mudou_depois_do_plano(elm, projeto):
     assert elm.reqs[2]["texto"] == "Texto antigo"
     with pytest.raises(sync.Erro):  # pelo MCP o Literal já recusa antes
         sync.sync({}, "subir")
+
+
+def test_baixar_no_limite_de_tempo_avisa_o_que_falta_indexar(elm, projeto, monkeypatch):
+    from mcp_elm import local
+    monkeypatch.setattr(local, "TIME_BUDGET", -1)
+    chamar("elm_sync", projeto=projeto, direcao="plano")
+    assert dados(chamar("elm_sync", projeto=projeto, direcao="baixar")) == {
+        "feitos": [1, 2], "conflitos": [], "indexando": True, "restantes": 2}

@@ -6,7 +6,7 @@ from typing import Annotated, Literal
 from mcp.server.mcpserver import MCPServer
 from pydantic import Field
 
-from . import ewm, projeto as prj, qm as etm, rm as dng, sync
+from . import ewm, local, projeto as prj, qm as etm, rm as dng, sync
 from .contrato import Erro, operacao
 from .http import get_session
 
@@ -14,7 +14,9 @@ mcp = MCPServer("elm", instructions=(
     "IBM ELM (EWM, DOORS Next, ETM) pelo pa do projeto. Toda tool (menos elm_setup_descobrir) recebe `projeto` = "
     "caminho absoluto do workspace e `pa` = nome do .kiro/config/sdd/pa_<nome>.json (omita se houver só um). Passe só "
     "ids e conteúdo: campos, URLs e ids internos vêm do pa. Resposta: {\"ok\":true,\"dados\":{...}} ou "
-    "{\"ok\":false,\"erro\":{\"codigo\",\"detalhe\",\"campo\"}}; elm_ler_wi e elm_ler_req devolvem Markdown."))
+    "{\"ok\":false,\"erro\":{\"codigo\",\"detalhe\",\"campo\"}}; elm_ler_wi e elm_ler_req devolvem Markdown. "
+    "Requisitos: consulte primeiro o bundle local (elm_*_local); erro nao_encontrado campo bundle = nada baixado, "
+    "use elm_buscar_req/elm_ler_req."))
 
 Projeto = Annotated[str, Field(description="caminho absoluto do workspace")]
 Pa = Annotated[str | None, Field(description="nome do pa (só se houver vários)")]
@@ -204,9 +206,42 @@ def elm_iteracao(projeto: Projeto, nome: str, inicio: str | None = None, fim: st
 @tool
 def elm_sync(projeto: Projeto, direcao: Literal["plano", "baixar", "enviar"], ids: list[int] | None = None,
              pa: Pa = None) -> str:
-    """Bundle do DOORS Next em rm.download. → dados: plano {baixar[], enviar[], conflitos[]}; baixar/enviar
-    {feitos[], conflitos[], erros?}"""
+    """Bundle do DOORS Next em rm.download; baixar já reindexa o local. → dados: plano {baixar[], enviar[],
+    conflitos[]}; baixar/enviar {feitos[], conflitos[], erros?, indexando?, restantes?}"""
     return sync.sync(prj.carregar(projeto, pa), direcao, ids)
+
+
+Pasta = Annotated[str | None, Field(description="1ª pasta do path")]
+TipoReq = Annotated[str | None, Field(description="type do frontmatter")]
+
+
+@tool
+def elm_buscar_req_local(projeto: Projeto, texto: str, limite: int = 8, pasta: Pasta = None, tipo: TipoReq = None,
+                         pa: Pa = None) -> str:
+    """Busca híbrida (sentido + palavra) no bundle baixado; indexa antes o que mudou. → dados: {itens[{path, id,
+    titulo, tipo, pasta, score, trechos[{secao, texto}]}], indexando?, restantes?}"""
+    return local.buscar(prj.carregar(projeto, pa), texto, limite, pasta, tipo)
+
+
+@tool
+def elm_ler_req_local(projeto: Projeto, id: Annotated[int | str, Field(description="id do requisito ou path")],
+                      pa: Pa = None) -> str:
+    """Lê um documento do bundle baixado. → dados: {path, markdown, links{saida[], entrada[]: {rel, path, id, titulo}}}"""
+    return local.ler(prj.carregar(projeto, pa), id)
+
+
+@tool
+def elm_listar_req_local(projeto: Projeto, pasta: Pasta = None, tipo: TipoReq = None, pa: Pa = None) -> str:
+    """Inventário do bundle baixado (sem corpo). → dados: {itens[{path, id, titulo, tipo, pasta, descricao, indexado}]}"""
+    return local.listar(prj.carregar(projeto, pa), pasta, tipo)
+
+
+@tool
+def elm_indexar_local(projeto: Projeto, forcar: Annotated[bool, Field(description="reindexa tudo")] = False,
+                      pa: Pa = None) -> str:
+    """Indexa o bundle baixado (~40 s por chamada); repita até restantes=0. → dados: {documentos, indexados,
+    removidos, restantes}"""
+    return local.indexar(prj.carregar(projeto, pa), forcar)
 
 
 @tool

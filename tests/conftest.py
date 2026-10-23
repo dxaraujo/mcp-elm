@@ -1,13 +1,16 @@
 """Servidor Jazz falso: um adapter do requests que responde a partir de rotas em memória."""
 import json
+import re
 import shutil
+import zlib
 from pathlib import Path
 
+import numpy as np
 import pytest
 import requests
 from requests.adapters import BaseAdapter
 
-from mcp_elm import ewm, oslc
+from mcp_elm import ewm, local, oslc
 from mcp_elm.config import ElmConfig
 from mcp_elm.http import ElmSession, set_session
 
@@ -66,6 +69,21 @@ class FakeAdapter(BaseAdapter):
     def bodies(self, method: str, fragment: str) -> list[str]:
         return [c.body.decode() if isinstance(c.body, bytes) else (c.body or "") for c in self.calls
                 if c.method == method and fragment in c.url]
+
+
+def fake_embed(texts):
+    """Saco de palavras com hash (sem baixar modelo): textos com palavras em comum ficam próximos."""
+    v = np.zeros((len(texts), 64), dtype=np.float32)
+    for i, t in enumerate(texts):
+        for w in re.findall(r"\w+", t.lower()):
+            v[i, zlib.crc32(w.encode()) % 64] += 1.0
+    v[:, 0] += 1e-3
+    return v / np.linalg.norm(v, axis=1, keepdims=True)
+
+
+@pytest.fixture(autouse=True)
+def _sem_modelo(monkeypatch):
+    monkeypatch.setattr(local, "embed", fake_embed)
 
 
 def _clear_caches():

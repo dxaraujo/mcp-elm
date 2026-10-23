@@ -14,7 +14,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timezone
 
-from . import oslc, rm
+from . import local, oslc, rm
 from .contrato import Erro, erro
 from .documento import artifact_ref, document, link_targets, read_document, utc_datetime
 from .http import get_session
@@ -297,8 +297,17 @@ def baixar(cfg: dict, ids: list | None = None) -> dict:
     append_log(root, "Update", atualizados)
     if not _in_order(rows, QUEUE):
         write_index(root, rows)
-    return {"feitos": _ints(feitos), "conflitos": _ints(_in_order(rows, ("conflito",))),
-            **({"erros": erros} if erros else {})}
+    out = {"feitos": _ints(feitos), "conflitos": _ints(_in_order(rows, ("conflito",))),
+           **({"erros": erros} if erros else {})}
+    if feitos:  # índice local do que baixou; o que passar do tempo fica para elm_indexar_local / elm_buscar_req_local
+        try:
+            idx = local.reindexar(root)
+        except Exception as exc:  # o download já está no disco: falha do índice não vira falha do sync
+            out["indice_erro"] = f"{type(exc).__name__}: {exc}"[:200]
+        else:
+            if idx and idx["restantes"]:
+                out.update(indexando=True, restantes=idx["restantes"])
+    return out
 
 
 def _embeds(cfg: dict, body: str, bundle_ids: set[str]) -> list[str]:

@@ -66,7 +66,29 @@ relatório de concluídas sem horas). Anexos: `caminho` é relativo ao projeto; 
 pasta, `log.md`, um `.md` por requisito). `plano` lista as pastas do pa e classifica: novo, sincronizado,
 desatualizado, atualizado, normalizado, conflito. `baixar` sem ids leva a fila (novo, desatualizado, erro); com ids,
 fica a versão do ELM. `enviar` sem ids sobe atualizado/normalizado só se o ELM não mudou desde o download (senão
-conflito); com ids, fica a versão do md.
+conflito); com ids, fica a versão do md. `baixar` termina reindexando o bundle local (abaixo); se passar de ~40 s,
+devolve `indexando: true, restantes: n`.
+
+### Bundle local
+
+Quatro tools leem o bundle baixado, sem ir ao ELM — mesmo nome da operação remota com o sufixo `_local`:
+
+| Tool | Faz | `dados` |
+|---|---|---|
+| `elm_buscar_req_local` | busca híbrida (sentido + palavra), filtros `pasta` (1ª pasta do path) e `tipo` (`type` do frontmatter) | `itens[{path, id, titulo, tipo, pasta, score, trechos[{secao, texto}]}], indexando?, restantes?` |
+| `elm_ler_req_local` | documento por id ou path relativo, com links de saída e de entrada | `path, markdown, links{saida[], entrada[]}` |
+| `elm_listar_req_local` | inventário (sem corpo), mesmos filtros | `itens[{path, id, titulo, tipo, pasta, descricao, indexado}]` |
+| `elm_indexar_local` | indexa o que mudou (sha256), até ~40 s por chamada; `forcar` reindexa tudo | `documentos, indexados, removidos, restantes` |
+
+O índice fica em `<bundle>/sqlite3/okf.db` (com `.gitignore`): chunks por heading com vetor do
+`paraphrase-multilingual-MiniLM-L12-v2` (fastembed, carregado só na 1ª busca/indexação) + FTS5, fundidos por RRF.
+`elm_buscar_req_local` reindexa antes, incrementalmente; se o tempo acabar, busca com o que já está indexado e devolve
+`indexando: true, restantes: n`. `elm_indexar_local` é para a 1ª indexação de um bundle grande: chame até
+`restantes` = 0.
+
+**Nada baixado** (pasta de `rm.download` ausente ou sem `.md`): buscar, ler, listar e indexar devolvem
+`nao_encontrado` com `campo: "bundle"` e o detalhe indica baixar com `elm_sync` (`direcao: "baixar"`) ou pesquisar no
+ELM remoto com `elm_buscar_req`/`elm_ler_req`. Sem `rm.download` no pa: `config`.
 
 ## Iteração e planos
 
