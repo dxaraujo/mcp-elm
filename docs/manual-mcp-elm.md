@@ -1,4 +1,4 @@
-# Manual do mcp-elm 2.0
+# Manual do mcp-elm 3.0
 
 Instalação, credenciais e a lista das tools: [README](../README.md). Aqui, o que cada operação faz por dentro.
 
