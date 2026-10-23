@@ -618,6 +618,9 @@ def anexo(cfg: dict, wi_id, acao: str, caminho: str | None = None) -> dict:
     if not caminho:
         raise Erro("entrada", "caminho é obrigatório para enviar e baixar", "caminho")
     alvo = (raiz / caminho).resolve()
+    # vale para enviar também: o MCP lê fora das regras do agente (credenciais, ~/.ssh)
+    if raiz.resolve() not in alvo.parents:
+        raise Erro("entrada", "caminho precisa ficar dentro do projeto", "caminho")
     if acao == "enviar":
         if not alvo.is_file():
             raise Erro("entrada", f"arquivo não encontrado: {caminho}", "caminho")
@@ -637,8 +640,6 @@ def anexo(cfg: dict, wi_id, acao: str, caminho: str | None = None) -> dict:
                         for a in dto["anexos"] if a["nome"] == alvo.name)])
         return {"nome": novo["name"]}
     if acao == "baixar":
-        if raiz.resolve() not in alvo.parents:
-            raise Erro("entrada", "caminho precisa ficar dentro do projeto", "caminho")
         found = sorted((a for a in _dto(wi_id)["anexos"] if a["nome"] == alvo.name), key=lambda a: a["id"] or 0)
         if not found:
             raise Erro("nao_encontrado", f"work item {wi_id} não tem anexo '{alvo.name}'", "caminho")

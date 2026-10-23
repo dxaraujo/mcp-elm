@@ -133,6 +133,10 @@ def test_anexo_listar_baixar_enviar(elm, projeto, fake):
     fake.routes[("POST", SERVER + "/ccm/service/com.ibm.team.workitem.service.internal.rest.IAttachmentRestService/")] = (
         200, {}, '<html><textarea>{"files":[{"uuid":"_N","name":"log.txt"}]}</textarea></html>')
     assert ok(chamar("elm_anexo", projeto=projeto, id=42, acao="enviar", caminho="tmp/log.txt")) == {"nome": "log.txt"}
+    fora = os.path.join(os.path.dirname(projeto), "segredo.txt")
+    open(fora, "w").write("x")
+    for caminho in ("../segredo.txt", fora):
+        assert falha(chamar("elm_anexo", projeto=projeto, id=42, acao="enviar", caminho=caminho))["campo"] == "caminho"
     links = [json.loads(link) for link in elm.salvos[-1]["updateLinks"]]
     assert [(link["cmd"], link["itemId"]) for link in links] == [("addLink", "_N"), ("removeLink", "_A1")]
 
