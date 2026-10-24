@@ -204,13 +204,16 @@ def test_obrigatorios_do_pa_travam_a_criacao(elm, projeto):
     """Campo que a PA exige por processo (sem o tipo marcar) é exigido já na criação: padrão do pa, campos ou erro."""
     arq = next(Path(projeto, ".kiro", "config", "sdd").glob("pa_*.json"))
     pa = json.loads(arq.read_text())
-    pa["ccm"]["tipos"]["tarefa"]["obrigatorios"] = ["Estimativa", "Prioridade", "OTR"]
+    pa["ccm"]["tipos"]["tarefa"]["obrigatorios"] = ["Planejado para", "Estimativa", "Prioridade", "OTR"]
     pa["ccm"]["tipos"]["tarefa"]["campos"]["OTR"] = "rtc_ext:otr"
+    pa["ccm"]["tipos"]["tarefa"]["campos"]["Planejado para"] = "rtc_cm:plannedFor"
     arq.write_text(json.dumps(pa))
     os.utime(arq, (time.time() + 5, time.time() + 5))  # o cache do pa é por mtime
     e = falha(chamar("elm_criar_wi", projeto=projeto, tipo="tarefa", titulo="x"))
+    assert e["codigo"] == "precondicao" and e["campo"] == "Planejado para"
+    e = falha(chamar("elm_criar_wi", projeto=projeto, tipo="tarefa", titulo="x", iteracao="Sprint 1"))
     assert e["codigo"] == "precondicao" and e["campo"] == "Estimativa" and not getattr(elm, "criado", None)
-    e = falha(chamar("elm_criar_wi", projeto=projeto, tipo="tarefa", titulo="x", estimativa_h=1))
+    e = falha(chamar("elm_criar_wi", projeto=projeto, tipo="tarefa", titulo="x", iteracao="Sprint 1", estimativa_h=1))
     assert e["campo"] == "OTR"  # Prioridade tem padrão no pa; OTR não
 
 

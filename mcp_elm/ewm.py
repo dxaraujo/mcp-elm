@@ -379,9 +379,11 @@ def criar_wi(cfg: dict, tipo: str, titulo: str, pai=None, dono=None, estimativa_
     valores = {**_padroes(t, titulo), **(campos or {})}  # padrões, depois o do prefixo do título, depois o da chamada
     # a PA exige alguns campos só depois (iniciar, lançar horas…), sem o tipo marcar: trava aqui, na criação,
     # para nenhuma transição ou lançamento depois esbarrar neles
+    # iteração, dono e estimativa chegam por parâmetro próprio, não por padrão nem campos
+    params = {PLANNED: iteracao, OWNER: dono, **dict.fromkeys(DURATIONS, estimativa_h)}
     for campo in t.get("obrigatorios", []):
         pred = oslc.qname(oslc.expand(t["campos"].get(campo, "")))
-        if campo not in valores and not (pred in DURATIONS and estimativa_h is not None):
+        if campo not in valores and params.get(pred) in (None, ""):
             raise Erro("precondicao", f"obrigatório no pa sem valor: {campo}", campo)
     servidor = _tipo_servidor(cfg, t["id"])
     props = _props(cfg, t["id"])
