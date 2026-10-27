@@ -40,7 +40,9 @@ class Elm:
         self.wis: dict[int, dict] = {}
         self.reqs: dict[int, dict] = {}
         self.cts: dict[int, dict] = {}
-        self.iteracoes = [("Sprint 1", "_I1")]
+        self.topo = [("2026", "_Y26")]  # iterações no topo da timeline
+        self.iteracoes = [("Sprint 1", "_I1")]  # filhas de 2026
+        self.filhos = {"_Y26": self.iteracoes}
         self.planos = [("Sprint 1 - Time A", "_P1", "com.ibm.team.apt.plantype.default", "_I1")]
         self.salvos: list[list] = []  # forms do workItem2
         self._ccm()
@@ -104,14 +106,7 @@ class Elm:
         r[("GET", S + "/ccm/process/project-areas/_PA1/timelines")] = xml(
             '<jp:timelines xmlns:jp="http://jazz.net/xmlns/prod/jazz/process/1.0/"><jp:timeline>'
             f'<jp:url>{S}/ccm/process/project-areas/_PA1/timelines/_TL1</jp:url><jp:iterations-url>{S}/ccm/tl/its</jp:iterations-url></jp:timeline></jp:timelines>')
-        r[("GET", S + "/ccm/tl/its")] = xml(
-            '<jp:iterations xmlns:jp="http://jazz.net/xmlns/prod/jazz/process/1.0/"><jp:iteration><jp:label>2026</jp:label>'
-            f'<jp:url>{S}/ccm/tl/its/_Y26</jp:url><jp:childern-iterations-url>{S}/ccm/tl/its/_Y26/children'
-            '</jp:childern-iterations-url></jp:iteration></jp:iterations>')
-        r[("GET", S + "/ccm/tl/its/_Y26/children")] = lambda req: xml(
-            '<jp:iterations xmlns:jp="http://jazz.net/xmlns/prod/jazz/process/1.0/">' + "".join(
-                f'<jp:iteration><jp:label>{n}</jp:label><jp:url>{S}/ccm/tl/its/{i}</jp:url></jp:iteration>'
-                for n, i in self.iteracoes) + "</jp:iterations>")
+        r[("GET", S + "/ccm/tl/its")] = lambda req: self._its(self.topo)
         r[("GET", S + "/ccm/rpt/repository/apt")] = lambda req: xml("<apt>" + "".join(
             f"<iterationPlanRecord><name>{n}</name><itemId>{i}</itemId><archived>false</archived>"
             f"<planType>{t}</planType><owner><itemId>_TA</itemId></owner><iteration><itemId>{it}</itemId></iteration>"
@@ -225,9 +220,24 @@ class Elm:
             w["horas"] = [x for k, x in enumerate(w["horas"]) if f"_T{k}" not in remover]
         return envelope({"severity": 0, "workItem": {}})
 
+    def _its(self, its: list) -> tuple:
+        """Lista de iterações; quem tem filhas leva o link delas (sic: grafia do servidor)."""
+        out = ""
+        for n, i in its:
+            filhos = ""
+            if i in self.filhos:
+                url = f"{S}/ccm/tl/its/{i}/children"
+                self.r[("GET", url)] = lambda req, i=i: self._its(self.filhos[i])
+                filhos = f"<jp:childern-iterations-url>{url}</jp:childern-iterations-url>"
+            out += f"<jp:iteration><jp:label>{n}</jp:label><jp:url>{S}/ccm/tl/its/{i}</jp:url>{filhos}</jp:iteration>"
+        return xml('<jp:iterations xmlns:jp="http://jazz.net/xmlns/prod/jazz/process/1.0/">' + out + "</jp:iterations>")
+
     def _criar_iteracao(self, req):
         payload = json.loads(parse_qs(req.body)["jsonObject"][0])
-        self.iteracoes.append((payload["name"], "_INOVA"))
+        self.criadas = getattr(self, "criadas", 0) + 1
+        novo = "_INOVA" + (str(self.criadas) if self.criadas > 1 else "")
+        pai = payload.get("parentIterationId")
+        (self.filhos.setdefault(pai, []) if pai else self.topo).append((payload["name"], novo))
         self.iteracao_criada = payload
         return js({})
 

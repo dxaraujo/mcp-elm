@@ -199,7 +199,8 @@ def elm_criar_ct(projeto: Projeto, titulo: str, cenario_md: str, reqs: list[int]
 @tool
 def elm_iteracao(projeto: Projeto, nome: str, inicio: str | None = None, fim: str | None = None,
                  pa: Pa = None) -> str:
-    """Acha ou cria a iteração da sprint e o plano da sprint do time; grava no pa. → dados: {id, planos, criados[]}"""
+    """Acha ou cria a iteração da sprint e o plano da sprint do time; grava no pa. `nome` aceita o caminho
+    "<pai>/<sprint>" (ex.: "2026/Sprint 1"; o pai nasce se faltar). → dados: {id, pai, planos, criados[]}"""
     return ewm.iteracao(prj.carregar(projeto, pa), nome, inicio, fim)
 
 

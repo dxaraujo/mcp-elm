@@ -51,7 +51,7 @@
         },
         "iteracoes": {
           "type": "object",
-          "description": "Cache de iterações e planos, mantido pela tool elm_iteracao.",
+          "description": "Cache de iterações e planos, mantido pela tool elm_iteracao; a chave é o nome ou o caminho <pai>/<sprint>.",
           "additionalProperties": {
             "type": "object",
             "required": ["id", "planos"],

@@ -180,6 +180,19 @@ def test_iteracao_acha_e_cria_com_planos_e_grava_no_pa(elm, projeto):
     assert texto.startswith('{\n  "$schema"') and texto.endswith("}\n")  # indent=2, ordem mantida
 
 
+def test_iteracao_por_caminho_cria_o_pai_irmao_e_desambigua(elm, projeto):
+    d = ok(chamar("elm_iteracao", projeto=projeto, nome="2026/Sprint 1"))
+    assert d["id"] == "_I1" and d["pai"] == "2026" and d["criados"] == []
+    d = ok(chamar("elm_iteracao", projeto=projeto, nome="2027/Sprint 1", inicio="2027-01-04", fim="2027-01-15"))
+    assert d["criados"] == ["2027", "Sprint 1", "2027 Sprint 1 - Time A"] and d["pai"] == "2027"
+    assert elm.topo[-1] == ("2027", "_INOVA") and elm.filhos["_INOVA"] == [("Sprint 1", "_INOVA2")]
+    assert elm.iteracao_criada["parentIterationId"] == "_INOVA" and d["id"] == "_INOVA2"
+    assert falha(chamar("elm_iteracao", projeto=projeto, nome="Sprint 1"))["campo"] == "nome"  # ambígua no servidor
+    ok(chamar("elm_listar_wi", projeto=projeto, iteracao="2027/Sprint 1"))
+    pa = json.loads(open(os.path.join(projeto, ".kiro/config/sdd/pa_alfa.json"), encoding="utf-8").read())
+    assert pa["ccm"]["iteracoes"]["2027/Sprint 1"]["id"] == "_INOVA2"
+
+
 
 BACKLOG = "com.ibm.team.apt.plantype.product.backlog"
 

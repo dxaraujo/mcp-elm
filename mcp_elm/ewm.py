@@ -202,10 +202,9 @@ def iteracao_id(cfg: dict, nome: str) -> str:
         return backlog_["id"]
     if found := cfg["ccm"].get("iteracoes", {}).get(nome):
         return found["id"]
-    found = [i for i in iteracoes(cfg["ccm"]["id"]) if i["nome"].casefold() == nome.casefold()]
-    if len(found) != 1:
-        raise Erro("nao_encontrado" if not found else "entrada",
-                   f"iteração '{nome}' {'não existe' if not found else 'é ambígua'} na PA", "iteracao")
+    found = _por_nome(iteracoes(cfg["ccm"]["id"]), nome, "iteracao")
+    if not found:
+        raise Erro("nao_encontrado", f"iteração '{nome}' não existe na PA", "iteracao")
     return found[0]["id"]
 
 
@@ -799,7 +798,8 @@ def _criar_iteracao(pa_id: str, nome: str, pai: str | None, timeline: str | None
                **({"startDateTime": _epoch_ms(inicio)} if inicio else {}),
                **({"endDateTime": _epoch_ms(fim, end=True)} if fim else {})}
     _ui_post(CREATE_ITERATION, {"jsonObject": json.dumps(payload)})
-    found = [i for i in iteracoes(pa_id) if (i["nome"] or "").casefold() == nome.casefold()]
+    found = [i for i in iteracoes(pa_id) if (i["nome"] or "").casefold() == nome.casefold() and i["pai"] == pai
+             and (pai or i["timeline"] == timeline)]
     if not found:
         raise Erro("precondicao", f"o servidor aceitou, mas a iteração '{nome}' não apareceu", "nome")
     return found[0]
@@ -819,16 +819,52 @@ def _garantir_plano(pa_id: str, time_: dict, it_id: str, tipo: str, nome_plano: 
 
 
 def _por_nome(todas: list[dict], nome: str, campo: str) -> list[dict]:
-    found = [i for i in todas if (i["nome"] or "").casefold() == nome.casefold()]
+    """Iteração pelo nome ou pelo caminho a partir de um ancestral ("2026/Sprint 1": a Sprint 1 filha da 2026)."""
+    *pais, folha = nome.split("/")
+    if pais:
+        pai = _por_nome(todas, "/".join(pais), campo)
+        todas = [i for i in todas if pai and i["pai"] == pai[0]["id"]]
+    found = [i for i in todas if (i["nome"] or "").casefold() == folha.casefold()]
     if len(found) > 1:
-        raise Erro("entrada", f"iteração '{nome}' é ambígua na PA", campo)
+        raise Erro("entrada", f"iteração '{nome}' é ambígua na PA: informe o caminho (<pai>/<nome>)", campo)
     return found
 
 
+def _ref(cfg: dict, por_id: dict) -> dict:
+    """Última iteração do cache do pa que tem pai: a sprint nova nasce irmã dela."""
+    ref = next((por_id[c["id"]] for c in reversed(list(cfg["ccm"].get("iteracoes", {}).values()))
+                if c["id"] in por_id and por_id[c["id"]]["pai"]), None)
+    if ref is None:
+        raise Erro("precondicao", "sem iteração de referência com pai no cache do pa", "ccm.iteracoes")
+    return ref
+
+
+def _pai(cfg: dict, todas: list[dict], caminho: str, criados: list) -> dict:
+    """Pai da sprint pelo caminho; não existe → nasce irmão do pai da última sprint do cache (ex.: 2027 ao lado de
+    2026, na mesma release) ou, com caminho mais longo, filho do ancestral informado."""
+    if found := _por_nome(todas, caminho, "nome"):
+        return found[0]
+    *avos, nome = caminho.split("/")
+    if avos:
+        avo = _por_nome(todas, "/".join(avos), "nome")
+        if not avo:
+            raise Erro("nao_encontrado", f"iteração '{'/'.join(avos)}' não existe na PA", "nome")
+        avo_id, timeline = avo[0]["id"], None
+    else:
+        por_id = {i["id"]: i for i in todas}
+        irmao = por_id[_ref(cfg, por_id)["pai"]]
+        avo_id, timeline = irmao["pai"], irmao["timeline"]
+    it = _criar_iteracao(cfg["ccm"]["id"], nome, avo_id, None if avo_id else timeline, None, None, False)
+    criados.append(nome)
+    return it
+
+
 def iteracao(cfg: dict, nome: str, inicio: str | None = None, fim: str | None = None) -> dict:
-    """Iteração da sprint e o plano da sprint do time (o backlog do produto é o do pa: elm_backlog)."""
+    """Iteração da sprint e o plano da sprint do time (o backlog do produto é o do pa: elm_backlog). `nome` pode ser
+    o caminho "<pai>/<sprint>": a sprint é procurada e criada dentro do pai, que nasce se faltar."""
     pa_id, time_ = cfg["ccm"]["id"], cfg["ccm"]["time"]
     todas = iteracoes(pa_id)
+    por_id = {i["id"]: i for i in todas}
     found = _por_nome(todas, nome, "nome")
     criados = []
     if found:
@@ -836,20 +872,18 @@ def iteracao(cfg: dict, nome: str, inicio: str | None = None, fim: str | None = 
     else:
         if not inicio:
             raise Erro("entrada", "iteração nova precisa de inicio (AAAA-MM-DD)", "inicio")
-        # nasce irmã da última iteração do cache do pa (mesmo pai: a release/entrega)
-        por_id = {i["id"]: i for i in todas}
-        ref = next((por_id[c["id"]] for c in reversed(list(cfg["ccm"].get("iteracoes", {}).values()))
-                    if c["id"] in por_id and por_id[c["id"]]["pai"]), None)
-        if ref is None:
-            raise Erro("precondicao", "sem iteração de referência com pai no cache do pa", "ccm.iteracoes")
-        it = _criar_iteracao(pa_id, nome, ref["pai"], None, inicio, fim, True)
-        criados.append(nome)
-    nome_plano = f"{nome} - {time_['nome']}"
+        pai_caminho, _, folha = nome.rpartition("/")
+        # sem caminho: irmã da última iteração do cache do pa (mesmo pai: a release/entrega)
+        pai = _pai(cfg, todas, pai_caminho, criados) if pai_caminho else por_id[_ref(cfg, por_id)["pai"]]
+        it = _criar_iteracao(pa_id, folha, pai["id"], None, inicio, fim, True)
+        criados.append(folha)
+        por_id[pai["id"]] = pai
+    nome_plano = f"{nome.replace('/', ' ')} - {time_['nome']}"
     if _garantir_plano(pa_id, time_, it["id"], SPRINT_PLAN, nome_plano):
         criados.append(nome_plano)
     planos_ = {p["nome"]: p["id"] for p in planos(pa_id) if p["iteracao"] == it["id"] and p["dono"] == time_["id"]}
     projeto.gravar_iteracao(cfg, nome, it["id"], planos_)
-    return {"id": it["id"], "planos": planos_, "criados": criados}
+    return {"id": it["id"], "pai": (por_id.get(it["pai"]) or {}).get("nome"), "planos": planos_, "criados": criados}
 
 
 def _plano_id(plano: str) -> str:

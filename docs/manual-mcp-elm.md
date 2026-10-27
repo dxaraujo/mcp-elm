@@ -14,7 +14,7 @@ a `sdd-setup` pode regravar com o MCP no ar). Campo ausente ou inválido → err
 | `ccm.id`, `ccm.time` | consultas, categoria (`filedAgainst`) de todo work item criado, dono dos planos |
 | `ccm.tipos.<ib\|defeito\|tarefa>` | `id` do tipo; `campos` (nome → attribute); `padroes`; `por-prefixo` |
 | `ccm.links` | pai, filhos, implementa, relacionado (com padrão); depende (só se a PA tiver) |
-| `ccm.iteracoes` | nome → id e planos; `elm_iteracao` grava aqui (indent=2, ordem mantida) |
+| `ccm.iteracoes` | nome ou caminho (`2026/Sprint 1`) → id e planos; `elm_iteracao` grava aqui (indent=2, ordem mantida) |
 | `ccm.horas` | time code e work type dos lançamentos |
 | `rm` | PA, stream (`configuracao`), `artefatos` (sigla → tipo e pasta), `download` (bundle) |
 | `qm` | PA do ETM; sem ela, `elm_criar_ct` e os links com `ct` dão erro `config` |
@@ -95,6 +95,10 @@ ELM remoto com `elm_buscar_req`/`elm_ler_req`. Sem `rm.download` no pa: `config`
 
 `elm_iteracao(nome)` acha a iteração da sprint pelo nome; se não existe, cria irmã da última iteração do cache do pa
 (precisa de `inicio`). Garante o plano da sprint do time (`<nome> - <time>`) e grava `ccm.iteracoes[nome]`.
+`nome` pode ser o **caminho** `<pai>/<sprint>` (`2026/Sprint 1`): a sprint é procurada e criada dentro do pai — duas
+"Sprint 1" em pais diferentes deixam de ser ambíguas —; pai que não existe nasce irmão do pai da última sprint do cache
+(`2027` ao lado de `2026`, na mesma release). O plano fica `<pai> <sprint> - <time>` e a chave do cache é o caminho.
+Devolve também `pai` (o nome). O caminho vale em toda tool que recebe `iteracao`.
 
 `elm_backlog` cuida do **backlog do produto**, onde os itens nascem antes de entrar numa sprint — um só para o
 projeto, que pode servir a várias entregas. Sem `plano` nem `nome`, devolve o `atual` (o `ccm.backlog` do pa) e os
