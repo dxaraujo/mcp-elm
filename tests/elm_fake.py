@@ -103,7 +103,7 @@ class Elm:
         r[("POST", DTO + "workItem2")] = self._salvar
         r[("GET", S + "/ccm/process/project-areas/_PA1/timelines")] = xml(
             '<jp:timelines xmlns:jp="http://jazz.net/xmlns/prod/jazz/process/1.0/"><jp:timeline>'
-            f'<jp:iterations-url>{S}/ccm/tl/its</jp:iterations-url></jp:timeline></jp:timelines>')
+            f'<jp:url>{S}/ccm/process/project-areas/_PA1/timelines/_TL1</jp:url><jp:iterations-url>{S}/ccm/tl/its</jp:iterations-url></jp:timeline></jp:timelines>')
         r[("GET", S + "/ccm/tl/its")] = xml(
             '<jp:iterations xmlns:jp="http://jazz.net/xmlns/prod/jazz/process/1.0/"><jp:iteration><jp:label>2026</jp:label>'
             f'<jp:url>{S}/ccm/tl/its/_Y26</jp:url><jp:childern-iterations-url>{S}/ccm/tl/its/_Y26/children'
@@ -228,6 +228,7 @@ class Elm:
     def _criar_iteracao(self, req):
         payload = json.loads(parse_qs(req.body)["jsonObject"][0])
         self.iteracoes.append((payload["name"], "_INOVA"))
+        self.iteracao_criada = payload
         return js({})
 
     def _criar_plano(self, req):

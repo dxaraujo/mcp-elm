@@ -25,7 +25,8 @@ a `sdd-setup` pode regravar com o MCP no ar). Campo ausente ou inválido → err
 
 - enumeração: título (sem diferenciar caixa) → URL do literal; título desconhecido → `entrada` com os válidos;
 - `filedAgainst`: só a categoria do time do pa (nome ou id);
-- `plannedFor`: nome do cache `ccm.iteracoes`, nome no servidor ou itemId;
+- `plannedFor`: `backlog` (o `ccm.backlog` do pa; sem ele, `precondicao`), nome do cache `ccm.iteracoes`, nome no
+  servidor ou itemId;
 - pessoas: login ou `eu` (o login do `elm.properties`, como o servidor o grava);
 - durações (`estimate`...): horas → ms;
 - texto rico (`rdf:XMLLiteral`): Markdown → HTML do EWM.
@@ -92,9 +93,16 @@ ELM remoto com `elm_buscar_req`/`elm_ler_req`. Sem `rm.download` no pa: `config`
 
 ## Iteração e planos
 
-`elm_iteracao(nome)` acha a iteração pelo nome; se não existe, cria irmã da última iteração do cache do pa
-(precisa de `inicio`). Garante os planos do time — `Backlog <time>` (backlog do produto) e `<nome> - <time>` (plano
-da sprint) — e grava `ccm.iteracoes[nome]`. Criar exige a permissão de modificar iterações e planos.
+`elm_iteracao(nome)` acha a iteração da sprint pelo nome; se não existe, cria irmã da última iteração do cache do pa
+(precisa de `inicio`). Garante o plano da sprint do time (`<nome> - <time>`) e grava `ccm.iteracoes[nome]`.
+
+`elm_backlog` cuida do **backlog do produto**, onde os itens nascem antes de entrar numa sprint — um só para o
+projeto, que pode servir a várias entregas. Sem `plano` nem `nome`, devolve o `atual` (o `ccm.backlog` do pa) e os
+`candidatos` (planos de backlog da PA, com a iteração). `plano` (itemId ou o link do plano na UI web, com `id=_…`)
+usa um existente. `nome` acha a iteração ou a cria — filha de `pai` ou, sem ele, no topo da timeline das sprints — e
+garante o plano `Backlog <time>`. Nos dois casos grava `ccm.backlog {nome, id, plano}`; daí em diante
+`iteracao: "backlog"` em `elm_criar_wi`/`elm_atualizar_wi`/`elm_listar_wi` é essa iteração, e entrar na sprint é
+`elm_atualizar_wi(ids, iteracao = a da sprint)`. Criar exige a permissão de modificar iterações e planos.
 
 ## Descoberta
 

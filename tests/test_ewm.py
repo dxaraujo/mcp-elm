@@ -169,14 +169,47 @@ def test_lancar_horas_valida_e_devolve_so_o_lancado(elm, projeto):
 
 def test_iteracao_acha_e_cria_com_planos_e_grava_no_pa(elm, projeto):
     d = ok(chamar("elm_iteracao", projeto=projeto, nome="Sprint 1"))
-    assert d["id"] == "_I1" and d["criados"] == ["Backlog Time A"]
+    assert d["id"] == "_I1" and d["criados"] == []
     assert falha(chamar("elm_iteracao", projeto=projeto, nome="Sprint 2"))["campo"] == "inicio"
     d = ok(chamar("elm_iteracao", projeto=projeto, nome="Sprint 2", inicio="2026-02-01", fim="2026-02-14"))
-    assert d["id"] == "_INOVA" and d["criados"] == ["Sprint 2", "Backlog Time A", "Sprint 2 - Time A"]
+    assert d["id"] == "_INOVA" and d["criados"] == ["Sprint 2", "Sprint 2 - Time A"]
+    assert elm.iteracao_criada["parentIterationId"] == "_Y26"
     arq = os.path.join(projeto, ".kiro/config/sdd/pa_alfa.json")
     texto = open(arq, encoding="utf-8").read()
     assert json.loads(texto)["ccm"]["iteracoes"]["Sprint 2"]["id"] == "_INOVA"
     assert texto.startswith('{\n  "$schema"') and texto.endswith("}\n")  # indent=2, ordem mantida
+
+
+
+BACKLOG = "com.ibm.team.apt.plantype.product.backlog"
+
+
+def test_backlog_lista_e_grava_o_plano_existente(elm, projeto):
+    e = falha(chamar("elm_criar_wi", projeto=projeto, tipo="tarefa", titulo="x", iteracao="backlog"))
+    assert e["campo"] == "ccm.backlog"  # nunca chuta a iteração do backlog
+    elm.iteracoes.append(("Backlog", "_IB"))
+    elm.planos.append(("Backlog Time A", "_PB", BACKLOG, "_IB"))
+    d = ok(chamar("elm_backlog", projeto=projeto))
+    assert d["atual"] is None and d["candidatos"] == [{"plano": "Backlog Time A", "id": "_PB", "iteracao": "Backlog"}]
+    link = "https://elm.exemplo/ccm/web/projects/X#action=com.ibm.team.apt.viewPlan&id=_PB&planMode=x"
+    d = ok(chamar("elm_backlog", projeto=projeto, plano=link))
+    assert d == {"nome": "Backlog", "id": "_IB", "plano": {"nome": "Backlog Time A", "id": "_PB"}, "criados": []}
+    pa = json.loads(open(os.path.join(projeto, ".kiro/config/sdd/pa_alfa.json"), encoding="utf-8").read())
+    assert pa["ccm"]["backlog"]["id"] == "_IB" and "Sprint 1" in pa["ccm"]["iteracoes"]
+    ok(chamar("elm_criar_wi", projeto=projeto, tipo="tarefa", titulo="x", iteracao="backlog"))
+    assert "iterations/_IB" in elm.criado
+    assert falha(chamar("elm_backlog", projeto=projeto, plano="_NADA"))["campo"] == "plano"
+
+
+def test_backlog_cria_iteracao_com_pai_ou_no_topo_e_o_plano(elm, projeto):
+    d = ok(chamar("elm_backlog", projeto=projeto, nome="Backlog", pai="Sprint 1"))
+    assert d["id"] == "_INOVA" and d["criados"] == ["Backlog", "Backlog Time A"]
+    assert elm.iteracao_criada["parentIterationId"] == "_I1" and not elm.iteracao_criada["hasDeliverable"]
+    assert elm.planos[-1][2:] == (BACKLOG, "_INOVA")
+    elm.iteracoes.pop()
+    elm.planos.pop()
+    ok(chamar("elm_backlog", projeto=projeto, nome="Backlog"))
+    assert elm.iteracao_criada["developmentLineId"] == "_TL1" and "parentIterationId" not in elm.iteracao_criada
 
 
 def test_setup_descobrir_ccm(elm, fake):

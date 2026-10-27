@@ -199,8 +199,19 @@ def elm_criar_ct(projeto: Projeto, titulo: str, cenario_md: str, reqs: list[int]
 @tool
 def elm_iteracao(projeto: Projeto, nome: str, inicio: str | None = None, fim: str | None = None,
                  pa: Pa = None) -> str:
-    """Acha ou cria a iteração e os planos do time (backlog e sprint); grava no pa. → dados: {id, planos, criados[]}"""
+    """Acha ou cria a iteração da sprint e o plano da sprint do time; grava no pa. → dados: {id, planos, criados[]}"""
     return ewm.iteracao(prj.carregar(projeto, pa), nome, inicio, fim)
+
+
+@tool
+def elm_backlog(projeto: Projeto,
+                plano: Annotated[str | None, Field(description="itemId ou link do plano existente")] = None,
+                nome: Annotated[str | None, Field(description="iteração a achar ou criar")] = None,
+                pai: Annotated[str | None, Field(description="pai da nova (sem: topo da timeline)")] = None,
+                pa: Pa = None) -> str:
+    """Backlog do produto onde os itens nascem (iteracao "backlog"). Sem plano/nome: lista; senão usa ou cria a
+    iteração e o plano de backlog e grava no pa. → dados: {atual, candidatos[]} | {nome, id, plano, criados[]}"""
+    return ewm.backlog(prj.carregar(projeto, pa), plano, nome, pai)
 
 
 @tool

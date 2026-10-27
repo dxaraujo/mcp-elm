@@ -77,10 +77,18 @@ def carregar(projeto: str, pa: str | None = None) -> dict:
     return {**copy.deepcopy(dados), "_arquivo": str(arq), "_projeto": projeto}
 
 
-def gravar_iteracao(cfg: dict, nome: str, iteracao_id: str, planos: dict[str, str]) -> None:
-    """Grava ccm.iteracoes[nome] no arquivo, relido agora (indent=2, ordem das chaves preservada)."""
+def gravar_ccm(cfg: dict, chave: str, valor, sub: str | None = None) -> None:
+    """Grava ccm.<chave> (ou ccm.<chave>[sub]) no arquivo, relido agora (indent=2, ordem das chaves preservada), e
+    no cfg."""
     arq = Path(cfg["_arquivo"])
     dados = json.loads(arq.read_text("utf-8"))
-    dados["ccm"].setdefault("iteracoes", {})[nome] = {"id": iteracao_id, "planos": planos}
+    for ccm in (dados["ccm"], cfg["ccm"]):
+        if sub is None:
+            ccm[chave] = valor
+        else:
+            ccm.setdefault(chave, {})[sub] = valor
     arq.write_text(json.dumps(dados, indent=2, ensure_ascii=False) + "\n", "utf-8")
-    cfg["ccm"].setdefault("iteracoes", {})[nome] = {"id": iteracao_id, "planos": planos}
+
+
+def gravar_iteracao(cfg: dict, nome: str, iteracao_id: str, planos: dict[str, str]) -> None:
+    gravar_ccm(cfg, "iteracoes", {"id": iteracao_id, "planos": planos}, nome)

@@ -62,6 +62,17 @@
             }
           }
         },
+        "backlog": {
+          "type": "object",
+          "description": "Product backlog onde os itens nascem (iteração e plano), mantido pela tool elm_backlog; iteracao \"backlog\" nas tools é esta.",
+          "required": ["nome", "id", "plano"],
+          "additionalProperties": false,
+          "properties": {
+            "nome": { "type": "string" },
+            "id": { "$ref": "#/$defs/uuid" },
+            "plano": { "$ref": "#/$defs/nomeId" }
+          }
+        },
         "horas": {
           "type": "object",
           "required": ["time-code", "work-type"],

@@ -192,9 +192,14 @@ def enumeracao(prop: dict) -> list[dict] | None:
 
 
 def iteracao_id(cfg: dict, nome: str) -> str:
-    """Iteração pelo nome do cache do pa, pelo nome no servidor ou pelo itemId ('_...')."""
+    """Iteração pelo itemId ('_...'), "backlog" (ccm.backlog do pa), nome do cache do pa ou nome no servidor."""
     if nome.startswith("_"):
         return nome
+    backlog_ = cfg["ccm"].get("backlog")
+    if nome.casefold() == "backlog" or (backlog_ and nome.casefold() == backlog_["nome"].casefold()):
+        if not backlog_:  # nunca chuta: os itens nascem no backlog gravado no pa
+            raise Erro("precondicao", "backlog do produto não está no pa: configure com elm_backlog", "ccm.backlog")
+        return backlog_["id"]
     if found := cfg["ccm"].get("iteracoes", {}).get(nome):
         return found["id"]
     found = [i for i in iteracoes(cfg["ccm"]["id"]) if i["nome"].casefold() == nome.casefold()]
@@ -742,9 +747,10 @@ def _iteracoes_xml(url: str | None, pai: str | None) -> list[dict]:
 
 
 def iteracoes(pa_id: str) -> list[dict]:
-    """Iterações de todas as timelines em lista plana: [{nome, id, pai}]."""
+    """Iterações de todas as timelines em lista plana: [{nome, id, pai, timeline}]."""
     root = get_xml(_url(PROJECT_AREA, pa=pa_id) + "/timelines")
-    return [i for t in root.findall(_JP + "timeline") for i in _iteracoes_xml(t.findtext(_JP + "iterations-url"), None)]
+    return [{**i, "timeline": oslc.item_id(t.findtext(_JP + "url"))} for t in root.findall(_JP + "timeline")
+            for i in _iteracoes_xml(t.findtext(_JP + "iterations-url"), None)]
 
 
 def planos(pa_id: str) -> list[dict]:
@@ -784,14 +790,50 @@ def _epoch_ms(day: str, end: bool = False) -> int:
     return int(moment.timestamp() * 1000)
 
 
-def iteracao(cfg: dict, nome: str, inicio: str | None = None, fim: str | None = None) -> dict:
-    pa_id, time_ = cfg["ccm"]["id"], cfg["ccm"]["time"]
-    todas = iteracoes(pa_id)
+def _criar_iteracao(pa_id: str, nome: str, pai: str | None, timeline: str | None, inicio: str | None,
+                    fim: str | None, entrega: bool) -> dict:
+    """Cria a iteração (filha de `pai` ou, sem ele, no topo da `timeline`) e a devolve como em iteracoes()."""
+    payload = {"id": nome, "name": nome, "hasDeliverable": entrega, "iterationTypeItemId": NO_ITERATION_TYPE,
+               # ponytail: developmentLineId (topo da timeline) segue o nome do serviço da UI, não visto no ELM real
+               **({"parentIterationId": pai} if pai else {"developmentLineId": timeline}),
+               **({"startDateTime": _epoch_ms(inicio)} if inicio else {}),
+               **({"endDateTime": _epoch_ms(fim, end=True)} if fim else {})}
+    _ui_post(CREATE_ITERATION, {"jsonObject": json.dumps(payload)})
+    found = [i for i in iteracoes(pa_id) if (i["nome"] or "").casefold() == nome.casefold()]
+    if not found:
+        raise Erro("precondicao", f"o servidor aceitou, mas a iteração '{nome}' não apareceu", "nome")
+    return found[0]
+
+
+def _garantir_plano(pa_id: str, time_: dict, it_id: str, tipo: str, nome_plano: str) -> bool:
+    """Cria o plano `tipo` do time na iteração, se faltar; True se criou."""
+    if any(p["iteracao"] == it_id and p["dono"] == time_["id"] and p["tipo"] == tipo for p in planos(pa_id)):
+        return False
+    # handles da UI: "<tipo do item>;<uuid>" (16 plano, 8 tipo de plano, 35 iteração, 39 time, 40 PA)
+    record = {"itemId": "__new_1", "itemType": "item:com.ibm.team.apt:IterationPlanRecord",
+              "planType": f"8;{pa_id}/{tipo}", "projectArea": f"40;{pa_id}", "label": nome_plano,
+              "alwaysLoadAllExecutionItems": False, "fetchChildrenOnDemand": True,
+              "teamArea": f"39;{time_['id']}", "iteration": f"35;{it_id}", "rankingMode": "explicit"}
+    _ui_post(PUT_PLAN, {"h": "16;__new_1", "json": json.dumps(record)}, guarded=True)
+    return True
+
+
+def _por_nome(todas: list[dict], nome: str, campo: str) -> list[dict]:
     found = [i for i in todas if (i["nome"] or "").casefold() == nome.casefold()]
     if len(found) > 1:
-        raise Erro("entrada", f"iteração '{nome}' é ambígua na PA", "nome")
+        raise Erro("entrada", f"iteração '{nome}' é ambígua na PA", campo)
+    return found
+
+
+def iteracao(cfg: dict, nome: str, inicio: str | None = None, fim: str | None = None) -> dict:
+    """Iteração da sprint e o plano da sprint do time (o backlog do produto é o do pa: elm_backlog)."""
+    pa_id, time_ = cfg["ccm"]["id"], cfg["ccm"]["time"]
+    todas = iteracoes(pa_id)
+    found = _por_nome(todas, nome, "nome")
     criados = []
-    if not found:
+    if found:
+        it = found[0]
+    else:
         if not inicio:
             raise Erro("entrada", "iteração nova precisa de inicio (AAAA-MM-DD)", "inicio")
         # nasce irmã da última iteração do cache do pa (mesmo pai: a release/entrega)
@@ -800,30 +842,69 @@ def iteracao(cfg: dict, nome: str, inicio: str | None = None, fim: str | None = 
                     if c["id"] in por_id and por_id[c["id"]]["pai"]), None)
         if ref is None:
             raise Erro("precondicao", "sem iteração de referência com pai no cache do pa", "ccm.iteracoes")
-        payload = {"id": nome, "name": nome, "startDateTime": _epoch_ms(inicio), "hasDeliverable": True,
-                   "parentIterationId": ref["pai"], "iterationTypeItemId": NO_ITERATION_TYPE,
-                   **({"endDateTime": _epoch_ms(fim, end=True)} if fim else {})}
-        _ui_post(CREATE_ITERATION, {"jsonObject": json.dumps(payload)})
-        found = [i for i in iteracoes(pa_id) if (i["nome"] or "").casefold() == nome.casefold()]
-        if not found:
-            raise Erro("precondicao", f"o servidor aceitou, mas a iteração '{nome}' não apareceu", "nome")
+        it = _criar_iteracao(pa_id, nome, ref["pai"], None, inicio, fim, True)
         criados.append(nome)
-    it = found[0]
-    do_time = lambda: [p for p in planos(pa_id) if p["iteracao"] == it["id"] and p["dono"] == time_["id"]]  # noqa: E731
-    tipos = {p["tipo"] for p in do_time()}
-    for tipo, nome_plano in ((BACKLOG_PLAN, f"Backlog {time_['nome']}"), (SPRINT_PLAN, f"{nome} - {time_['nome']}")):
-        if tipo in tipos:
-            continue
-        # handles da UI: "<tipo do item>;<uuid>" (16 plano, 8 tipo de plano, 35 iteração, 39 time, 40 PA)
-        record = {"itemId": "__new_1", "itemType": "item:com.ibm.team.apt:IterationPlanRecord",
-                  "planType": f"8;{pa_id}/{tipo}", "projectArea": f"40;{pa_id}", "label": nome_plano,
-                  "alwaysLoadAllExecutionItems": False, "fetchChildrenOnDemand": True,
-                  "teamArea": f"39;{time_['id']}", "iteration": f"35;{it['id']}", "rankingMode": "explicit"}
-        _ui_post(PUT_PLAN, {"h": "16;__new_1", "json": json.dumps(record)}, guarded=True)
+    nome_plano = f"{nome} - {time_['nome']}"
+    if _garantir_plano(pa_id, time_, it["id"], SPRINT_PLAN, nome_plano):
         criados.append(nome_plano)
-    planos_ = {p["nome"]: p["id"] for p in do_time()}
+    planos_ = {p["nome"]: p["id"] for p in planos(pa_id) if p["iteracao"] == it["id"] and p["dono"] == time_["id"]}
     projeto.gravar_iteracao(cfg, nome, it["id"], planos_)
     return {"id": it["id"], "planos": planos_, "criados": criados}
+
+
+def _plano_id(plano: str) -> str:
+    """itemId do plano ('_...') ou URL do viewPlan da UI web (`...&id=_...&...`)."""
+    if plano.startswith("_"):
+        return plano
+    if m := re.search(r"[?&#]id=(_[\w-]+)", plano):
+        return m.group(1)
+    raise Erro("entrada", "plano: informe o itemId ('_...') ou o link do plano (com id=_...)", "plano")
+
+
+def backlog(cfg: dict, plano: str | None = None, nome: str | None = None, pai: str | None = None) -> dict:
+    """Product backlog onde os itens nascem (ccm.backlog do pa): sem argumentos lista; `plano` usa um existente;
+    `nome` acha ou cria a iteração (filha de `pai` ou no topo da timeline) e o plano de backlog do time."""
+    pa_id, time_ = cfg["ccm"]["id"], cfg["ccm"]["time"]
+    if plano and nome:
+        raise Erro("entrada", "informe plano ou nome, não os dois", "plano")
+    todas = iteracoes(pa_id)
+    por_id = {i["id"]: i for i in todas}
+    if not plano and not nome:
+        return {"atual": cfg["ccm"].get("backlog"),
+                "candidatos": [{"plano": p["nome"], "id": p["id"], "iteracao": por_id.get(p["iteracao"], {}).get("nome")}
+                               for p in planos(pa_id) if p["tipo"] == BACKLOG_PLAN]}
+    criados = []
+    if plano:
+        pid = _plano_id(plano)
+        p = next((p for p in planos(pa_id) if p["id"] == pid), None)
+        if p is None or p["iteracao"] not in por_id:
+            raise Erro("nao_encontrado", f"plano {pid} não existe (ou está arquivado) na PA", "plano")
+        it = por_id[p["iteracao"]]
+    else:
+        found = _por_nome(todas, nome, "nome")
+        if found:
+            it = found[0]
+        else:
+            pai_id, timeline = None, None
+            if pai:
+                pai_id = iteracao_id(cfg, pai)
+            else:  # topo: a timeline das sprints do pa ou, se só há uma, ela
+                cache = [por_id[c["id"]]["timeline"] for c in cfg["ccm"].get("iteracoes", {}).values()
+                         if c["id"] in por_id]
+                tls = set(cache[-1:]) or {i["timeline"] for i in todas}
+                if len(tls) != 1:
+                    raise Erro("entrada", "a PA tem várias timelines: informe o pai do backlog", "pai")
+                timeline = tls.pop()
+            it = _criar_iteracao(pa_id, nome, pai_id, timeline, None, None, False)
+            criados.append(nome)
+        nome_plano = f"Backlog {time_['nome']}"
+        if _garantir_plano(pa_id, time_, it["id"], BACKLOG_PLAN, nome_plano):
+            criados.append(nome_plano)
+        p = next(p for p in planos(pa_id)
+                 if p["iteracao"] == it["id"] and p["dono"] == time_["id"] and p["tipo"] == BACKLOG_PLAN)
+    dados = {"nome": it["nome"], "id": it["id"], "plano": {"nome": p["nome"], "id": p["id"]}}
+    projeto.gravar_ccm(cfg, "backlog", dados)
+    return {**dados, "criados": criados}
 
 
 # --- descoberta para a sdd-setup

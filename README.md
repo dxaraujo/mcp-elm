@@ -82,7 +82,8 @@ Um único TextContent, sem `structuredContent`:
 | `elm_ler_req` | lê um requisito | Markdown |
 | `elm_publicar_req` | cria ou atualiza requisito | `id, url, acao` |
 | `elm_criar_ct` | cria caso de teste já ligado | `id, url` |
-| `elm_iteracao` | acha ou cria iteração e planos do time | `id, planos, criados[]` |
+| `elm_iteracao` | acha ou cria a iteração e o plano da sprint do time | `id, planos, criados[]` |
+| `elm_backlog` | lista, usa ou cria o backlog do produto (iteração e plano) e grava no pa | `atual, candidatos[]` ou `nome, id, plano, criados[]` |
 | `elm_sync` | bundle do DOORS Next (plano, baixar, enviar) | `baixar[], enviar[], conflitos[]` · `feitos[], conflitos[]` |
 | `elm_buscar_req_local` | busca no bundle baixado (sentido + palavra) | `itens[], indexando?, restantes?` |
 | `elm_ler_req_local` | lê documento do bundle (id ou path) com links | `path, markdown, links` |
