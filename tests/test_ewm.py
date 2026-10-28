@@ -193,6 +193,35 @@ def test_iteracao_por_caminho_cria_o_pai_irmao_e_desambigua(elm, projeto):
     assert pa["ccm"]["iteracoes"]["2027/Sprint 1"]["id"] == "_INOVA2"
 
 
+def test_iteracao_primeira_sprint_cria_o_pai_no_topo(elm, projeto):
+    arq = os.path.join(projeto, ".kiro/config/sdd/pa_alfa.json")
+    pa = json.loads(open(arq, encoding="utf-8").read())
+    pa["ccm"]["iteracoes"] = {}
+    open(arq, "w", encoding="utf-8").write(json.dumps(pa))
+    d = ok(chamar("elm_iteracao", projeto=projeto, nome="2027/Sprint 1", inicio="2027-01-04", fim="2027-01-15"))
+    assert d["criados"][:2] == ["2027", "Sprint 1"] and d["pai"] == "2027"
+    assert elm.topo[-1] == ("2027", "_INOVA") and elm.iteracao_criada["parentIterationId"] == "_INOVA"
+
+
+def test_iteracao_primeira_sprint_com_varias_timelines_usa_a_do_backlog(elm, projeto):
+    from conftest import SERVER as S, xml
+    arq = os.path.join(projeto, ".kiro/config/sdd/pa_alfa.json")
+    pa = json.loads(open(arq, encoding="utf-8").read())
+    pa["ccm"]["iteracoes"] = {}
+    open(arq, "w", encoding="utf-8").write(json.dumps(pa))
+    elm.r[("GET", S + "/ccm/process/project-areas/_PA1/timelines")] = xml(
+        '<jp:timelines xmlns:jp="http://jazz.net/xmlns/prod/jazz/process/1.0/">'
+        f'<jp:timeline><jp:url>{S}/ccm/process/project-areas/_PA1/timelines/_TL1</jp:url><jp:iterations-url>{S}/ccm/tl/its</jp:iterations-url></jp:timeline>'
+        f'<jp:timeline><jp:url>{S}/ccm/process/project-areas/_PA1/timelines/_TL2</jp:url><jp:iterations-url>{S}/ccm/tl/its2</jp:iterations-url></jp:timeline>'
+        '</jp:timelines>')
+    elm.r[("GET", S + "/ccm/tl/its2")] = lambda req: elm._its([("Outra", "_O1")])
+    assert falha(chamar("elm_iteracao", projeto=projeto, nome="2027/Sprint 1", inicio="2027-01-04"))["campo"] == "nome"
+    pa["ccm"]["backlog"] = {"nome": "Sprint 1", "id": "_I1", "plano": {"nome": "Backlog Time A", "id": "_PB"}}  # qualquer iteração da _TL1 serve de referência
+    open(arq, "w", encoding="utf-8").write(json.dumps(pa))
+    ok(chamar("elm_iteracao", projeto=projeto, nome="2027/Sprint 1", inicio="2027-01-04"))
+    assert elm.topo[-1] == ("2027", "_INOVA")
+
+
 
 BACKLOG = "com.ibm.team.apt.plantype.product.backlog"
 

@@ -70,7 +70,7 @@ def elm_ler_wi(projeto: Projeto, id: Id,
 
 @tool
 def elm_listar_wi(projeto: Projeto,
-                  iteracao: Annotated[str | None, Field(description="nome da iteração")] = None,
+                  iteracao: Annotated[str | None, Field(description="nome da iteração ou caminho <pai>/<sprint>")] = None,
                   dono: Annotated[str | None, Field(description="login ou 'eu'")] = None,
                   tipo: Tipo | None = None, pai: Annotated[int | None, Field(description="id do pai")] = None,
                   titulo_prefixo: str | None = None, estado: str | None = None, limite: int = 50,

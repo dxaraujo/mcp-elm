@@ -835,8 +835,20 @@ def _ref(cfg: dict, por_id: dict) -> dict:
     ref = next((por_id[c["id"]] for c in reversed(list(cfg["ccm"].get("iteracoes", {}).values()))
                 if c["id"] in por_id and por_id[c["id"]]["pai"]), None)
     if ref is None:
-        raise Erro("precondicao", "sem iteração de referência com pai no cache do pa", "ccm.iteracoes")
+        raise Erro("precondicao", "sem iteração de referência com pai no cache do pa: informe o caminho <pai>/<sprint>",
+                   "ccm.iteracoes")
     return ref
+
+
+def _timeline(cfg: dict, todas: list[dict], por_id: dict) -> str:
+    """Timeline das sprints do pa, senão a do backlog do produto, senão a única da PA."""
+    refs = [cfg["ccm"]["backlog"]] if cfg["ccm"].get("backlog") else []
+    refs += cfg["ccm"].get("iteracoes", {}).values()
+    cache = [por_id[c["id"]]["timeline"] for c in refs if c.get("id") in por_id]
+    tls = set(cache[-1:]) or {i["timeline"] for i in todas}
+    if len(tls) != 1:
+        raise Erro("entrada", "a PA tem várias timelines: informe o caminho com o ancestral", "nome")
+    return tls.pop()
 
 
 def _pai(cfg: dict, todas: list[dict], caminho: str, criados: list) -> dict:
@@ -852,8 +864,11 @@ def _pai(cfg: dict, todas: list[dict], caminho: str, criados: list) -> dict:
         avo_id, timeline = avo[0]["id"], None
     else:
         por_id = {i["id"]: i for i in todas}
-        irmao = por_id[_ref(cfg, por_id)["pai"]]
-        avo_id, timeline = irmao["pai"], irmao["timeline"]
+        try:
+            irmao = por_id[_ref(cfg, por_id)["pai"]]
+            avo_id, timeline = irmao["pai"], irmao["timeline"]
+        except Erro:  # primeira sprint do projeto: o pai nasce no topo da timeline
+            avo_id, timeline = None, _timeline(cfg, todas, por_id)
     it = _criar_iteracao(cfg["ccm"]["id"], nome, avo_id, None if avo_id else timeline, None, None, False)
     criados.append(nome)
     return it
@@ -922,13 +937,11 @@ def backlog(cfg: dict, plano: str | None = None, nome: str | None = None, pai: s
             pai_id, timeline = None, None
             if pai:
                 pai_id = iteracao_id(cfg, pai)
-            else:  # topo: a timeline das sprints do pa ou, se só há uma, ela
-                cache = [por_id[c["id"]]["timeline"] for c in cfg["ccm"].get("iteracoes", {}).values()
-                         if c["id"] in por_id]
-                tls = set(cache[-1:]) or {i["timeline"] for i in todas}
-                if len(tls) != 1:
-                    raise Erro("entrada", "a PA tem várias timelines: informe o pai do backlog", "pai")
-                timeline = tls.pop()
+            else:  # topo
+                try:
+                    timeline = _timeline(cfg, todas, por_id)
+                except Erro:
+                    raise Erro("entrada", "a PA tem várias timelines: informe o pai do backlog", "pai") from None
             it = _criar_iteracao(pa_id, nome, pai_id, timeline, None, None, False)
             criados.append(nome)
         nome_plano = f"Backlog {time_['nome']}"
