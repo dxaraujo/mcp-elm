@@ -200,10 +200,11 @@ def iteracao_id(cfg: dict, nome: str) -> str:
         if not backlog_:  # nunca chuta: os itens nascem no backlog gravado no pa
             raise Erro("precondicao", "backlog do produto não está no pa: configure com elm_backlog", "ccm.backlog")
         return backlog_["id"]
+    nome = _caminho(nome, "iteracao")
     if found := cfg["ccm"].get("iteracoes", {}).get(nome):
         return found["id"]
     todas = iteracoes(cfg["ccm"]["id"])
-    if backlog_ and (sob := _sob(todas, backlog_["id"], nome)):
+    if (base := _base(cfg, {i["id"]: i for i in todas})) and (sob := _sob(todas, base, nome, "iteracao")):
         return sob["id"]
     found = _por_nome(todas, nome, "iteracao")
     if not found:
@@ -833,12 +834,28 @@ def _por_nome(todas: list[dict], nome: str, campo: str) -> list[dict]:
     return found
 
 
-def _sob(todas: list[dict], raiz: str, caminho: str) -> dict | None:
-    """Iteração pelo caminho a partir da linha de base (a iteração do backlog do pa): "2026/Sprint 01"."""
+def _base(cfg: dict, por_id: dict) -> str | None:
+    """Linha de base: o pai da iteração do backlog do pa (<base>/Backlog, <base>/2026/Sprint 1…); sem ele, None."""
+    backlog_ = por_id.get((cfg["ccm"].get("backlog") or {}).get("id"))
+    return backlog_["pai"] if backlog_ and backlog_["pai"] in por_id else None
+
+
+def _caminho(nome: str, campo: str) -> str:
+    """Caminho "<pai>/<sprint>" sem espaços nas pontas das partes; parte vazia ("2026//Sprint 1") é erro."""
+    partes = [p.strip() for p in nome.split("/")]
+    if not all(partes):
+        raise Erro("entrada", f"caminho de iteração inválido: '{nome}' (parte vazia)", campo)
+    return "/".join(partes)
+
+
+def _sob(todas: list[dict], raiz: str, caminho: str, campo: str = "nome") -> dict | None:
+    """Iteração pelo caminho a partir de `raiz` (a linha de base, o pai do backlog): "2026/Sprint 1"; None se falta."""
     it = None
     for parte in caminho.split("/"):
         filhas = [i for i in todas if i["pai"] == raiz and (i["nome"] or "").casefold() == parte.casefold()]
-        if len(filhas) != 1:
+        if len(filhas) > 1:  # nunca escolhe nem cria uma terceira: a pessoa resolve no EWM
+            raise Erro("entrada", f"iteração '{caminho}' é ambígua: há {len(filhas)} '{parte}' no mesmo pai", campo)
+        if not filhas:
             return None
         it, raiz = filhas[0], filhas[0]["id"]
     return it
@@ -888,15 +905,19 @@ def _pai(cfg: dict, todas: list[dict], caminho: str, criados: list) -> dict:
     return it
 
 
-def iteracao(cfg: dict, nome: str, inicio: str | None = None, fim: str | None = None) -> dict:
-    """Iteração da sprint e o plano da sprint do time (o backlog do produto é o do pa: elm_backlog). `nome` pode ser
-    o caminho "<pai>/<sprint>": a sprint é procurada e criada dentro do pai, que nasce se faltar."""
+def iteracao(cfg: dict, nome: str, inicio: str | None = None, fim: str | None = None, plano: str | None = None) -> dict:
+    """Iteração da sprint e o plano dela, com o nome da sprint. Padrão: <base>/Backlog (elm_backlog), <base>/2026/Sprint 1
+    — `nome` é o caminho "<pai>/<sprint>", relativo à linha de base (o pai da iteração do backlog do pa); a sprint é
+    procurada e criada dentro do pai, que nasce dentro da base se faltar."""
     pa_id, time_ = cfg["ccm"]["id"], cfg["ccm"]["time"]
+    nome = _caminho(nome, "nome")
     todas = iteracoes(pa_id)
     por_id = {i["id"]: i for i in todas}
-    base = (cfg["ccm"].get("backlog") or {}).get("id")
-    base = base if base in por_id else None  # linha de base: o caminho é relativo à iteração do backlog
-    if base:
+    base = _base(cfg, por_id)  # com linha de base, o caminho é relativo a ela e os pais nascem dentro dela
+    cache = cfg["ccm"].get("iteracoes", {}).get(nome)
+    if cache and cache["id"] in por_id:  # o mesmo que o iteracao_id resolve
+        found = [por_id[cache["id"]]]
+    elif base:
         found = [i] if (i := _sob(todas, base, nome)) else []
     else:
         found = _por_nome(todas, nome, "nome")
@@ -921,7 +942,7 @@ def iteracao(cfg: dict, nome: str, inicio: str | None = None, fim: str | None = 
         it = _criar_iteracao(pa_id, folha, pai["id"], None, inicio, fim, True)
         criados.append(folha)
         por_id[pai["id"]] = pai
-    nome_plano = f"{folha} - {time_['nome']}"
+    nome_plano = plano or folha  # "Sprint 01 - <meta>"; só vale ao criar (o plano existente não é renomeado)
     if _garantir_plano(pa_id, time_, it["id"], SPRINT_PLAN, nome_plano):
         criados.append(nome_plano)
     planos_ = {p["nome"]: p["id"] for p in planos(pa_id) if p["iteracao"] == it["id"] and p["dono"] == time_["id"]}
@@ -948,7 +969,8 @@ def backlog(cfg: dict, plano: str | None = None, nome: str | None = None, pai: s
     por_id = {i["id"]: i for i in todas}
     if not plano and not nome:
         return {"atual": cfg["ccm"].get("backlog"),
-                "candidatos": [{"plano": p["nome"], "id": p["id"], "iteracao": por_id.get(p["iteracao"], {}).get("nome")}
+                "candidatos": [{"plano": p["nome"], "id": p["id"], "iteracao": por_id.get(p["iteracao"], {}).get("nome"),
+                                "pai": (por_id.get(por_id.get(p["iteracao"], {}).get("pai")) or {}).get("nome")}
                                for p in planos(pa_id) if p["tipo"] == BACKLOG_PLAN]}
     criados = []
     if plano:
@@ -958,14 +980,15 @@ def backlog(cfg: dict, plano: str | None = None, nome: str | None = None, pai: s
             raise Erro("nao_encontrado", f"plano {pid} não existe (ou está arquivado) na PA", "plano")
         it = por_id[p["iteracao"]]
     else:
-        found = _por_nome(todas, nome, "nome")
+        nome = _caminho(nome, "nome")
+        pai_id = iteracao_id(cfg, pai) if pai else None
+        # com pai, só dentro dele (padrão <base>/Backlog: um "Backlog" de outro lugar da PA não serve)
+        found = ([i] if (i := _sob(todas, pai_id, nome)) else []) if pai else _por_nome(todas, nome, "nome")
         if found:
             it = found[0]
         else:
-            pai_id, timeline = None, None
-            if pai:
-                pai_id = iteracao_id(cfg, pai)
-            else:  # topo
+            timeline = None
+            if not pai:  # topo
                 try:
                     timeline = _timeline(cfg, todas, por_id)
                 except Erro:
@@ -977,14 +1000,14 @@ def backlog(cfg: dict, plano: str | None = None, nome: str | None = None, pai: s
         if len(do_time) > 1:  # nunca escolhe sozinho entre dois backlogs do time
             raise Erro("entrada", f"a iteração '{it['nome']}' tem {len(do_time)} planos de backlog do time ("
                        + ", ".join(p["nome"] for p in do_time) + "): informe o plano", "plano")
-        nome_plano = f"Backlog {time_['nome']}"
+        nome_plano = "Backlog"
         if not do_time and _garantir_plano(pa_id, time_, it["id"], BACKLOG_PLAN, nome_plano):
             criados.append(nome_plano)
         p = do_time[0] if do_time else next(p for p in planos(pa_id)
                                             if p["iteracao"] == it["id"] and p["dono"] == time_["id"] and p["tipo"] == BACKLOG_PLAN)
     dados = {"nome": it["nome"], "id": it["id"], "plano": {"nome": p["nome"], "id": p["id"]}}
     projeto.gravar_ccm(cfg, "backlog", dados)
-    return {**dados, "criados": criados}
+    return {**dados, "pai": (por_id.get(it["pai"]) or {}).get("nome"), "criados": criados}  # o pai é a linha de base
 
 
 # --- descoberta para a sdd-setup

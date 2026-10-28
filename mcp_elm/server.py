@@ -198,20 +198,21 @@ def elm_criar_ct(projeto: Projeto, titulo: str, cenario_md: str, reqs: list[int]
 
 @tool
 def elm_iteracao(projeto: Projeto, nome: str, inicio: str | None = None, fim: str | None = None,
+                 plano: str | None = None,
                  pa: Pa = None) -> str:
-    """Acha ou cria a iteração da sprint e o plano da sprint do time; grava no pa. `nome` aceita o caminho
-    "<pai>/<sprint>" (ex.: "2026/Sprint 1"; o pai nasce se faltar). → dados: {id, pai, planos, criados[]}"""
-    return ewm.iteracao(prj.carregar(projeto, pa), nome, inicio, fim)
+    """Acha ou cria a iteração da sprint e o plano (`plano`, só ao criar; padrão: o nome dela); grava no pa. `nome`:
+    "<pai>/<sprint>" na base (pai da iteração do backlog). → dados: {id, pai, planos, criados[]}"""
+    return ewm.iteracao(prj.carregar(projeto, pa), nome, inicio, fim, plano)
 
 
 @tool
 def elm_backlog(projeto: Projeto,
                 plano: Annotated[str | None, Field(description="itemId ou link do plano existente")] = None,
                 nome: Annotated[str | None, Field(description="iteração a achar ou criar")] = None,
-                pai: Annotated[str | None, Field(description="pai da nova (sem: topo da timeline)")] = None,
+                pai: Annotated[str | None, Field(description="procura e cria só dentro dele (sem: topo)")] = None,
                 pa: Pa = None) -> str:
-    """Backlog do produto onde os itens nascem (iteracao "backlog"). Sem plano/nome: lista; senão usa ou cria a
-    iteração e o plano de backlog e grava no pa. → dados: {atual, candidatos[]} | {nome, id, plano, criados[]}"""
+    """Backlog onde os itens nascem (iteracao "backlog"; padrão <base>/Backlog). Sem plano/nome: lista;
+    senão usa ou cria a iteração e o plano de backlog e grava no pa. → dados: {atual, candidatos[]} | {nome, id, plano, criados[]}"""
     return ewm.backlog(prj.carregar(projeto, pa), plano, nome, pai)
 
 

@@ -12,7 +12,7 @@ TOOLS = {"elm_status", "elm_ler_wi", "elm_listar_wi", "elm_criar_wi", "elm_atual
 def test_tools_list_enxuto_sem_output_schema():
     tools = asyncio.run(mcp.list_tools())
     assert {t.name for t in tools} == TOOLS
-    assert sum(len(t.description or "") + len(json.dumps(t.input_schema)) for t in tools) <= 13_200  # medido: 13_096 com as 4 tools locais e a elm_backlog
+    assert sum(len(t.description or "") + len(json.dumps(t.input_schema)) for t in tools) <= 13_300  # medido: 13_220 com o plano da sprint e a linha de base no elm_iteracao/elm_backlog
     assert all(t.output_schema is None for t in tools)
     for t in tools:  # docstring termina com a forma da saída; projeto/pa em toda tool menos a descoberta
         assert "→" in t.description, t.name

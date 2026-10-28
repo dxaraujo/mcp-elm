@@ -82,14 +82,30 @@ Um único TextContent, sem `structuredContent`:
 | `elm_ler_req` | lê um requisito | Markdown |
 | `elm_publicar_req` | cria ou atualiza requisito | `id, url, acao` |
 | `elm_criar_ct` | cria caso de teste já ligado | `id, url` |
-| `elm_iteracao` | acha ou cria a iteração e o plano da sprint do time (nome ou caminho `<pai>/<sprint>`; o pai nasce se faltar) | `id, pai, planos, criados[]` |
-| `elm_backlog` | lista, usa ou cria o backlog do produto (iteração e plano) e grava no pa | `atual, candidatos[]` ou `nome, id, plano, criados[]` |
+| `elm_iteracao` | acha ou cria a iteração da sprint e o plano dela (`plano`, só ao criar; padrão: o nome da sprint; caminho `<pai>/<sprint>` relativo à linha de base; o pai nasce se faltar) | `id, pai, planos, criados[]` |
+| `elm_backlog` | lista, usa ou cria o backlog do produto (padrão: iteração `<linha de base>/Backlog` com o plano `Backlog`) e grava no pa | `atual, candidatos[]` ou `nome, id, plano, criados[]` |
 | `elm_sync` | bundle do DOORS Next (plano, baixar, enviar) | `baixar[], enviar[], conflitos[]` · `feitos[], conflitos[]` |
 | `elm_buscar_req_local` | busca no bundle baixado (sentido + palavra) | `itens[], indexando?, restantes?` |
 | `elm_ler_req_local` | lê documento do bundle (id ou path) com links | `path, markdown, links` |
 | `elm_listar_req_local` | inventário do bundle | `itens[]` |
 | `elm_indexar_local` | indexa o bundle em segundo plano; responde na hora com o progresso | `documentos, restantes, indexando` |
 | `elm_setup_descobrir` | dados para montar o pa | `ccm, rm?, qm?, valores_de?` |
+
+**Estrutura padrão no EWM.** Cada sprint é uma iteração com o seu plano; o backlog é uma iteração irmã dos pais:
+
+```
+<linha de base>          (a iteração do projeto na timeline, sem datas)
+├── Backlog              plano "Backlog" (product backlog) — ccm.backlog do pa
+├── 2026                 iteração pai (nome livre)
+│   ├── Sprint 01        plano "Sprint 01 - <meta>" (parâmetro plano; padrão: o nome da sprint)
+│   └── Sprint 02
+└── 2027
+```
+
+A linha de base é o pai da iteração do `ccm.backlog`; o `elm_iteracao` e toda tool que recebe `iteracao` leem o
+caminho `<pai>/<sprint>` a partir dela (cache do pa primeiro; espaços nas pontas são ignorados, parte vazia é
+erro). Duas iterações com o mesmo nome no mesmo pai são erro `entrada`: o MCP nunca escolhe nem cria uma terceira. Dois planos na mesma iteração mostram os mesmos itens (o plano é a consulta do
+"Planejado para" da iteração), por isso a sprint é uma iteração e não um plano a mais no pai.
 
 As `_local` leem o bundle em `<projeto>/<rm.download>` (índice em `<bundle>/sqlite3/okf.db`); depois do
 `elm_sync baixar`, indexe com `elm_indexar_local`. Sem nada baixado devolvem `nao_encontrado` com `campo: "bundle"`: baixe com `elm_sync` ou pesquise no

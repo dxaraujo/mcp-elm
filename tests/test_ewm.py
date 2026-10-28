@@ -172,7 +172,7 @@ def test_iteracao_acha_e_cria_com_planos_e_grava_no_pa(elm, projeto):
     assert d["id"] == "_I1" and d["criados"] == []
     assert falha(chamar("elm_iteracao", projeto=projeto, nome="Sprint 2"))["campo"] == "inicio"
     d = ok(chamar("elm_iteracao", projeto=projeto, nome="Sprint 2", inicio="2026-02-01", fim="2026-02-14"))
-    assert d["id"] == "_INOVA" and d["criados"] == ["Sprint 2", "Sprint 2 - Time A"]
+    assert d["id"] == "_INOVA" and d["criados"] == ["Sprint 2", "Sprint 2"]
     assert elm.iteracao_criada["parentIterationId"] == "_Y26"
     arq = os.path.join(projeto, ".kiro/config/sdd/pa_alfa.json")
     texto = open(arq, encoding="utf-8").read()
@@ -184,13 +184,17 @@ def test_iteracao_por_caminho_cria_o_pai_irmao_e_desambigua(elm, projeto):
     d = ok(chamar("elm_iteracao", projeto=projeto, nome="2026/Sprint 1"))
     assert d["id"] == "_I1" and d["pai"] == "2026" and d["criados"] == []
     d = ok(chamar("elm_iteracao", projeto=projeto, nome="2027/Sprint 1", inicio="2027-01-04", fim="2027-01-15"))
-    assert d["criados"] == ["2027", "Sprint 1", "Sprint 1 - Time A"] and d["pai"] == "2027"
+    assert d["criados"] == ["2027", "Sprint 1", "Sprint 1"] and d["pai"] == "2027"
     assert elm.topo[-1] == ("2027", "_INOVA") and elm.filhos["_INOVA"] == [("Sprint 1", "_INOVA2")]
     assert elm.iteracao_criada["parentIterationId"] == "_INOVA" and d["id"] == "_INOVA2"
-    assert falha(chamar("elm_iteracao", projeto=projeto, nome="Sprint 1"))["campo"] == "nome"  # ambígua no servidor
+    assert ok(chamar("elm_iteracao", projeto=projeto, nome="Sprint 1"))["id"] == "_I1"  # o cache resolve, como no iteracao_id
     ok(chamar("elm_listar_wi", projeto=projeto, iteracao="2027/Sprint 1"))
-    pa = json.loads(open(os.path.join(projeto, ".kiro/config/sdd/pa_alfa.json"), encoding="utf-8").read())
+    arq = os.path.join(projeto, ".kiro/config/sdd/pa_alfa.json")
+    pa = json.loads(open(arq, encoding="utf-8").read())
     assert pa["ccm"]["iteracoes"]["2027/Sprint 1"]["id"] == "_INOVA2"
+    del pa["ccm"]["iteracoes"]["Sprint 1"]
+    open(arq, "w", encoding="utf-8").write(json.dumps(pa))
+    assert falha(chamar("elm_iteracao", projeto=projeto, nome="Sprint 1"))["campo"] == "nome"  # sem cache: ambígua na PA
 
 
 def test_iteracao_primeira_sprint_cria_o_pai_no_topo(elm, projeto):
@@ -219,7 +223,7 @@ def test_iteracao_primeira_sprint_com_varias_timelines_nasce_na_base_do_backlog(
     pa["ccm"]["backlog"] = {"nome": "Sprint 1", "id": "_I1", "plano": {"nome": "Backlog Time A", "id": "_PB"}}
     open(arq, "w", encoding="utf-8").write(json.dumps(pa))
     ok(chamar("elm_iteracao", projeto=projeto, nome="2027/Sprint 1", inicio="2027-01-04"))
-    assert elm.filhos["_I1"][0][0] == "2027"  # com backlog no pa, o pai nasce dentro dele (a linha de base)
+    assert "2027" in [n for n, _ in elm.filhos["_Y26"]]  # base = o pai da iteração do backlog: o pai nasce nela
 
 
 
@@ -232,10 +236,10 @@ def test_backlog_lista_e_grava_o_plano_existente(elm, projeto):
     elm.iteracoes.append(("Backlog", "_IB"))
     elm.planos.append(("Backlog Time A", "_PB", BACKLOG, "_IB"))
     d = ok(chamar("elm_backlog", projeto=projeto))
-    assert d["atual"] is None and d["candidatos"] == [{"plano": "Backlog Time A", "id": "_PB", "iteracao": "Backlog"}]
+    assert d["atual"] is None and d["candidatos"] == [{"plano": "Backlog Time A", "id": "_PB", "iteracao": "Backlog", "pai": "2026"}]
     link = "https://elm.exemplo/ccm/web/projects/X#action=com.ibm.team.apt.viewPlan&id=_PB&planMode=x"
     d = ok(chamar("elm_backlog", projeto=projeto, plano=link))
-    assert d == {"nome": "Backlog", "id": "_IB", "plano": {"nome": "Backlog Time A", "id": "_PB"}, "criados": []}
+    assert d == {"nome": "Backlog", "id": "_IB", "plano": {"nome": "Backlog Time A", "id": "_PB"}, "pai": "2026", "criados": []}
     pa = json.loads(open(os.path.join(projeto, ".kiro/config/sdd/pa_alfa.json"), encoding="utf-8").read())
     assert pa["ccm"]["backlog"]["id"] == "_IB" and "Sprint 1" in pa["ccm"]["iteracoes"]
     ok(chamar("elm_criar_wi", projeto=projeto, tipo="tarefa", titulo="x", iteracao="backlog"))
@@ -245,29 +249,65 @@ def test_backlog_lista_e_grava_o_plano_existente(elm, projeto):
 
 def test_backlog_cria_iteracao_com_pai_ou_no_topo_e_o_plano(elm, projeto):
     d = ok(chamar("elm_backlog", projeto=projeto, nome="Backlog", pai="Sprint 1"))
-    assert d["id"] == "_INOVA" and d["criados"] == ["Backlog", "Backlog Time A"]
+    assert d["id"] == "_INOVA" and d["criados"] == ["Backlog", "Backlog"]
     assert elm.iteracao_criada["parentIterationId"] == "_I1" and not elm.iteracao_criada["hasDeliverable"]
     assert elm.planos[-1][2:] == (BACKLOG, "_INOVA")
-    elm.iteracoes.pop()
+    elm.filhos["_I1"].remove(("Backlog", "_INOVA"))  # some do servidor: o próximo nasce no topo
     elm.planos.pop()
     ok(chamar("elm_backlog", projeto=projeto, nome="Backlog"))
     assert elm.iteracao_criada["developmentLineId"] == "_TL1" and "parentIterationId" not in elm.iteracao_criada
 
 
-def test_iteracao_com_linha_de_base_resolve_e_cria_dentro_dela(elm, projeto):
-    base = ok(chamar("elm_backlog", projeto=projeto, nome="Desenvolvimento"))["id"]  # topo: a linha de base
+def test_padrao_linha_de_base_com_backlog_e_pais_das_sprints(elm, projeto):
+    elm.topo += [("Desenvolvimento", "_DEV"), ("Backlog", "_BKT")]  # a base e um "Backlog" de fora dela
+    d = ok(chamar("elm_backlog", projeto=projeto, nome="Backlog", pai="Desenvolvimento"))
+    assert d["criados"] == ["Backlog", "Backlog"] and d["id"] != "_BKT"  # <base>/Backlog, plano "Backlog"
     d = ok(chamar("elm_iteracao", projeto=projeto, nome="2026/Sprint 1", inicio="2026-10-26", fim="2026-11-06"))
-    assert d["criados"] == ["2026", "Sprint 1", "Sprint 1 - Time A"] and d["pai"] == "2026"
-    assert elm.filhos[base][0][0] == "2026" and d["id"] != "_I1"  # não usa a 2026/Sprint 1 de fora da base
-    ok(chamar("elm_iteracao", projeto=projeto, nome="2026/Sprint 2", inicio="2026-11-09"))
+    assert d["criados"] == ["2026", "Sprint 1", "Sprint 1"] and d["pai"] == "2026" and d["id"] != "_I1"
+    d = ok(chamar("elm_iteracao", projeto=projeto, nome="2026/Sprint 2", inicio="2026-11-09", plano="Sprint 2 - Exportar"))
+    assert d["criados"] == ["Sprint 2", "Sprint 2 - Exportar"] and list(d["planos"]) == ["Sprint 2 - Exportar"]
+    ok(chamar("elm_iteracao", projeto=projeto, nome="2027/Sprint 1", inicio="2027-01-04"))
     assert ok(chamar("elm_iteracao", projeto=projeto, nome="2026/Sprint 1"))["criados"] == []
-    ok(chamar("elm_listar_wi", projeto=projeto, iteracao="2026/Sprint 2"))  # a 2026 do topo não deixa ambíguo
-    assert len([n for n, _ in elm.filhos[base]]) == 1  # a 2026 nasceu uma vez só
+    assert [n for n, _ in elm.filhos["_DEV"]] == ["Backlog", "2026", "2027"]  # a 2026 do topo não confunde
+    ok(chamar("elm_listar_wi", projeto=projeto, iteracao="2026/Sprint 2"))
 
+
+def _base_com_backlog(elm, projeto, filhos):
+    elm.topo.append(("Desenvolvimento", "_DEV"))
+    elm.filhos["_DEV"] = [("Backlog", "_BK"), *filhos]
+    elm.planos.append(("Backlog", "_PBK", BACKLOG, "_BK"))
+    ok(chamar("elm_backlog", projeto=projeto, plano="_PBK"))
+
+
+def test_linha_de_base_ambigua_nunca_cria_uma_terceira(elm, projeto):
+    _base_com_backlog(elm, projeto, [("2026", "_A"), ("2026", "_B"), ("Backlog", "_BK2")])
+    antes = list(elm.filhos["_DEV"])
+    e = falha(chamar("elm_iteracao", projeto=projeto, nome="2026/Sprint 9", inicio="2026-12-01"))
+    assert e["campo"] == "nome" and "ambígua" in e["detalhe"]
+    assert falha(chamar("elm_backlog", projeto=projeto, nome="Backlog", pai="Desenvolvimento"))["campo"] == "nome"
+    assert falha(chamar("elm_listar_wi", projeto=projeto, iteracao="2026/Sprint 9"))["campo"] == "iteracao"
+    assert elm.filhos["_DEV"] == antes and "_A" not in elm.filhos  # nada nasceu
+
+
+def test_linha_de_base_caminho_com_espacos_varios_niveis_e_sem_cache(elm, projeto):
+    _base_com_backlog(elm, projeto, [])
+    assert falha(chamar("elm_iteracao", projeto=projeto, nome="2026//Sprint 1", inicio="2026-10-26"))["campo"] == "nome"
+    d = ok(chamar("elm_iteracao", projeto=projeto, nome=" 2026 / Sprint 1 ", inicio="2026-10-26"))
+    assert d["criados"] == ["2026", "Sprint 1", "Sprint 1"]
+    assert ok(chamar("elm_iteracao", projeto=projeto, nome="2026/Sprint 1"))["criados"] == []
+    d = ok(chamar("elm_iteracao", projeto=projeto, nome="Entrega 3/2026/Sprint 1", inicio="2027-01-04"))
+    assert d["criados"] == ["Entrega 3", "2026", "Sprint 1", "Sprint 1"] and d["pai"] == "2026"
+    arq = os.path.join(projeto, ".kiro/config/sdd/pa_alfa.json")
+    pa = json.loads(open(arq, encoding="utf-8").read())
+    assert "2026/Sprint 1" in pa["ccm"]["iteracoes"]  # a chave é o caminho normalizado
+    pa["ccm"]["iteracoes"] = {}
+    open(arq, "w", encoding="utf-8").write(json.dumps(pa))
+    ok(chamar("elm_listar_wi", projeto=projeto, iteracao="2026/Sprint 1"))  # sem cache: pela base (a 2026 do topo também tem Sprint 1)
+    assert ok(chamar("elm_backlog", projeto=projeto, nome="Backlog", pai="Desenvolvimento"))["criados"] == []  # reaproveita
 
 def test_backlog_em_iteracao_existente_cria_so_o_plano_e_nao_escolhe_entre_dois(elm, projeto):
     d = ok(chamar("elm_backlog", projeto=projeto, nome="Sprint 1"))
-    assert d["id"] == "_I1" and d["criados"] == ["Backlog Time A"]  # a iteração já existe: só o plano
+    assert d["id"] == "_I1" and d["criados"] == ["Backlog"]  # a iteração já existe: só o plano
     d = ok(chamar("elm_backlog", projeto=projeto, nome="Sprint 1"))
     assert d["criados"] == []
     elm.planos.append(("Backlog Teste", "_PB2", BACKLOG, "_I1"))
