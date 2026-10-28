@@ -184,7 +184,7 @@ def test_iteracao_por_caminho_cria_o_pai_irmao_e_desambigua(elm, projeto):
     d = ok(chamar("elm_iteracao", projeto=projeto, nome="2026/Sprint 1"))
     assert d["id"] == "_I1" and d["pai"] == "2026" and d["criados"] == []
     d = ok(chamar("elm_iteracao", projeto=projeto, nome="2027/Sprint 1", inicio="2027-01-04", fim="2027-01-15"))
-    assert d["criados"] == ["2027", "Sprint 1", "2027 Sprint 1 - Time A"] and d["pai"] == "2027"
+    assert d["criados"] == ["2027", "Sprint 1", "Sprint 1 - Time A"] and d["pai"] == "2027"
     assert elm.topo[-1] == ("2027", "_INOVA") and elm.filhos["_INOVA"] == [("Sprint 1", "_INOVA2")]
     assert elm.iteracao_criada["parentIterationId"] == "_INOVA" and d["id"] == "_INOVA2"
     assert falha(chamar("elm_iteracao", projeto=projeto, nome="Sprint 1"))["campo"] == "nome"  # ambígua no servidor
@@ -203,7 +203,7 @@ def test_iteracao_primeira_sprint_cria_o_pai_no_topo(elm, projeto):
     assert elm.topo[-1] == ("2027", "_INOVA") and elm.iteracao_criada["parentIterationId"] == "_INOVA"
 
 
-def test_iteracao_primeira_sprint_com_varias_timelines_usa_a_do_backlog(elm, projeto):
+def test_iteracao_primeira_sprint_com_varias_timelines_nasce_na_base_do_backlog(elm, projeto):
     from conftest import SERVER as S, xml
     arq = os.path.join(projeto, ".kiro/config/sdd/pa_alfa.json")
     pa = json.loads(open(arq, encoding="utf-8").read())
@@ -216,10 +216,10 @@ def test_iteracao_primeira_sprint_com_varias_timelines_usa_a_do_backlog(elm, pro
         '</jp:timelines>')
     elm.r[("GET", S + "/ccm/tl/its2")] = lambda req: elm._its([("Outra", "_O1")])
     assert falha(chamar("elm_iteracao", projeto=projeto, nome="2027/Sprint 1", inicio="2027-01-04"))["campo"] == "nome"
-    pa["ccm"]["backlog"] = {"nome": "Sprint 1", "id": "_I1", "plano": {"nome": "Backlog Time A", "id": "_PB"}}  # qualquer iteração da _TL1 serve de referência
+    pa["ccm"]["backlog"] = {"nome": "Sprint 1", "id": "_I1", "plano": {"nome": "Backlog Time A", "id": "_PB"}}
     open(arq, "w", encoding="utf-8").write(json.dumps(pa))
     ok(chamar("elm_iteracao", projeto=projeto, nome="2027/Sprint 1", inicio="2027-01-04"))
-    assert elm.topo[-1] == ("2027", "_INOVA")
+    assert elm.filhos["_I1"][0][0] == "2027"  # com backlog no pa, o pai nasce dentro dele (a linha de base)
 
 
 
@@ -252,6 +252,28 @@ def test_backlog_cria_iteracao_com_pai_ou_no_topo_e_o_plano(elm, projeto):
     elm.planos.pop()
     ok(chamar("elm_backlog", projeto=projeto, nome="Backlog"))
     assert elm.iteracao_criada["developmentLineId"] == "_TL1" and "parentIterationId" not in elm.iteracao_criada
+
+
+def test_iteracao_com_linha_de_base_resolve_e_cria_dentro_dela(elm, projeto):
+    base = ok(chamar("elm_backlog", projeto=projeto, nome="Desenvolvimento"))["id"]  # topo: a linha de base
+    d = ok(chamar("elm_iteracao", projeto=projeto, nome="2026/Sprint 1", inicio="2026-10-26", fim="2026-11-06"))
+    assert d["criados"] == ["2026", "Sprint 1", "Sprint 1 - Time A"] and d["pai"] == "2026"
+    assert elm.filhos[base][0][0] == "2026" and d["id"] != "_I1"  # não usa a 2026/Sprint 1 de fora da base
+    ok(chamar("elm_iteracao", projeto=projeto, nome="2026/Sprint 2", inicio="2026-11-09"))
+    assert ok(chamar("elm_iteracao", projeto=projeto, nome="2026/Sprint 1"))["criados"] == []
+    ok(chamar("elm_listar_wi", projeto=projeto, iteracao="2026/Sprint 2"))  # a 2026 do topo não deixa ambíguo
+    assert len([n for n, _ in elm.filhos[base]]) == 1  # a 2026 nasceu uma vez só
+
+
+def test_backlog_em_iteracao_existente_cria_so_o_plano_e_nao_escolhe_entre_dois(elm, projeto):
+    d = ok(chamar("elm_backlog", projeto=projeto, nome="Sprint 1"))
+    assert d["id"] == "_I1" and d["criados"] == ["Backlog Time A"]  # a iteração já existe: só o plano
+    d = ok(chamar("elm_backlog", projeto=projeto, nome="Sprint 1"))
+    assert d["criados"] == []
+    elm.planos.append(("Backlog Teste", "_PB2", BACKLOG, "_I1"))
+    e = falha(chamar("elm_backlog", projeto=projeto, nome="Sprint 1"))
+    assert e["campo"] == "plano" and "Backlog Teste" in e["detalhe"]
+    assert ok(chamar("elm_backlog", projeto=projeto, plano="_PB2"))["plano"]["id"] == "_PB2"
 
 
 def test_setup_descobrir_ccm(elm, fake):
