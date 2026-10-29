@@ -4,9 +4,9 @@ Instalação, credenciais e a lista das tools: [README](../README.md). Aqui, o q
 
 ## O arquivo pa
 
-`<projeto>/.kiro/config/sdd/pa_<nome>.json`, validado pelo
-[schema do power sdd](https://github.com/dxaraujo/kiro/blob/main/powers/sdd/skills/sdd-setup/assets/pa.schema.json) a cada leitura (cache pelo mtime:
-a `sdd-setup` pode regravar com o MCP no ar). Campo ausente ou inválido → erro `config` com o caminho
+`<projeto>/.kiro/config/saira/pa_<nome>.json`, validado pelo
+[schema do Saíra](https://github.com/dxaraujo/saira/blob/main/skills/saira-setup/assets/pa.schema.json) a cada leitura (cache pelo mtime:
+a `saira-setup` pode regravar com o MCP no ar). Campo ausente ou inválido → erro `config` com o caminho
 (`ccm.horas.time-code`). Vários arquivos sem `pa` → erro `entrada` com os nomes.
 
 | Seção | Usada em |
@@ -113,7 +113,7 @@ garante o plano `Backlog <time>`. Nos dois casos grava `ccm.backlog {nome, id, p
 ## Descoberta
 
 `elm_setup_descobrir(ccm, rm?, qm?, valores_de?)` acha a PA pelo trecho do nome (várias → só a lista) e devolve o que
-a `sdd-setup` precisa: times com categorias; só os tipos do fluxo (story, defect, task, epic; os outros em
+a `saira-setup` precisa: times com categorias; só os tipos do fluxo (story, defect, task, epic; os outros em
 `outros_tipos`, nome e id) com campos (título → attribute), obrigatórios, `enumeracoes` (nomes) e os valores só das
 obrigatórias e das pedidas em `valores_de`; os tipos de link do fluxo; as 6 iterações mais recentes com planos
 (`iteracoes_total`); no DOORS Next componente, stream, pastas e tipos; no ETM a PA. A PA também exige campos por

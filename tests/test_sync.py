@@ -66,7 +66,7 @@ def test_enviar_recusa_se_o_elm_mudou_depois_do_plano(elm, projeto):
 
 
 def test_baixar_nao_indexa_sozinho(elm, projeto):
-    """Indexar é decisão de quem baixa (a sdd-sync pergunta): o baixar não toca no índice."""
+    """Indexar é decisão de quem baixa (a saira-sync pergunta): o baixar não toca no índice."""
     from mcp_elm import local
     chamar("elm_sync", projeto=projeto, direcao="plano")
     assert dados(chamar("elm_sync", projeto=projeto, direcao="baixar")) == {"feitos": [1, 2], "conflitos": []}

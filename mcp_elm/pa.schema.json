@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://dxaraujo.github.io/mcps/elm/pa.schema.json",
-  "title": "Project area do ELM para o sdd",
-  "description": ".kiro/config/sdd/pa_<nome>.json — um arquivo por project area. Gravado pela sdd-setup e lido pelo MCP mcp-elm (a LLM só passa ids e conteúdo). Ids são os do servidor; nomes são as chaves que as tools aceitam.",
+  "title": "Project area do ELM para o Saíra",
+  "description": ".kiro/config/saira/pa_<nome>.json — um arquivo por project area. Gravado pela saira-setup e lido pelo MCP mcp-elm (a LLM só passa ids e conteúdo). Ids são os do servidor; nomes são as chaves que as tools aceitam.",
   "type": "object",
   "required": ["ccm"],
   "additionalProperties": false,
@@ -95,7 +95,7 @@
         "configuracao": { "$ref": "#/$defs/uuid", "description": "Stream do componente." },
         "artefatos": {
           "type": "object",
-          "description": "Sigla do sdd (HF, REG, GL, ET, …) → tipo e pasta no DOORS Next.",
+          "description": "Sigla do Saíra (HF, REG, GL, ET, …) → tipo e pasta no DOORS Next.",
           "additionalProperties": {
             "type": "object",
             "required": ["tipo", "tipo-id", "pasta", "pasta-id"],

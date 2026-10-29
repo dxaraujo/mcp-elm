@@ -1,4 +1,4 @@
-"""Servidor MCP do IBM ELM para o power sdd: operações; a configuração vem do pa do projeto, não da LLM."""
+"""Servidor MCP do IBM ELM para o Saíra: operações; a configuração vem do pa do projeto, não da LLM."""
 from __future__ import annotations
 
 from typing import Annotated, Literal
@@ -12,7 +12,7 @@ from .http import get_session
 
 mcp = MCPServer("elm", instructions=(
     "IBM ELM (EWM, DOORS Next, ETM) pelo pa do projeto. Toda tool (menos elm_setup_descobrir) recebe `projeto` = "
-    "caminho absoluto do workspace e `pa` = nome do .kiro/config/sdd/pa_<nome>.json (omita se houver só um). Passe só "
+    "caminho absoluto do workspace e `pa` = nome do .kiro/config/saira/pa_<nome>.json (omita se houver só um). Passe só "
     "ids e conteúdo: campos, URLs e ids internos vêm do pa. Resposta: {\"ok\":true,\"dados\":{...}} ou "
     "{\"ok\":false,\"erro\":{\"codigo\",\"detalhe\",\"campo\"}}; elm_ler_wi e elm_ler_req devolvem Markdown. "
     "Requisitos: consulte primeiro o bundle local (elm_*_local); erro nao_encontrado campo bundle = nada baixado, "

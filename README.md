@@ -1,12 +1,12 @@
 # mcp-elm
 
 Servidor MCP do IBM ELM — **EWM** (work items), **DOORS Next** (requisitos) e **ETM** (casos de teste) — para o
-power `sdd`. Expõe **operações**: o servidor lê a configuração da project area no projeto (`pa_<nome>.json`) e a
+Saíra. Expõe **operações**: o servidor lê a configuração da project area no projeto (`pa_<nome>.json`) e a
 LLM passa só ids e conteúdo. Manual: [docs/manual-mcp-elm.md](docs/manual-mcp-elm.md).
 
 ## Instalação
 
-Publicado no [PyPI](https://pypi.org/project/mcp-elm/) e já incluído no `mcp.json` do power `sdd`; requer o
+Publicado no [PyPI](https://pypi.org/project/mcp-elm/) e já incluído no `mcp.json` do Saíra; requer o
 [uv](https://docs.astral.sh/uv/). Em outro cliente MCP:
 
 ```json
@@ -43,8 +43,8 @@ password = SUA_SENHA
 
 ## Configuração do projeto
 
-`<projeto>/.kiro/config/sdd/pa_<nome>.json`, um por project area, gravado pela skill `sdd-setup`. O schema é o do
-power sdd ([pa.schema.json](https://github.com/dxaraujo/kiro/blob/main/powers/sdd/skills/sdd-setup/assets/pa.schema.json)); o pacote leva uma cópia
+`<projeto>/.kiro/config/saira/pa_<nome>.json`, um por project area, gravado pela skill `saira-setup`. O schema é o do
+Saíra ([pa.schema.json](https://github.com/dxaraujo/saira/blob/main/skills/saira-setup/assets/pa.schema.json)); o pacote leva uma cópia
 (`mcp_elm/pa.schema.json`) — mantenha as duas iguais.
 
 Toda tool (menos `elm_setup_descobrir`) recebe `projeto` (caminho **absoluto** do workspace: o Kiro não inicia o MCP

@@ -1018,7 +1018,7 @@ def backlog(cfg: dict, plano: str | None = None, nome: str | None = None, pai: s
     return {**dados, "pai": (por_id.get(it["pai"]) or {}).get("nome"), "criados": criados}  # o pai é a linha de base
 
 
-# --- descoberta para a sdd-setup
+# --- descoberta para a saira-setup
 
 def _team_areas(pa_id: str) -> list[dict]:
     root = get_xml(_url(PROJECT_AREA, pa=pa_id) + "/team-areas")

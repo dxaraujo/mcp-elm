@@ -109,7 +109,7 @@ def fake():
 @pytest.fixture
 def projeto(tmp_path):
     """Workspace com um pa fictício (pa_alfa.json)."""
-    pasta = tmp_path / ".kiro" / "config" / "sdd"
+    pasta = tmp_path / ".kiro" / "config" / "saira"
     pasta.mkdir(parents=True)
     shutil.copy(FIXTURES / "pa_alfa.json", pasta / "pa_alfa.json")
     return str(tmp_path)

@@ -106,7 +106,7 @@ def buscar(cfg: dict, texto: str, limite: int = 20) -> dict:
 def documento(cfg: dict, req_id, bundle_ids: set[str] | None = None, artefatos: dict | None = None) -> dict:
     """Requisito em partes: {recurso, tipo, pasta, corpo, links, normalizado, caminho}.
 
-    `bundle_ids` (bundle da sdd-sync): artefato do bundle vira embed com alvo = arquivo relativo; o resto, link
+    `bundle_ids` (bundle da saira-sync): artefato do bundle vira embed com alvo = arquivo relativo; o resto, link
     para a URL. Sem ele, todo artefato citado vira [id título](URL). `normalizado`: algum link mudou de forma (link
     da UI web, embed fora do bundle, hyperlink para artefato do bundle) e o arquivo difere do texto no ELM."""
     config, bundle = stream(cfg), bundle_ids is not None
@@ -233,7 +233,7 @@ def publicar(cfg: dict, sigla: str, titulo: str, texto_md: str, req_id=None, mod
     return {"id": int(novo["id"]), "url": novo["url"].split("?")[0], "acao": "criado"}
 
 
-# --- descoberta para a sdd-setup
+# --- descoberta para a saira-setup
 
 def _pastas(component_url: str, config: str) -> dict[str, str]:
     """{caminho sem 'root': FR_...} de todas as pastas do componente."""
