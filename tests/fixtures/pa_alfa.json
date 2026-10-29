@@ -1,5 +1,5 @@
 {
-  "$schema": "https://raw.githubusercontent.com/dxaraujo/kiro/main/powers/sdd/skills/sdd-setup/assets/pa.schema.json",
+  "$schema": "https://dxaraujo.github.io/mcps/elm/pa.schema.json",
   "ccm": {
     "nome": "Projeto Alfa",
     "id": "_PA1",

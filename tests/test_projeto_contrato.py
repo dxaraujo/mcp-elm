@@ -1,6 +1,7 @@
 import json
 import os
 import shutil
+from pathlib import Path
 
 import pytest
 import requests
@@ -101,3 +102,10 @@ def test_serialize_grava_data_como_o_ewm():
     g.add((URIRef("http://x/1"), URIRef("http://x/d"), Literal("2026-10-23T14:17:54+00:00", datatype=XSD.dateTime)))
     out = oslc.serialize(g).decode()
     assert "2026-10-23T14:17:54.000Z" in out and "+00:00" not in out
+
+
+def test_schema_igual_ao_publicado():
+    publicado = Path(__file__).resolve().parents[2] / "mcps/elm/pa.schema.json"
+    if not publicado.exists():
+        pytest.skip("repositório mcps não clonado ao lado")
+    assert (Path(prj.__file__).with_name("pa.schema.json")).read_bytes() == publicado.read_bytes()

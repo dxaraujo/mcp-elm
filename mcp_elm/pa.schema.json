@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/dxaraujo/kiro/main/powers/sdd/skills/sdd-setup/assets/pa.schema.json",
+  "$id": "https://dxaraujo.github.io/mcps/elm/pa.schema.json",
   "title": "Project area do ELM para o sdd",
   "description": ".kiro/config/sdd/pa_<nome>.json — um arquivo por project area. Gravado pela sdd-setup e lido pelo MCP mcp-elm (a LLM só passa ids e conteúdo). Ids são os do servidor; nomes são as chaves que as tools aceitam.",
   "type": "object",
