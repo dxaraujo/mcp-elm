@@ -44,7 +44,7 @@ password = SUA_SENHA
 ## Configuração do projeto
 
 `<projeto>/.kiro/config/sdd/pa_<nome>.json`, um por project area, gravado pela skill `sdd-setup`. O schema é o do
-power sdd ([pa.schema.json](../../powers/sdd/skills/sdd-setup/assets/pa.schema.json)); o pacote leva uma cópia
+power sdd ([pa.schema.json](https://github.com/dxaraujo/kiro/blob/main/powers/sdd/skills/sdd-setup/assets/pa.schema.json)); o pacote leva uma cópia
 (`mcp_elm/pa.schema.json`) — mantenha as duas iguais.
 
 Toda tool (menos `elm_setup_descobrir`) recebe `projeto` (caminho **absoluto** do workspace: o Kiro não inicia o MCP

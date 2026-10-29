@@ -5,7 +5,7 @@ Instalação, credenciais e a lista das tools: [README](../README.md). Aqui, o q
 ## O arquivo pa
 
 `<projeto>/.kiro/config/sdd/pa_<nome>.json`, validado pelo
-[schema do power sdd](../../../powers/sdd/skills/sdd-setup/assets/pa.schema.json) a cada leitura (cache pelo mtime:
+[schema do power sdd](https://github.com/dxaraujo/kiro/blob/main/powers/sdd/skills/sdd-setup/assets/pa.schema.json) a cada leitura (cache pelo mtime:
 a `sdd-setup` pode regravar com o MCP no ar). Campo ausente ou inválido → erro `config` com o caminho
 (`ccm.horas.time-code`). Vários arquivos sem `pa` → erro `entrada` com os nomes.
 
