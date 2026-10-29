@@ -55,8 +55,10 @@ MAX_HORAS_DIA = 16
 GRUPOS = (("closed", re.compile(r"conclu|resolv|fechad|finaliz|pronto|done|closed|complet|cancel|inv[aá]lid", re.I)),
           ("inprogress", re.compile(r"andamento|progress|desenvolv|execu|implement|trabalh|test|revis|verific", re.I)))
 # alvo -> (grupo do estado-alvo, grupos por onde pode passar)
-ALVOS = {"assumir": ("inprogress", ()), "concluir": ("closed", ("inprogress",)), "reabrir": ("open", ())}
-# "Cancelado"/"Inválido" também são do grupo closed, mas não são conclusão; e assumir é começar, não testar
+ALVOS = {"assumir": ("inprogress", ()), "concluir": ("closed", ("inprogress",)), "reabrir": ("open", ()),
+         "cancelar": ("closed", ())}
+# "Cancelado"/"Inválido" também são do grupo closed, mas não são conclusão: só o cancelar vai a eles; e assumir é
+# começar, não testar
 _DESCARTE = re.compile(r"cancel|inv[aá]lid|rejeit|duplic|descart", re.I)
 _INICIO = re.compile(r"andamento|progress|desenvolv|execu|implement|trabalh", re.I)
 _DC, _RTC = oslc.clark(DCTERMS), oslc.clark(oslc.RTC_CM)
@@ -481,17 +483,23 @@ def _ir(url: str, r: dict, alvo: str, attrs: dict) -> tuple[str, bool]:
         raise Erro("precondicao", f"work item {r['id']} sem rtc_cm:state", "estado")
     estados, acoes = _workflow(state["url"])
     titulo = lambda u: estados.get(u, {}).get("titulo") or oslc.item_id(u)  # noqa: E731
-    if _grupo(r, estados) == grupo_alvo:
+    descarte = lambda u: estados.get(u, {}).get("grupo") == "closed" and bool(_DESCARTE.search(titulo(u)))  # noqa: E731
+    cancelar = alvo == "cancelar"
+    if _grupo(r, estados) == grupo_alvo and (not cancelar or descarte(state["url"])):
         if attrs:
             oslc.update(url, attrs)
         return titulo(state["url"]), True
+    if cancelar and _grupo(r, estados) == "closed":
+        raise Erro("precondicao", f"{r['id']} já concluída ({titulo(state['url'])}): reabra antes", "estado")
+    if cancelar and not any(descarte(a["resultado"]) for a in acoes):
+        raise Erro("precondicao", "o workflow não tem cancelamento", "estado")
     atual, primeiro_erro = state["url"], None
     for _ in range(4):
         # o workflow não diz de onde cada ação parte: tenta as que levam ao alvo (depois as de passagem) até o
         # estado mudar; o servidor aceita em silêncio, sem mudar nada, uma ação que não sai do estado atual
         candidatas = sorted((a for a in acoes if a["resultado"] != atual
                              and estados.get(a["resultado"], {}).get("grupo") in (grupo_alvo, *meios)
-                             and not _DESCARTE.search(titulo(a["resultado"]))),
+                             and bool(_DESCARTE.search(titulo(a["resultado"]))) == cancelar),
                             key=lambda a: (estados[a["resultado"]]["grupo"] != grupo_alvo,
                                            not _INICIO.search(titulo(a["resultado"]))))
         for acao in candidatas:
@@ -515,7 +523,7 @@ def _ir(url: str, r: dict, alvo: str, attrs: dict) -> tuple[str, bool]:
 
 def transicao(cfg: dict, wi_id, alvo: str, estimativa_h=None, forcar: bool = False, iniciar_pai: bool = False) -> dict:
     if alvo not in ALVOS:
-        raise Erro("entrada", f"alvo inválido: {alvo} (assumir, concluir, reabrir)", "alvo")
+        raise Erro("entrada", f"alvo inválido: {alvo} (assumir, concluir, reabrir, cancelar)", "alvo")
     url = wi_url(wi_id)
     r = oslc.get(url + WITH_TITLES)
     attrs = {ESTIMATE: Literal(int(round(estimativa_h * MS_H)))} if estimativa_h is not None else {}

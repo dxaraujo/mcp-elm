@@ -17,7 +17,7 @@ ESTADOS = {"s1": ("Novo", "open"), "s2": ("Em Andamento", "inprogress"), "s3": (
 # ação -> (estado de onde parte, estado resultante); o servidor ignora em silêncio ação que não parte do atual
 # como no PAB: Cancelar (closed) e Testar (inprogress) vêm antes na lista e também partem de "Novo"
 ACOES = {"a4": ("Cancelar", "s1", "s4"), "a9": ("Testar", "s1", "s5"), "a1": ("Iniciar", "s1", "s2"),
-         "a5": ("Concluir", "s2", "s3"), "a7": ("Reabrir", "s3", "s1")}
+         "a5": ("Concluir", "s2", "s3"), "a7": ("Reabrir", "s3", "s1"), "a6": ("Cancelar", "s2", "s4")}
 PARENT = "rtc_cm:com.ibm.team.workitem.linktype.parentworkitem.parent"
 CHILDREN = "rtc_cm:com.ibm.team.workitem.linktype.parentworkitem.children"
 RTC_CM = "http://jazz.net/xmlns/prod/jazz/rtc/cm/1.0/"

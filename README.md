@@ -71,7 +71,7 @@ Um único TextContent, sem `structuredContent`:
 | `elm_listar_wi` | lista por iteração, dono, tipo, pai, prefixo, estado | `itens[], truncado, total` |
 | `elm_criar_wi` | cria com padrões do pa | `id, url, valores_usados` |
 | `elm_atualizar_wi` | atualiza um ou vários | `atualizados[], falhas[]` |
-| `elm_transicao` | assumir · concluir · reabrir | `id, estado, dono, ja_estava, pai?` |
+| `elm_transicao` | assumir · concluir · reabrir · cancelar | `id, estado, dono, ja_estava, pai?` |
 | `elm_comentar` | comenta | `id` |
 | `elm_anexo` | listar · enviar · baixar | `anexos[]` · `nome` · `caminho` |
 | `elm_horas` | horas do WI ou da iteração | `lancamentos[], total_h` · `linhas[], total_h` |

@@ -39,14 +39,16 @@ campo, antes de chamar o servidor. `valores_usados` devolve o que foi aplicado.
 
 `elm_transicao` lê o workflow do estado atual (estados e ações no formato OSLC CM 1.0, com o grupo
 `open`/`inprogress`/`closed` de cada estado; sem o grupo, ele sai do nome) e percorre as ações até um estado do
-grupo-alvo. O workflow não diz de onde cada ação parte e o servidor aceita em silêncio uma ação que não sai do
-estado atual: tenta primeiro as que levam ao alvo e, para concluir, as que passam por em andamento.
+grupo-alvo (para cancelar, um estado de descarte do grupo final). O workflow não diz de onde cada ação parte e o
+servidor aceita em silêncio uma ação que não sai do estado atual: tenta primeiro as que levam ao alvo e, para
+concluir, as que passam por em andamento.
 
 | alvo | grupo | regras |
 |---|---|---|
 | `assumir` | em andamento | dono vira o login da sessão; dono outro → `conflito` (campo `dono`, detalhe = login) sem `forcar`; já concluída → `precondicao` (campo `estado`); já minha e em andamento → `ja_estava`. `iniciar_pai`: pai no estado inicial vai para em andamento (o dono dele não muda; sem dono → `precondicao`, campo `dono do pai`, conferido antes de mexer na tarefa) |
 | `concluir` | final | passa por em andamento se preciso; recusa do servidor → `precondicao` com o atributo |
 | `reabrir` | inicial | |
+| `cancelar` | descarte | só ações que levam a um estado de descarte (Cancelado, Inválido, Rejeitado, Duplicado, Descartado); já em descarte → `ja_estava`; concluída → `precondicao` (`já concluída: reabra antes`, campo `estado`); workflow sem estado de descarte → `precondicao` (`o workflow não tem cancelamento`) |
 
 ## Horas e anexos
 

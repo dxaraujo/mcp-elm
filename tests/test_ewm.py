@@ -106,6 +106,28 @@ def test_transicao_assumir_concluir_reabrir(elm, projeto):
     assert ok(chamar("elm_transicao", projeto=projeto, id=44, alvo="reabrir"))["estado"] == "Novo"
 
 
+def test_transicao_cancelar(elm, projeto):
+    elm.wi(44, "nova")
+    elm.wi(45, "em andamento", estado="s2")
+    assert ok(chamar("elm_transicao", projeto=projeto, id=44, alvo="cancelar"))["estado"] == "Cancelado"
+    assert ok(chamar("elm_transicao", projeto=projeto, id=45, alvo="cancelar"))["estado"] == "Cancelado"
+    assert ok(chamar("elm_transicao", projeto=projeto, id=45, alvo="cancelar"))["ja_estava"] is True
+    elm.wi(46, "concluída", estado="s3")
+    e = falha(chamar("elm_transicao", projeto=projeto, id=46, alvo="cancelar"))
+    assert e["codigo"] == "precondicao" and "reabra antes" in e["detalhe"] and elm.wis[46]["estado"] == "s3"
+
+
+def test_transicao_cancelar_sem_descarte_no_workflow(fake, projeto, monkeypatch):
+    import elm_fake
+    monkeypatch.setattr(elm_fake, "ESTADOS", {k: v for k, v in elm_fake.ESTADOS.items() if k != "s4"})
+    monkeypatch.setattr(elm_fake, "ACOES", {k: v for k, v in elm_fake.ACOES.items() if v[2] != "s4"})
+    elm = elm_fake.Elm(fake)
+    elm.wi(44, "nova")
+    assert falha(chamar("elm_transicao", projeto=projeto, id=44, alvo="cancelar")) == {
+        "codigo": "precondicao", "detalhe": "o workflow não tem cancelamento", "campo": "estado"}
+    assert elm.wis[44]["estado"] == "s1"
+
+
 def test_transicao_dono_outro_e_pai_sem_dono(elm, projeto):
     elm.wi(10, "IB")
     elm.wi(42, "x", dono="maria", pai=10)

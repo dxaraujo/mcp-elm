@@ -105,13 +105,13 @@ def elm_atualizar_wi(projeto: Projeto, ids: list[int], titulo: str | None = None
 
 
 @tool
-def elm_transicao(projeto: Projeto, id: Id, alvo: Literal["assumir", "concluir", "reabrir"],
+def elm_transicao(projeto: Projeto, id: Id, alvo: Literal["assumir", "concluir", "reabrir", "cancelar"],
                   estimativa_h: float | None = None,
                   forcar: Annotated[bool, Field(description="assumir de outro dono")] = False,
                   iniciar_pai: Annotated[bool, Field(description="leva o pai novo a em andamento")] = False,
                   pa: Pa = None) -> str:
-    """Leva o work item pelo workflow (assumir = meu e em andamento). → dados: {id, estado, dono, ja_estava,
-    pai?{id, estado}}"""
+    """Leva o work item pelo workflow (assumir = meu e em andamento; cancelar = descarte). → dados: {id, estado,
+    dono, ja_estava, pai?{id, estado}}"""
     return ewm.transicao(prj.carregar(projeto, pa), id, alvo, estimativa_h, forcar, iniciar_pai)
 
 
