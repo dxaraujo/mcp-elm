@@ -111,11 +111,8 @@ As `_local` leem o bundle em `<projeto>/<rm.download>` (índice em `<bundle>/sql
 `elm_sync baixar`, indexe com `elm_indexar_local`. Sem nada baixado devolvem `nao_encontrado` com `campo: "bundle"`: baixe com `elm_sync` ou pesquise no
 ELM remoto (`elm_buscar_req`/`elm_ler_req`). Detalhes no manual.
 
-## Testes e paridade
+## Testes
 
 ```bash
 uv run --with pytest python -m pytest -q
-uv run python paridade/paridade.py <projeto> --pa <nome> --wi <id> --req <id> [--iteracao <nome>]
 ```
-
-A paridade compara as leituras com o 1.0.43 (commit `a73e925`) contra o ELM real; veja o manual.

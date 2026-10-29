@@ -118,16 +118,3 @@ a `sdd-setup` precisa: times com categorias; só os tipos do fluxo (story, defec
 obrigatórias e das pedidas em `valores_de`; os tipos de link do fluxo; as 6 iterações mais recentes com planos
 (`iteracoes_total`); no DOORS Next componente, stream, pastas e tipos; no ETM a PA. A PA também exige campos por
 regra de processo (o 403 "needs to be set"), que o shape não marca: peça os valores deles por `valores_de`.
-
-## Paridade com o 1.0.43
-
-```bash
-uv run python paridade/paridade.py <projeto> --pa <nome> --wi <id> --req <id> [--iteracao <nome>] \
-  [--pa-antigo <elm.json>] [--escrita --wi-teste <id>]
-```
-
-Extrai o 1.0.43 do git para um diretório temporário, roda as operações equivalentes nele (outro processo) e no 2.0
-(este processo, pelo MCP) e imprime, por operação, igual/diferente nos campos essenciais e o tamanho da resposta
-antigo × novo. Leituras: ler WI, horas do WI, listar da iteração, ler e buscar requisito, setup, sync plano (sobre
-cópias do bundle). `--escrita` roda comentar e atualizar a descrição no `--wi-teste`, perguntando "sim" antes de
-cada uma.
