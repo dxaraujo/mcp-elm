@@ -1,7 +1,7 @@
 [project]
 name = "mcp-elm"
 version = "3.5.0"
-description = "MCP do IBM ELM (EWM, DOORS Next, ETM) para o Saíra: operações que leem o pa do projeto"
+description = "MCP do IBM ELM (EWM, DOORS Next, ETM): operações que leem o pa do projeto"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]

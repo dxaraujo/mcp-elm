@@ -1,6 +1,6 @@
-"""Arquivo do projeto: <projeto>/.kiro/config/saira/pa_<nome>.json, um por project area.
+"""Arquivo do projeto: <projeto>/.kiro/config/elm/pa_<nome>.json, um por project area.
 
-Validado pelo pa.schema.json do Saíra (cópia embutida no pacote). O caminho do projeto vem em cada chamada:
+Validado pelo pa.schema.json (cópia embutida no pacote). O caminho do projeto vem em cada chamada:
 o Kiro não inicia o MCP de um power no workspace.
 """
 from __future__ import annotations
@@ -15,7 +15,7 @@ import jsonschema
 
 from .contrato import Erro
 
-PASTA = Path(".kiro") / "config" / "saira"
+PASTA = Path(".kiro") / "config" / "elm"
 _VALIDADOR = jsonschema.Draft202012Validator(json.loads(Path(__file__).with_name("pa.schema.json").read_text("utf-8")))
 _cache: dict[Path, tuple[int, dict]] = {}
 
@@ -36,7 +36,7 @@ def arquivo(projeto: str, pa: str | None) -> Path:
     todos = nomes(projeto)
     if pa is None:
         if not todos:
-            raise Erro("config", "nenhum .kiro/config/saira/pa_<nome>.json no projeto (rode a saira-setup)", "pa")
+            raise Erro("config", "nenhum .kiro/config/elm/pa_<nome>.json no projeto", "pa")
         if len(todos) > 1:
             raise Erro("entrada", f"vários pa no projeto: {', '.join(todos)}; informe pa", "pa")
         pa = todos[0]
@@ -57,7 +57,7 @@ def faltando(dados) -> list[str]:
 
 
 def ler(arq: Path) -> dict:
-    """JSON do arquivo, com cache pelo mtime (a saira-setup pode regravá-lo com o MCP no ar)."""
+    """JSON do arquivo, com cache pelo mtime."""
     mtime = arq.stat().st_mtime_ns
     hit = _cache.get(arq)
     if hit is None or hit[0] != mtime:

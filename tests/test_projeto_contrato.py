@@ -28,7 +28,7 @@ def test_carregar_ausente_relativo_e_varios(tmp_path, projeto):
     (tmp_path / "vazio").mkdir()
     assert _erro(lambda: prj.carregar(str(tmp_path / "vazio")))["codigo"] == "config"
     assert _erro(lambda: prj.carregar("relativo/x"))["codigo"] == "entrada"
-    shutil.copy(FIXTURES / "pa_alfa.json", os.path.join(projeto, ".kiro/config/saira/pa_beta.json"))
+    shutil.copy(FIXTURES / "pa_alfa.json", os.path.join(projeto, ".kiro/config/elm/pa_beta.json"))
     e = _erro(lambda: prj.carregar(projeto))
     assert e["codigo"] == "entrada" and e["campo"] == "pa" and "alfa, beta" in e["detalhe"]
     assert prj.carregar(projeto, "beta")["ccm"]["nome"] == "Projeto Alfa"
@@ -36,7 +36,7 @@ def test_carregar_ausente_relativo_e_varios(tmp_path, projeto):
 
 
 def test_carregar_invalido_diz_o_campo(projeto):
-    arq = os.path.join(projeto, ".kiro/config/saira/pa_alfa.json")
+    arq = os.path.join(projeto, ".kiro/config/elm/pa_alfa.json")
     dados = json.load(open(arq, encoding="utf-8"))
     del dados["ccm"]["horas"]["time-code"]
     json.dump(dados, open(arq, "w", encoding="utf-8"))
@@ -45,7 +45,7 @@ def test_carregar_invalido_diz_o_campo(projeto):
 
 
 def test_cache_por_mtime(projeto):
-    arq = os.path.join(projeto, ".kiro/config/saira/pa_alfa.json")
+    arq = os.path.join(projeto, ".kiro/config/elm/pa_alfa.json")
     assert prj.carregar(projeto)["ccm"]["nome"] == "Projeto Alfa"
     dados = json.load(open(arq, encoding="utf-8"))
     dados["ccm"]["nome"] = "Renomeado"
