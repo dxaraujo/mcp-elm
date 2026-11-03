@@ -1,10 +1,11 @@
 """Bundle local do DOORS Next (<projeto>/<rm.download>, o que o elm_sync baixa): leitura, índice e consulta.
 
 Índice em <bundle>/sqlite3/okf.db (WAL: vários processos podem abrir o mesmo): documentos e chunks com vetor denso
-(float32 normalizado) + FTS5 (BM25); busca híbrida cosseno + FTS5 com fusão RRF, e rerank opcional no fim. O vetor
-vem da API configurada no elm.properties ou do modelo local (embedder); a assinatura do embedder fica na meta do
-índice — mudou (troca de modelo) e o índice é limpo e refeito. Os links entre documentos saem do disco a cada
-leitura, não do índice.
+(float32 normalizado) + FTS5 (BM25); busca híbrida cosseno + FTS5 com fusão RRF, e rerank opcional no fim (falhou,
+a busca segue na ordem RRF e devolve `erro_rerank`). O vetor vem da API configurada no elm.properties ou do modelo
+local (embedder); a assinatura do embedder e a versão do chunking ficam na meta do índice — mudou (troca de modelo
+ou formato de chunk) e o índice é limpo e refeito. Os links entre documentos saem do disco a cada leitura, não do
+índice.
 """
 from __future__ import annotations
 
@@ -27,6 +28,7 @@ from .contrato import Erro
 
 RRF_K = 60
 RERANK_WIDE = 100  # candidatos do RRF para o rerank refinar o top
+RERANK_MAX = 8000  # chars por chunk no rerank: margem de segurança no contexto de 8192 tokens do modelo
 # testes: True indexa na própria chamada; no servidor, sempre numa thread (o 1º uso baixa o modelo: minutos)
 SINCRONO = False
 _jobs: dict[str, threading.Thread] = {}
@@ -34,6 +36,7 @@ _falhas: dict[str, str] = {}
 _lock = threading.Lock()
 SNIPPET_MAX = 800
 CHUNK_MAX = 1500
+CHUNK_VER = 2  # formato do chunk: v2 quebra por linha o parágrafo > CHUNK_MAX (v1 ia inteiro); mudou: índice refazido
 RESERVED = {"index.md", "log.md"}  # reservados pelo OKF em qualquer pasta, não documentos
 SKIP = {"sync.md"}  # relatório do elm_sync na raiz
 _HEADING = re.compile(r"^(#{1,3})\s+(.+?)\s*#*\s*$", re.M)
@@ -134,14 +137,38 @@ def links(doc: dict, docs: dict, ids: dict[str, str]) -> list[dict]:
     return list(out.values())
 
 
+_SEP = re.compile(r"^\|[\s:|-]+\|$")  # separador de tabela markdown ('| --- | --- |')
+
+
+def _partes_linha(para: str) -> list[str]:
+    """Parágrafo > CHUNK_MAX em partes por linha; tabela markdown repete header + separador no começo de cada parte."""
+    linhas = para.splitlines()
+    header = None
+    if len(linhas) >= 2 and linhas[0].lstrip().startswith("|") and _SEP.match(linhas[1].strip()):
+        header = f"{linhas[0]}\n{linhas[1]}"
+    parts, cur, tam = [], [], 0
+    for linha in linhas:
+        if cur and tam + len(linha) + 1 > CHUNK_MAX:
+            parts.append("\n".join(cur))
+            cur, tam = [], 0
+        cur.append(linha)
+        tam += len(linha) + 1
+    if cur:
+        parts.append("\n".join(cur))
+    if header:
+        parts = [parts[0]] + [f"{header}\n{p}" for p in parts[1:]]
+    return parts
+
+
 def _split(text: str) -> list[str]:
-    """Quebra por parágrafo em pedaços de até CHUNK_MAX (parágrafo maior que isso vai inteiro)."""
+    """Pedaços de até CHUNK_MAX: junta parágrafos; parágrafo maior que CHUNK_MAX quebra por linha."""
     parts, cur = [], ""
     for para in re.split(r"\n\s*\n", text):
-        if cur and len(cur) + len(para) > CHUNK_MAX:
-            parts.append(cur)
-            cur = ""
-        cur = f"{cur}\n\n{para}" if cur else para
+        for ped in _partes_linha(para) if len(para) > CHUNK_MAX else [para]:
+            if cur and len(cur) + len(ped) > CHUNK_MAX:
+                parts.append(cur)
+                cur = ""
+            cur = f"{cur}\n\n{ped}" if cur else ped
     return parts + ([cur] if cur.strip() else [])
 
 
@@ -154,7 +181,8 @@ def chunks(doc: dict) -> list[dict]:
         end = marks[i].start() if i < len(marks) else len(body)
         if text := body[start:end].strip():
             sections += [(title, part.strip()) for part in _split(text) if part.strip()]
-    prefix = " ".join(filter(None, [doc["type"], doc["id"], "—", doc["title"]]))
+    base = " ".join(filter(None, [doc["type"], doc["id"]]))  # sem type/id, o "—" não fica solto
+    prefix = f"{base} — {doc['title']}" if base else doc["title"]
     return [{"section": s, "text": f"{prefix} | {doc['folder']} | {s}\n{t}"} for s, t in sections] or \
         [{"section": "", "text": f"{prefix} | {doc['folder']}\n{doc['description'] or doc['title']}"}]
 
@@ -187,13 +215,21 @@ def embed(texts: list[str]) -> np.ndarray:
     return embedder.embed(texts)
 
 
-def rerank(texto: str, hits: list[dict]) -> list[dict] | None:
-    """Reordena os chunks pela score do rerank (substitui a do RRF); None sem rerank configurado."""
-    if len(hits) < 2 or (scores := embedder.rerank(texto, [h["text"] for h in hits])) is None:
-        return None
+def rerank(texto: str, hits: list[dict]) -> tuple[list[dict] | None, str | None]:
+    """Reordena os chunks pela score do rerank (substitui a do RRF); (None, None) sem rerank configurado e
+    (None, detalhe) se a API falhar — a busca segue na ordem RRF. Cada chunk vai truncado a RERANK_MAX
+    (o contexto do modelo é de 8192 tokens)."""
+    if len(hits) < 2:
+        return None, None
+    try:
+        scores = embedder.rerank(texto, [h["text"][:RERANK_MAX] for h in hits])
+    except Exception as exc:  # o rerank é opcional: falha nele degrada para o RRF, não derruba a busca
+        return None, f"{type(exc).__name__}: {exc}"[:200]
+    if scores is None:
+        return None, None
     for h, s in zip(hits, scores):
         h["score"] = s
-    return sorted(hits, key=lambda h: h["score"], reverse=True)
+    return sorted(hits, key=lambda h: h["score"], reverse=True), None
 
 
 def _delete(con: sqlite3.Connection, path: str) -> None:
@@ -215,19 +251,24 @@ def _write(con: sqlite3.Connection, doc: dict) -> None:
         con.execute("insert into chunks_fts(rowid, text) values (?, ?)", (cid, c["text"]))
 
 
+def _mudou(meta: dict) -> bool:
+    """O índice renasce: vetores de outro modelo (dimensão muda) ou chunks do formato anterior."""
+    return meta.get("embedder") not in (None, embedder.assinatura()) or \
+        meta.get("chunking") not in (None, str(CHUNK_VER))
+
+
 def _indexar(root: str, docs: dict, forcar: bool = False) -> dict:
     """Remove do índice os apagados e (re)indexa os novos ou alterados (sha256). Assinatura do embedder
-    diferente da meta (troca de modelo: a dimensão dos vetores muda) limpa o índice inteiro, que renasce
-    do bundle + API."""
+    (troca de modelo) ou versão de chunking diferente da meta limpa o índice inteiro, que renasce do
+    bundle + API."""
     with connect(root) as con:
-        sig = embedder.assinatura()
-        if (atual := dict(con.execute("select k, v from meta")).get("embedder")) not in (None, sig):
+        if _mudou(dict(con.execute("select k, v from meta"))):
             con.execute("delete from chunks_fts")
             con.execute("delete from chunks")
             con.execute("delete from docs")
             con.commit()
-        con.execute("insert into meta(k, v) values ('embedder', ?) on conflict(k) do update set v = excluded.v",
-                    (sig,))
+        for k, v in (("embedder", embedder.assinatura()), ("chunking", str(CHUNK_VER))):
+            con.execute("insert into meta(k, v) values (?, ?) on conflict(k) do update set v = excluded.v", (k, v))
         if forcar:
             con.execute("update docs set hash = ''")  # continua buscável enquanto reindexa
         indexed = dict(con.execute("select path, hash from docs"))
@@ -244,8 +285,10 @@ def _indexar(root: str, docs: dict, forcar: bool = False) -> dict:
     return {"documentos": len(docs), "indexados": done, "removidos": len(removed), "restantes": len(pending) - done}
 
 
-def _search(con: sqlite3.Connection, query: str, wide: int, folder: str | None, type_: str | None) -> list[dict]:
-    """Até `wide` chunks, do mais relevante: [{path, section, text, id, title, type, folder, score}]."""
+def _search(con: sqlite3.Connection, query: str, wide: int, folder: str | None, type_: str | None) \
+        -> tuple[list[dict], str | None]:
+    """Até `wide` chunks, do mais relevante: [{path, section, text, id, title, type, folder, score}], com o
+    erro do rerank (None se ele reordenou ou não está configurado)."""
     where, args = "1 = 1", []
     for col, value in (("folder", folder), ("type", type_)):
         if value is not None:
@@ -276,9 +319,10 @@ def _search(con: sqlite3.Connection, query: str, wide: int, folder: str | None, 
     hits = [dict(zip(("path", "section", "text", "id", "title", "type", "folder"), found[cid][1:]),
                  score=rrf[cid]) for cid in best]
     # 2º estágio: o rerank (cross-encoder, por API) reordena o top do RRF
-    if (reordenados := rerank(query, hits)) is not None:
+    reordenados, erro_rerank = rerank(query, hits)
+    if reordenados is not None:
         hits = reordenados
-    return hits
+    return hits, erro_rerank
 
 
 # --- operações (as tools elm_*_local)
@@ -295,11 +339,11 @@ def _bundle(cfg: dict) -> tuple[str, dict]:
 
 def _progresso(root: str, docs: dict) -> dict:
     with connect(root) as con:
-        meta = dict(con.execute("select k, v from meta")).get("embedder")
+        meta = dict(con.execute("select k, v from meta"))
         indexed = dict(con.execute("select path, hash from docs"))
-    embedder_mudou = meta not in (None, embedder.assinatura())  # vetores de outro modelo: tudo renasce
+    mudou = _mudou(meta)  # vetores de outro modelo ou chunks do formato antigo: tudo renasce
     restantes = sum(p not in docs for p in indexed) + \
-        (len(docs) if embedder_mudou else sum(indexed.get(p) != d["hash"] for p, d in docs.items()))
+        (len(docs) if mudou else sum(indexed.get(p) != d["hash"] for p, d in docs.items()))
     job = _jobs.get(root)
     return {"documentos": len(docs), "restantes": restantes, "indexando": bool(job and job.is_alive()),
             **({"erro_indice": _falhas[root]} if root in _falhas else {})}
@@ -351,7 +395,7 @@ def buscar(cfg: dict, texto: str, limite: int = 8, pasta: str | None = None, tip
         idx = disparar(root, docs)
     wide = max(limite * 5, RERANK_WIDE) if embedder.tem_rerank() else limite * 5
     with connect(root) as con:
-        hits = _search(con, texto, wide, pasta, tipo)
+        hits, erro_rerank = _search(con, texto, wide, pasta, tipo)
     out: dict[str, dict] = {}
     for h in hits:
         r = out.get(h["path"])
@@ -363,6 +407,7 @@ def buscar(cfg: dict, texto: str, limite: int = 8, pasta: str | None = None, tip
         if len(r["trechos"]) < 2:
             r["trechos"].append({"secao": h["section"], "texto": h["text"].split("\n", 1)[-1][:SNIPPET_MAX]})
     return {"itens": list(out.values()),
+            **({"erro_rerank": erro_rerank} if erro_rerank else {}),
             **({"indexando": True, "restantes": idx["restantes"]} if idx["restantes"] else {})}
 
 

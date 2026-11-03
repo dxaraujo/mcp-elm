@@ -69,6 +69,29 @@ def test_chunks_por_heading_e_paragrafo(raiz):
     assert len(local.chunks(doc)) == 3
 
 
+def _doc(body: str) -> dict:
+    return {"body": body, "type": "Caso de Uso", "id": "1", "title": "T", "folder": "f", "description": None}
+
+
+def test_chunks_quebram_paragrafo_longo_por_linha(raiz):
+    # lista numerada sem linha em branco (o caso que virava 1 único chunk): vira vários pedaços coesos
+    body = "\n".join(f"{i:02d}. Passo do fluxo com descrição longa o suficiente para ocupar o documento."
+                     for i in range(1, 61))
+    parts = local.chunks(_doc(body))
+    assert len(parts) >= 3
+    assert max(len(p["text"]) for p in parts) <= local.CHUNK_MAX + 100  # prefixo de contexto + a linha que estourou
+    corpo = "\n".join(p["text"].split("\n", 1)[1] for p in parts)
+    assert "01. " in corpo and "60. " in corpo  # nada se perdeu na quebra
+
+
+def test_chunks_de_tabela_repetem_o_header(raiz):
+    tabela = "| Coluna A | Coluna B |\n| --- | --- |\n" + \
+        "\n".join(f"| valor {i} | descrição do valor {i:02d} com texto suficiente |" for i in range(40))
+    parts = local.chunks(_doc(tabela))
+    assert len(parts) > 1
+    assert all(p["text"].split("\n", 1)[1].startswith("| Coluna A | Coluna B |\n| --- | --- |\n") for p in parts)
+
+
 def test_indexacao_incremental(projeto, raiz, monkeypatch):
     assert call("elm_indexar_local", projeto) == {"documentos": 3, "restantes": 0, "indexando": False}
     assert call("elm_indexar_local", projeto)["restantes"] == 0
@@ -113,6 +136,19 @@ def test_troca_de_embedder_limpa_e_refaz_o_indice(projeto, raiz, monkeypatch):
     assert call("elm_buscar_req_local", projeto, texto="CPF")["itens"]  # e a busca segue funcionando
 
 
+def test_mudanca_de_chunking_limpa_e_refaz_o_indice(projeto, raiz, monkeypatch):
+    call("elm_indexar_local", projeto)
+    with local.connect(raiz) as con:
+        assert con.execute("select v from meta where k = 'chunking'").fetchone()[0] == str(local.CHUNK_VER)
+        cid_max = con.execute("select max(cid) from chunks").fetchone()[0]
+    # versão do chunk mudou (formato do chunk: os vetores foram feitos sobre o texto antigo) -> renasce
+    monkeypatch.setattr(local, "CHUNK_VER", local.CHUNK_VER + 1)
+    assert call("elm_indexar_local", projeto) == {"documentos": 3, "restantes": 0, "indexando": False}
+    with local.connect(raiz) as con:
+        assert con.execute("select min(cid) from chunks").fetchone()[0] > cid_max  # nada do formato antigo
+        assert con.execute("select v from meta where k = 'chunking'").fetchone()[0] == str(local.CHUNK_VER)
+
+
 def test_busca_com_rerank_reordena_o_top(projeto, raiz, monkeypatch):
     call("elm_indexar_local", projeto)
     assert call("elm_buscar_req_local", projeto, texto="módulo 11 dígitos verificadores")["itens"][0]["path"] == RN
@@ -122,12 +158,40 @@ def test_busca_com_rerank_reordena_o_top(projeto, raiz, monkeypatch):
         reordenados = [hits[i] for i in ordem]
         for pos, h in enumerate(reordenados):
             h["score"] = 1.0 - pos * 0.01
-        return reordenados
+        return reordenados, None
 
     monkeypatch.setattr(local, "rerank", falso_rerank)
     d = call("elm_buscar_req_local", projeto, texto="módulo 11 dígitos verificadores")
     assert d["itens"][0]["path"] == LOGIN and d["itens"][0]["score"] == 1.0
     assert d["itens"] == sorted(d["itens"], key=lambda i: -i["score"])
+
+
+def test_busca_sobrevive_a_falha_do_rerank(projeto, raiz, monkeypatch):
+    """O rerank é refinamento: falhou na API, a busca segue na ordem RRF e avisa com erro_rerank."""
+    from mcp_elm.contrato import Erro
+    call("elm_indexar_local", projeto)
+
+    def explode(texto, docs):
+        raise Erro("indisponivel", "api de embeddings: boom")
+    monkeypatch.setattr(embedder, "rerank", explode)
+    d = call("elm_buscar_req_local", projeto, texto="módulo 11 dígitos verificadores")
+    assert d["itens"] and d["itens"][0]["path"] == RN  # ordem RRF preservada
+    assert "boom" in d["erro_rerank"]
+
+
+def test_rerank_trunca_chunks_acima_do_limite(projeto, raiz, monkeypatch):
+    """Chunk maior que RERANK_MAX (contexto de 8192 tokens do modelo) vai truncado para a API."""
+    with open(os.path.join(raiz, "03-Regras/2002-rn-bloco-gigante.md"), "w", encoding="utf-8") as f:
+        f.write(f'---\ntype: Regra de Negócio\ntitle: RN - Bloco gigante\nid: 2002\n---\nx * {local.RERANK_MAX + 500}\n')
+    call("elm_indexar_local", projeto)
+    vistos: list[str] = []
+
+    def espiao(texto, docs):
+        vistos.extend(docs)
+        return [0.5] * len(docs)
+    monkeypatch.setattr(embedder, "rerank", espiao)
+    d = call("elm_buscar_req_local", projeto, texto="x")
+    assert d["itens"] and vistos and all(len(t) <= local.RERANK_MAX for t in vistos)
 
 
 def test_indexacao_em_segundo_plano_responde_na_hora(projeto, raiz, monkeypatch):
