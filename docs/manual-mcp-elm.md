@@ -114,13 +114,18 @@ A indexação roda numa thread do servidor (o 1º uso baixa o modelo, que leva m
 
 **Visualizador** (`elm_explorar_local`): gera `<bundle>/explorar.html` — HTML único que abre o bundle no
 navegador sem internet (intranet): galáxias de documentos (planeta = documento, lua = chunk do planeta
-selecionado) na vista 3D (3d-force-graph/three.js) ou 2D (Cytoscape.js), com busca, filtros por
-tipo/pasta/galáxia e Markdown (marked + DOMPurify). As quatro libs ficam em `assets/` e vão embutidas no
-HTML no gerar. Documentos, vetores e chunks saem do índice em modo somente leitura (nada de reindexação
-aqui): sem índice, `precondicao` com `campo: "indice"` apontando o `elm_indexar_local`. O agrupamento é
-semântico, não por pasta: agregativo, linkage média, distância de cosseno entre a média normalizada dos
-vetores dos chunks do documento, funde enquanto a distância for menor que 0.30. Nota: o asset do
-3d-force-graph é o 1.73.4 e, no embutir, recebe o backport do fix oficial upstream
+selecionado) na vista 3D (3d-force-graph/three.js) — a única vista: sem WebGL, uma mensagem de
+indisponível (sem fallback 2D) —, com busca, filtro por tipo, isolamento por galáxia e
+Markdown (marked + DOMPurify).
+As três libs ficam em `assets/` e vão embutidas no HTML no gerar. Documentos, vetores e chunks saem do
+índice em modo somente leitura (nada de reindexação aqui): sem índice, `precondicao` com `campo: "indice"`
+apontando o `elm_indexar_local`. As galáxias são por Caso de Uso / História de Usuário: cada documento com
+`type` "Caso de Uso" ou "História de Usuário" é centro de uma (nomeada pelo título dele), e membro é
+documento com RELAÇÃO DIRETA (link de entrada ou de saída, qualquer rel) OU relação semântica (distância de
+cosseno ≤ 0.30 entre a média normalizada dos vetores dos chunks do documento e a do centro —
+artefato-a-artefato, nunca chunk a chunk); a direta manda, cada documento vai a UMA galáxia (os centros, por
+menor path) e o resto fica na galáxia catch-all "Tudo" (omitida se vazia; bundle sem UC/HF, só "Tudo").
+Nota: o asset do 3d-force-graph é o 1.73.4 e, no embutir, recebe o backport do fix oficial upstream
 (vasturiano/three-forcegraph@`f89a2000ee`, "Prevent layoutTick from running before layout is assigned") —
 sem ele, o 1º `graphData` faz `state.layout.tick()` num layout ainda não atribuído e a vista 3D nasce em
 branco (o `RuntimeError` do `_ler_asset` trava o gerar se o asset trocar de versão).

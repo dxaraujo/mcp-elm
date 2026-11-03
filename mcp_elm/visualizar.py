@@ -1,13 +1,16 @@
 """Visualização do bundle local: <bundle>/explorar.html — o bundle em galáxias, num HTML autocontido.
 
-Galáxia = cluster semântico (agregativo, linkage média, distância de cosseno entre a média normalizada dos
-vetores dos chunks do documento; funde enquanto a distância for menor que LIMITE); planeta = documento
-(tamanho proporcional a links + chunks); lua = chunk (orbita o planeta selecionado). Os documentos e vetores
-saem do índice local em modo somente leitura (nada de reindexação aqui) e os links saem do disco com a mesma
-lógica do elm_ler_req_local. As bibliotecas (3d-force-graph/three.js na vista 3D, Cytoscape.js na vista 2D,
-marked + DOMPurify no Markdown) ficam em assets/ e vão embutidas no HTML: abre no navegador sem internet
-(intranet). Sem extensão 3D para o Cytoscape (o Cytoscape.js é 2D), a 3D é do 3d-force-graph — a mesma
-família three.js do visualizador anterior.
+Galáxia = um Caso de Uso (UC) ou História de Usuário (HF) no centro, reunindo os documentos com RELAÇÃO
+DIRETA (link de entrada ou saída, qualquer rel) ou RELAÇÃO SEMÂNTICA (distância de cosseno ≤ LIMITE entre o
+vetor do documento — média normalizada dos vetores dos chunks, artefato-a-artefato, nunca chunk a chunk — e o
+do centro); a relação direta manda e cada documento entra em no máximo uma galáxia (centro de menor path); o
+resto vai para a galáxia catch-all "Tudo" (bundle sem UC/HF: uma única "Tudo" com tudo). Planeta = documento
+(tamanho proporcional a links + chunks); lua = chunk (orbita o planeta selecionado). No 3D, cada galáxia é
+uma esfera: o centro fixo e os demais numa casca de raio que cresce com o nº de membros. Os documentos e
+vetores saem do índice local em modo somente leitura (nada de reindexação aqui) e os links saem do disco com
+a mesma lógica do elm_ler_req_local. As bibliotecas (3d-force-graph/three.js no grafo 3D — a 3D é só do
+3d-force-graph, sem fallback 2D —, marked + DOMPurify no Markdown) ficam em assets/ e vão embutidas no HTML:
+abre no navegador sem internet (intranet).
 """
 from __future__ import annotations
 
@@ -22,7 +25,8 @@ import numpy as np
 from . import local
 from .contrato import Erro
 
-LIMITE = 0.3  # distância de cosseno: funde clusters enquanto a distância de linkage média for menor que ela
+LIMITE = 0.3  # distância de cosseno: relação semântica entre documento e centro da galáxia
+CENTROS = ("Caso de Uso", "História de Usuário")  # types que viram centro de galáxia
 ASSETS = Path(__file__).parent / "assets"
 
 # 3d-force-graph 1.73.4 tem um crash: d3ReheatSimulation() liga engineRunning antes do primeiro digest
@@ -112,18 +116,54 @@ def aglomerar(X: np.ndarray, limite: float) -> list[int]:
     return out
 
 
-def _nome(X: np.ndarray, membros: list[int], titulos: list[str]) -> str:
-    """Título do documento mais próximo do centroide (normalizado) do cluster."""
-    c = X[membros].mean(axis=0)
-    if not np.linalg.norm(c):
-        return titulos[membros[0]]
-    return titulos[int(np.argmax(X[membros] @ (c / np.linalg.norm(c))))]
+def galaxias_docs(paths: list[str], titulos: dict[str, str], tipos: dict[str, str | None],
+                  arestas: dict[tuple[str, str], list[str]], vetores: dict[str, np.ndarray],
+                  limite: float = LIMITE) -> tuple[list[str], list[list[str]], list[str | None]]:
+    """Atribui cada documento a UMA galáxia (função pura, determinística).
+
+    Centro = documento cujo type é UC ou HF, na ordem estável de `paths` (menor path primeiro); o nome da
+    galáxia é o título do centro. Membro = documento (que não seja centro) com RELAÇÃO DIRETA com o centro
+    (aresta de saída OU de entrada, qualquer rel) OU RELAÇÃO SEMÂNTICA (cosseno ≤ limite entre o vetor do
+    documento e o do centro — artefato-a-artefato, nunca chunk a chunk). A direta manda: as duas passadas
+    (direta e depois semântica) rodam nos centros por menor path. O resto vai para a galáxia catch-all
+    "Tudo", omitida se vazia; sem nenhum UC/HF, "Tudo" recebe tudo. → (nomes, grupos, centros).
+    """
+    centros = [p for p in paths if tipos.get(p) in CENTROS]
+    if not centros:
+        return ["Tudo"], [list(paths)], [None]
+    grupos: dict[str, list[str]] = {c: [c] for c in centros}
+    atribuido = set(centros)
+    for c in centros:  # passada 1: relação direta (manda sobre a semântica)
+        for p in paths:
+            if p not in atribuido and ((c, p) in arestas or (p, c) in arestas):
+                grupos[c].append(p)
+                atribuido.add(p)
+    for c in centros:  # passada 2: relação semântica, só o que ficou fora
+        vc = vetores.get(c)
+        if vc is None:
+            continue
+        for p in paths:
+            if p in atribuido:
+                continue
+            vp = vetores.get(p)
+            if vp is not None and float(np.clip(1.0 - np.dot(vc, vp), 0.0, 2.0)) <= limite:
+                grupos[c].append(p)
+                atribuido.add(p)
+    nomes = [titulos.get(c) or c for c in centros]
+    grupos_l = [grupos[c] for c in centros]
+    centros_l = list(centros)
+    resto = [p for p in paths if p not in atribuido]
+    if resto:
+        nomes.append("Tudo")
+        grupos_l.append(resto)
+        centros_l.append(None)
+    return nomes, grupos_l, centros_l
 
 
 def _pagina(dados: dict) -> str:
     js = json.dumps(dados, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
     html = PAGINA
-    for nome, arquivo in (("CYTOSCAPE", "cytoscape.min.js"), ("FORCA3D", "3d-force-graph.min.js"),
+    for nome, arquivo in (("FORCA3D", "3d-force-graph.min.js"),
                           ("MARKED", "marked.min.js"), ("PURIFY", "purify.min.js")):
         html = html.replace(f"__{nome}__", _ler_asset(arquivo))
     return html.replace("__DATA__", js)
@@ -158,29 +198,16 @@ def gerar(cfg: dict) -> dict:
         grau[l["de"]] = grau.get(l["de"], 0) + 1
         grau[l["para"]] = grau.get(l["para"], 0) + 1
 
-    # galáxias: cluster semântico dos vetores; sem vetores -> "Tudo"; só alguns sem -> "Sem índice"
-    com_vetor = [p for p in paths if p in vetores]
-    sem_vetor = [p for p in paths if p not in vetores]
+    if len({v.shape[0] for v in vetores.values()}) > 1:  # índice com dois embedders: sem como comparar
+        raise Erro("precondicao", "índice com vetores de dimensões diferentes: rode "
+                    "elm_indexar_local (forcar)", "indice")
+    # galáxias: uma por UC/HF (membros por relação direta ou semântica) + "Tudo" para o resto
+    tipos = {l[0]: l[3] for l in linhas}
     titulo = {l[0]: (l[2] or "") for l in linhas}
-    if not com_vetor:
-        grupos, nomes = [paths], ["Tudo"]
-    else:
-        if len({v.shape[0] for v in vetores.values()}) > 1:  # índice com dois embedders: sem como fundir
-            raise Erro("precondicao", "índice com vetores de dimensões diferentes: rode "
-                        "elm_indexar_local (forcar)", "indice")
-        X = np.stack([vetores[p] for p in com_vetor]).astype(np.float64)
-        clusters = aglomerar(X, LIMITE)
-        por: dict[int, list[int]] = {}
-        for idx, c in enumerate(clusters):
-            por.setdefault(c, []).append(idx)
-        grupos = [[com_vetor[i] for i in mem] for mem in por.values()]
-        nomes = [_nome(X, mem, [titulo[com_vetor[i]] for i in mem]) for mem in por.values()]
-        if sem_vetor:
-            grupos.append(sem_vetor)
-            nomes.append("Sem índice")
+    nomes, grupos, centros = galaxias_docs(paths, titulo, tipos, arestas, vetores)
     # maior galáxia primeiro (empate: o path menor), numerando de 0
-    ordenado = sorted(zip(nomes, grupos), key=lambda gn: (-len(gn[1]), min(gn[1])))
-    nomes, grupos = [n for n, _ in ordenado], [m for _, m in ordenado]
+    ordenado = sorted(zip(nomes, grupos, centros), key=lambda t: (-len(t[1]), min(t[1])))
+    nomes, grupos, centros = [n for n, _, _ in ordenado], [m for _, m, _ in ordenado], [c for _, _, c in ordenado]
     gal_de: dict[str, int] = {}
     for gid, membros in enumerate(grupos):
         for p in membros:
@@ -197,7 +224,8 @@ def gerar(cfg: dict) -> dict:
              "docs": docs_json,
              "links": links,
              "chunks": [{"path": p, "secao": s, "texto": t} for p, s, t in chunk_rows],
-             "galaxias": [{"id": gid, "nome": nomes[gid], "docs": len(m)} for gid, m in enumerate(grupos)]}
+             "galaxias": [{"id": gid, "nome": nomes[gid], "docs": len(m), "centro": centros[gid]}
+                           for gid, m in enumerate(grupos)]}
     out = Path(root) / "explorar.html"
     out.write_text(_pagina(dados), encoding="utf-8")
     return {"path": str(out), "documentos": len(docs_json), "chunks": len(chunk_rows),
@@ -211,7 +239,6 @@ PAGINA = r"""<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Galáxias do bundle</title>
-<script>__CYTOSCAPE__</script>
 <script>__FORCA3D__</script>
 <script>__MARKED__</script>
 <script>__PURIFY__</script>
@@ -225,12 +252,10 @@ body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 system-ui,
 header { padding:10px 16px; border-bottom:1px solid var(--line); display:flex; flex-wrap:wrap; gap:8px 20px; align-items:center; }
 header h1 { font-size:16px; margin:0; }
 header .stat { color:var(--muted); font-size:13px; }
-.toolbar { margin-left:auto; display:flex; gap:10px; align-items:center; }
-.toolbar label { font-size:13px; color:var(--muted); }
-.toolbar select { padding:5px 8px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); font:inherit; }
-.vtog { border:1px solid var(--line); background:var(--bg); color:var(--fg); border-radius:6px; padding:5px 12px; cursor:pointer; font:inherit; }
-.vtog.on { background:var(--accent); border-color:var(--accent); color:#fff; }
-main { display:grid; grid-template-columns:290px 1fr minmax(380px, 40%); height:calc(100vh - 47px); }
+main { display:grid; grid-template-columns:var(--w-esq,290px) 1fr var(--w-dir,420px); height:calc(100vh - 47px); }
+main.sem-detalhe { grid-template-columns:var(--w-esq,290px) 1fr 0; }
+main.sem-detalhe #detail, main.sem-detalhe #arr-dir { display:none; }
+main.sem-detalhe #graph { border-right:0; }
 aside, section { overflow:auto; border-right:1px solid var(--line); background:var(--panel); }
 #filters { padding:10px 12px; display:grid; gap:8px; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--panel); z-index:1; }
 input, select { width:100%; padding:6px 8px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); font:inherit; }
@@ -241,21 +266,32 @@ input, select { width:100%; padding:6px 8px; border:1px solid var(--line); borde
 #list .t { font-weight:600; }
 #list .m { color:var(--muted); font-size:12px; }
 #graph { position:relative; overflow:hidden; background:#070b16; border-right:1px solid var(--line); }
-#g3d, #g2d { position:absolute; inset:0; }
-#g2d { background:var(--bg); }
+#g3d { position:absolute; inset:0; }
+.arr { position:absolute; top:0; bottom:0; width:7px; cursor:col-resize; z-index:4; touch-action:none; }
+.arr.esq { left:0; } .arr.dir { right:0; }
+.arr.on { background:rgba(96,165,250,.35); }
 #graph .off { position:absolute; inset:0; display:grid; place-items:center; color:var(--muted); padding:16px; text-align:center; }
 #graph .hint { position:absolute; right:10px; bottom:8px; color:#94a3b8; font-size:12px; pointer-events:none; }
-#legenda { position:absolute; left:10px; bottom:10px; max-width:320px; max-height:52%; overflow:auto; background:var(--panel);
-  border:1px solid var(--line); border-radius:8px; padding:8px 10px; z-index:2; box-shadow:0 2px 10px rgba(0,0,0,.25); }
-#legenda h4 { margin:0 0 6px; font-size:12px; color:var(--muted); text-transform:lowercase; }
-#legenda .legitem { display:flex; gap:8px; align-items:center; padding:2px 4px; border-radius:5px; cursor:pointer; font-size:12px; }
-#legenda .legitem:hover { background:var(--chip); }
-#legenda .legitem.on { background:var(--chip); outline:1px solid var(--accent); }
-#legenda .sw { width:11px; height:11px; border-radius:3px; flex:none; }
-#tip { position:absolute; display:none; z-index:3; pointer-events:none; background:var(--panel); color:var(--fg);
-  border:1px solid var(--line); border-radius:6px; padding:4px 8px; font-size:12px; max-width:340px; box-shadow:0 2px 8px rgba(0,0,0,.3); }
+#gals { position:fixed; left:10px; bottom:10px; width:232px; max-height:56vh; display:flex; flex-direction:column;
+  background:var(--panel); border:1px solid var(--line); border-radius:8px; z-index:10; box-shadow:0 2px 10px rgba(0,0,0,.25); }
+#gals-h { display:flex; gap:6px; align-items:center; padding:6px 8px; border-bottom:1px solid var(--line);
+  cursor:grab; user-select:none; touch-action:none; font-size:12px; color:var(--muted); }
+#gals-h:active { cursor:grabbing; }
+#gals-min { margin-left:auto; border:0; background:var(--chip); color:var(--fg); border-radius:4px; width:18px; height:18px;
+  line-height:1; cursor:pointer; font:12px/1 system-ui; flex:none; }
+#gals-l { overflow:auto; padding:4px; }
+.galitem { display:flex; gap:8px; align-items:center; padding:3px 6px; border-radius:5px; cursor:pointer; font-size:12px; }
+.galitem:hover { background:var(--chip); }
+.galitem.on { background:var(--chip); outline:1px solid var(--accent); }
+.galitem .sw { width:11px; height:11px; border-radius:3px; flex:none; }
+.galitem .nm { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.galitem .ct { color:var(--muted); flex:none; }
 #detail { padding:16px 20px; border-right:0; }
+#detail .topo { display:flex; gap:8px; align-items:flex-start; justify-content:space-between; }
 #detail h2.title { font-size:18px; margin:0 0 4px; }
+.fechar { border:1px solid var(--line); background:var(--bg); color:var(--fg); border-radius:6px; width:28px; height:28px;
+  flex:none; cursor:pointer; font:16px/1 system-ui; }
+.fechar:hover { background:var(--chip); }
 #detail h3.sec { font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin:24px 0 6px; border-top:1px solid var(--line); padding-top:12px; }
 #detail .m { color:var(--muted); }
 #detail a { color:var(--accent); }
@@ -280,10 +316,11 @@ pre.chunktxt { margin:4px 0 8px; }
 .md img { max-width:100%; }
 pre.raw { white-space:pre-wrap; font:13px/1.5 ui-monospace, monospace; }
 @media (max-width: 900px) {
-  main { grid-template-columns:1fr; height:auto; }
+  main, main.sem-detalhe { grid-template-columns:1fr; height:auto; }
   aside, section { border-right:0; border-bottom:1px solid var(--line); max-height:60vh; }
   #graph { height:60vh; }
   #detail { max-height:none; }
+  .arr { display:none; }
 }
 </style>
 </head>
@@ -291,27 +328,24 @@ pre.raw { white-space:pre-wrap; font:13px/1.5 ui-monospace, monospace; }
 <header>
   <h1 id="name"></h1>
   <span class="stat" id="stats"></span>
-  <div class="toolbar">
-    <button class="vtog on" data-m="3d" id="vtog3d">3D</button>
-    <button class="vtog" data-m="2d" id="vtog2d">2D</button>
-    <label>cor por <select id="corpo" aria-label="Colorir por">
-      <option value="tipo" selected>tipo</option><option value="pasta">pasta</option><option value="galáxia">galáxia</option>
-    </select></label>
-  </div>
 </header>
-<main>
+<main id="layout" class="sem-detalhe">
   <aside>
     <div id="filters">
       <input id="q" type="search" placeholder="Filtrar por título, id, descrição…" aria-label="Filtro">
+      <select id="tipo" aria-label="Tipo de artefato"></select>
       <div id="conta"></div>
     </div>
     <ul id="list"></ul>
   </aside>
   <section id="graph" aria-label="Galáxias do bundle">
     <div id="g3d"></div>
-    <div id="g2d" style="display:none"></div>
-    <div id="legenda"></div>
-    <div id="tip"></div>
+    <div id="arr-esq" class="arr esq" title="Arraste para mudar a largura da lista" aria-hidden="true"></div>
+    <div id="arr-dir" class="arr dir" title="Arraste para mudar a largura do painel" aria-hidden="true"></div>
+    <div id="gals">
+      <div id="gals-h" title="Arraste para mover"><span id="gals-t">Galáxias</span><button id="gals-min" aria-label="Minimizar">–</button></div>
+      <div id="gals-l"></div>
+    </div>
   </section>
   <section id="detail"><p class="m">Selecione um documento na lista, no grafo ou numa lua.</p></section>
 </main>
@@ -332,16 +366,19 @@ const CENTRO = D.galaxias.map((g, i) => {
   const phi = Math.acos(1 - 2 * (i + 0.5) / KGAL), th = Math.PI * (1 + Math.sqrt(5)) * (i + 0.5);
   return [R_GAL * Math.sin(phi) * Math.cos(th), R_GAL * Math.sin(phi) * Math.sin(th), R_GAL * Math.cos(phi)];
 });
+// casca esférica de cada galáxia: core fixo no centro, os demais a R_gal (cresce com o nº de membros)
+const RAIO = D.galaxias.map(g => Math.max(8, 6 + 3.5 * Math.cbrt(g.docs - 1)));
+// cor fixa por galáxia (ângulo dourado); a catch-all "Tudo" (sem centro UC/HF) fica discreta
+const corGal = new Map(D.galaxias.map((g, i) => [i, g.centro == null ? "hsl(215, 14%, 52%)" : `hsl(${Math.round(i * 137.508) % 360}, 62%, 58%)`]));
 const out = {}, inc = {};
 for (const l of D.links) { (out[l.de] ||= []).push(l); (inc[l.para] ||= []).push(l); }
 const deDoc = {};
 for (const c of D.chunks) (deDoc[c.path] ||= []).push(c);
 
 // ---------- estado
-let corCampo = "tipo", corMapa = new Map(), corGal = new Map(), isolado = null, busca = "";
-let selecionado = null, modo = window.ForceGraph3D ? "3d" : "2d";
-let g3d = null, cy = null, N3D = [], L3D = [];
-const TAU = Math.PI * 2, TAM = 2.2, LUA_MAX = 40;  // TAM = nodeRelSize da vista 3D; LUA_MAX = luas por planeta
+let isolado = null, busca = "", tipoF = "", selecionado = null;  // isolado = id da galáxia (ou null)
+let g3d = null, N3D = [], L3D = [];
+const TAU = Math.PI * 2, TAM = 2.2, LUA_MAX = 40;  // TAM = nodeRelSize; LUA_MAX = luas por planeta
 const t0 = performance.now();
 
 // ---------- util
@@ -350,63 +387,30 @@ const el = (tag, text, cls) => { const e = document.createElement(tag); if (text
 const esc = s => { const e = document.createElement("span"); e.textContent = s ?? ""; return e.innerHTML; };
 const rotulo = d => (d.id ? d.id + " — " : "") + d.titulo;
 const docHash = p => "#doc=" + encodeURIComponent(p);
-const valor = d => corCampo === "tipo" ? (d.tipo || "(sem tipo)") : corCampo === "pasta" ? (d.subpasta || d.pasta || "(raiz)") : "gal:" + d.galaxia;
-const rotuloValor = v => v.startsWith("gal:") ? gal[+v.slice(4)].nome : v;
-// semente determinística por caminho (posição inicial dos planetas, em [-1, 1])
+// semente determinística por caminho (direção inicial dos planetas na casca, em [-1, 1])
 const semente = (s, k) => { let h = 2166136261 ^ s.length; for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619); h = Math.imul(h ^ (h >>> (5 * k + 3)), 16777619); return ((h >>> 0) % 1000) / 500 - 1; };
 const matchBusca = d => !busca || [d.id, d.titulo, d.descricao, d.pasta, d.path, gal[d.galaxia].nome].some(x => x && String(x).toLowerCase().includes(busca));
-const matchBuscaGal = i => !busca || String(gal[i].nome).toLowerCase().includes(busca);
-function dimDoc(d) {
-  if (busca && !matchBusca(d)) return true;
-  if (!isolado) return false;
-  const v = isolado.campo === "tipo" ? (d.tipo || "(sem tipo)") : isolado.campo === "pasta" ? (d.subpasta || d.pasta || "(raiz)") : "gal:" + d.galaxia;
-  return v !== isolado.valor;
-}
-const dimCore = i => (busca && !matchBuscaGal(i)) || (!!isolado && !(isolado.campo === "galáxia" && isolado.valor === "gal:" + i));
-const corDoc = d => corMapa.get(valor(d));
-const corDoCore = i => corMapa.get("gal:" + i) || corGal.get(i);
+const matchGal = i => !busca || String(gal[i].nome).toLowerCase().includes(busca);
+const matchTipo = d => !tipoF || (d.tipo || "(sem tipo)") === tipoF;
+const dimDoc = d => (!matchTipo(d) || !matchBusca(d)) || (isolado !== null && d.galaxia !== isolado);
+const dimCore = i => !matchGal(i) || (isolado !== null && isolado !== i);
 
-// ---------- cor / legenda
-function repaleta() {
-  const vals = [...new Set(docs.map(valor))].sort((a, b) => a.localeCompare(b, "pt-BR"));
-  corMapa = new Map(vals.map((v, i) => [v, `hsl(${Math.round(i * 137.508) % 360}, 62%, 58%)`]));
-  // as galáxias têm cor própria sempre (o nó core aparece em qualquer "cor por")
-  corGal = new Map(D.galaxias.map((g, i) => [i, `hsl(${(Math.round(i * 137.508) + 180) % 360}, 70%, 55%)`]));
-  repintar();
-  legenda();
-}
-function legenda() {
-  const box = $("legenda");
-  box.replaceChildren(el("h4", `cor por ${corCampo}` + (isolado ? ` · isola: ${rotuloValor(isolado.valor)}` : " · clique isola")));
-  const cont = {};
-  for (const d of docs) { const v = valor(d); cont[v] = (cont[v] || 0) + 1; }
-  for (const v of Object.keys(cont).sort((a, b) => cont[b] - cont[a] || a.localeCompare(b, "pt-BR"))) {
-    const item = el("div", null, "legitem" + (isolado && isolado.valor === v ? " on" : ""));
-    const sw = el("span", null, "sw"); sw.style.background = corMapa.get(v);
-    item.append(sw, el("span", `${rotuloValor(v)} (${cont[v]})`));
-    item.onclick = () => { isolado = (isolado && isolado.valor === v) ? null : { campo: corCampo, valor: v }; repintar(); };
+// ---------- painel flutuante de galáxias (arrasta no header, clique no item isola)
+function renderGals() {
+  $("gals-t").textContent = `Galáxias (${KGAL})` + (isolado !== null ? ` · isola: ${gal[isolado].nome}` : " · clique isola");
+  const box = $("gals-l"); box.replaceChildren();
+  for (const g of D.galaxias) {
+    const item = el("div", null, "galitem" + (isolado === g.id ? " on" : ""));
+    const sw = el("span", null, "sw"); sw.style.background = corGal.get(g.id);
+    item.append(sw, el("span", g.nome, "nm"), el("span", `(${g.docs})`, "ct"));
+    item.title = g.nome;
+    item.onclick = () => { isolado = isolado === g.id ? null : g.id; repintar(); };
     box.append(item);
   }
 }
-function dimNodo(n) {
-  const d = n.data();
-  if (d.core !== undefined) return dimCore(d.core);
-  if (d.lua !== undefined) return dimDoc(byPath[d.path]);
-  return dimDoc(byPath[n.id()]);
-}
-function corNodo2(n) {
-  const d = n.data();
-  if (d.core !== undefined) return dimNodo(n) ? "#9ca3af" : corDoCore(d.core);
-  if (d.lua !== undefined) return "#94a3b8";
-  return dimNodo(n) ? "#d6d3d1" : corDoc(byPath[n.id()]);
-}
 function repintar() {
-  if (g3d) g3d.nodeColor(nodeColor3).linkColor(linkColor3);
-  if (cy) {
-    cy.nodes().forEach(n => n.style("background-color", corNodo2(n)));
-    cy.edges().forEach(e => e.style("opacity", dimNodo(e.source()) || dimNodo(e.target()) ? 0.06 : (e.data().lua ? 0.5 : 0.45)));
-  }
-  legenda();
+  if (g3d) { g3d.nodeColor(nodeColor3); g3d.linkColor(linkColor3); }
+  renderGals();
 }
 
 // ---------- vista 3D (3d-force-graph, three.js)
@@ -428,8 +432,11 @@ function luas3D() {
 function buildNodes3D() {
   const nodes = docs.map(d => {
     const c = CENTRO[d.galaxia];
+    // começa na casca da galáxia (direção determinística por caminho)
+    const vx = semente(d.path, 3), vy = semente(d.path, 4), vz = semente(d.path, 5);
+    const r = Math.hypot(vx, vy, vz) || 1;
     return { id: d.path, g: d.galaxia, val: valDoc(d),
-             x: c[0] + 14 * semente(d.path, 0), y: c[1] + 14 * semente(d.path, 1), z: c[2] + 14 * semente(d.path, 2) };
+             x: c[0] + vx / r * RAIO[d.galaxia], y: c[1] + vy / r * RAIO[d.galaxia], z: c[2] + vz / r * RAIO[d.galaxia] };
   });
   nodes.push(...D.galaxias.map((g, i) => ({ id: "core:" + i, core: i, val: valCore(), x: CENTRO[i][0], y: CENTRO[i][1], z: CENTRO[i][2] })));
   nodes.push(...luas3D());
@@ -440,8 +447,8 @@ function buildLinks3D() {
   if (selecionado) for (const m of luas3D()) links.push({ source: selecionado, target: m.id, lua: true });
   return links;
 }
-const nodeColor3 = n => n.core !== undefined ? (dimCore(n.core) ? "#0d1424" : corDoCore(n.core))
-  : n.lua !== undefined ? "#94a3b8" : (dimDoc(byPath[n.id]) ? "#0d1424" : corDoc(byPath[n.id]));
+const nodeColor3 = n => n.core !== undefined ? (dimCore(n.core) ? "#0d1424" : corGal.get(n.core))
+  : n.lua !== undefined ? "#94a3b8" : (dimDoc(byPath[n.id]) ? "#0d1424" : corGal.get(byPath[n.id].galaxia));
 const linkColor3 = l => {
   const s = l.source, t = l.target;
   const dim = (s.core !== undefined ? dimCore(s.core) : dimDoc(byPath[s.id])) ||
@@ -453,18 +460,24 @@ function labelDoc(d) {
   return `<b>${esc(rotulo(d))}</b><br>${esc([d.tipo, d.pasta, gal[d.galaxia].nome,
     d.n_chunks + " chunk" + (d.n_chunks === 1 ? "" : "s"), d.n_links + " link" + (d.n_links === 1 ? "" : "s")].filter(Boolean).join(" · "))}`;
 }
-const forcaGalaxia = alpha => {
-  const k = 0.06 * alpha;
+const forcaGalaxia = () => {
   for (const n of N3D) {
-    const c = CENTRO[n.core !== undefined ? n.core : n.g];
+    const i = n.core !== undefined ? n.core : n.g;
+    const c = CENTRO[i];
     if (n.core !== undefined) { n.x = c[0]; n.y = c[1]; n.z = c[2]; n.vx = n.vy = n.vz = 0; }
-    else { n.vx += (c[0] - n.x) * k; n.vy += (c[1] - n.y) * k; n.vz += (c[2] - n.z) * k; }
+    else if (n.lua === undefined) {
+      // esfera limpa: mola radial forte devolve a distância do centro para R_gal a cada tick
+      const dx = n.x - c[0], dy = n.y - c[1], dz = n.z - c[2];
+      const r = Math.hypot(dx, dy, dz) || 1e-6, f = (RAIO[i] - r) / r * 0.5;
+      n.vx += dx * f; n.vy += dy * f; n.vz += dz * f;
+    }
   }
 };
 function setDados3D() {
   g3d.graphData({ nodes: buildNodes3D(), links: buildLinks3D() });
   const g = g3d.graphData();  // os nós internos (com as posições): é neles que a física trabalha
   N3D = g.nodes; L3D = g.links;
+  g3d.d3Force("galaxia", forcaGalaxia);
   g3d.d3ReheatSimulation();
 }
 function orbitarLuas() {
@@ -487,14 +500,14 @@ function cameraNoPlaneta(n, ms) {
 }
 function init3D() {
   const box = $("g3d");
-  if (!window.ForceGraph3D) { box.append(el("div", "3d-force-graph indisponível: use a vista 2D.", "off")); return; }
+  if (!window.ForceGraph3D) { box.append(el("div", "3d-force-graph indisponível (WebGL necessário) — sem visualização.", "off")); return; }
   g3d = ForceGraph3D()(box)
     .width(box.clientWidth).height(box.clientHeight)
     .backgroundColor("#070b16")
     .nodeRelSize(TAM).nodeResolution(10)
     .nodeColor(nodeColor3)
     .nodeLabel(n => n.core !== undefined
-      ? `<b>Galáxia: ${esc(gal[n.core].nome)}</b><br>${gal[n.core].docs} documento${gal[n.core].docs === 1 ? "" : "s"} · clique isola`
+      ? `<b>Galáxia: ${esc(gal[n.core].nome)}</b><br>${esc(gal[n.core].centro ? rotulo(byPath[gal[n.core].centro]) : "sem centro (Tudo)")} · ${gal[n.core].docs} documento${gal[n.core].docs === 1 ? "" : "s"} · clique isola`
       : n.lua !== undefined ? "chunk do planeta — clique abre o documento"
       : labelDoc(byPath[n.id]))
     .linkColor(linkColor3)
@@ -504,93 +517,22 @@ function init3D() {
     .linkDirectionalParticles(l => l.lua ? 0 : 1)
     .linkDirectionalParticleWidth(0.8).linkDirectionalParticleSpeed(0.15)
     .linkDirectionalParticleColor(l => l.lua ? "#94a3b8" : (l.rel.includes("cita") ? "#64748b" : "#60a5fa"))
-    .cooldownTime(Infinity)  // o motor não para: as luas seguem orbitando (1.73.4 não tem d3AlphaTarget)
+    .cooldownTime(Infinity)  // o motor não para: as luas seguem orbitando e a casca se mantém (1.73.4 não tem d3AlphaTarget)
     .onNodeClick(n => {
-      if (n.core !== undefined) { isolado = { campo: "galáxia", valor: "gal:" + n.core }; repintar(); }
+      if (n.core !== undefined) { isolado = isolado === n.core ? null : n.core; repintar(); }
       else if (n.lua !== undefined) { const bar = n.id.lastIndexOf("|"); selecionarLua(n.id.slice(4, bar), +n.id.slice(bar + 1)); }
       else selecionar(selecionado === n.id ? null : n.id);
     })
     .onNodeHover(n => box.style.cursor = n ? "pointer" : "default")
     .onBackgroundClick(() => { isolado = null; selecionar(null); });
   setDados3D();
-  g3d.d3Force("charge").strength(-12);
-  g3d.d3Force("link").distance(26).strength(0.35);
+  g3d.d3Force("charge").strength(-6);  // fraco: a casca esférica manda, o charge só espalha
+  g3d.d3Force("link").distance(26).strength(0.2);
   g3d.warmupTicks(50);  // reaquecimento das seleções (a entrada anima na tela)
   g3d.onEngineTick(orbitarLuas);
   g3d.cameraPosition({ x: 0, y: 0, z: 2.2 * Math.max(R_GAL + 90, 140) });
   new ResizeObserver(() => g3d && g3d.width(box.clientWidth).height(box.clientHeight)).observe(box);
   box.append(el("div", "arraste para girar · roda para zoom · clique no planeta abre o documento", "hint"));
-}
-
-// ---------- vista 2D (Cytoscape.js)
-function pos2D() {
-  const R = KGAL === 1 ? 0 : 360 + 34 * Math.sqrt(KGAL), pos = {}, porGal = {};
-  for (const d of docs) (porGal[d.galaxia] ||= []).push(d);
-  D.galaxias.forEach((g, i) => {
-    const ang = TAU * i / KGAL - Math.PI / 2, cx = R * Math.cos(ang), cyy = R * Math.sin(ang);
-    pos["core:" + i] = [cx, cyy];
-    (porGal[i] || []).sort((a, b) => (a.id || a.path).localeCompare(b.id || b.path, "pt-BR", { numeric: true }))
-      .forEach((d, j) => {
-        const r = 24 * Math.sqrt(j + 0.6), t2 = j * 2.39996323 + ang;  // espiral de Fermat
-        pos[d.path] = [cx + r * Math.cos(t2), cyy + r * Math.sin(t2)];
-      });
-  });
-  return pos;
-}
-function init2D() {
-  const box = $("g2d");
-  if (!window.cytoscape) { box.append(el("div", "Cytoscape indisponível: use a vista 3D.", "off")); return; }
-  const pos = pos2D();
-  const nodes = docs.map(d => ({ data: { id: d.path, tam: 10 + 4 * Math.sqrt(d.n_links + d.n_chunks) },
-    position: { x: pos[d.path][0], y: pos[d.path][1] } }))
-    .concat(D.galaxias.map((g, i) => ({ data: { id: "core:" + i, core: i, tam: 26 }, position: { x: pos["core:" + i][0], y: pos["core:" + i][1] } })));
-  const edges = D.links.map((l, i) => ({ data: { id: "e" + i, source: l.de, target: l.para, rel: l.rel } }));
-  cy = window.cytoscape({ container: box, elements: nodes.concat(edges),
-    style: [
-      { selector: "node", style: { "background-color": "#888", width: "data(tam)", height: "data(tam)",
-        "border-width": 1, "border-color": "rgba(120,120,120,.4)" } },
-      { selector: "node[?core]", style: { "border-width": 2 } },
-      { selector: "node[?lua]", style: { "background-color": "#94a3b8", "border-width": 0 } },
-      { selector: "edge", style: { width: 1, opacity: 0.45, "line-color": "#64748b",
-        "target-arrow-color": "#64748b", "target-arrow-shape": "triangle", "arrow-scale": 0.6 } },
-      { selector: "edge[?lua]", style: { width: 0.7, "target-arrow-shape": "none" } },
-    ],
-    wheelSensitivity: 0.3 });
-  repintar();
-  cy.on("tap", "node", e => {
-    const n = e.target, dd = n.data();
-    if (dd.lua !== undefined) selecionarLua(dd.path, dd.lua);
-    else if (dd.core !== undefined) { isolado = { campo: "galáxia", valor: "gal:" + dd.core }; repintar(); }
-    else selecionar(selecionado === n.id() ? null : n.id());
-  });
-  cy.on("tap", e => { if (e.target === cy) { isolado = null; selecionar(null); } });
-  const tip = $("tip");
-  cy.on("mouseover", "node", e => {
-    const n = e.target, dd = n.data();
-    tip.textContent = dd.core !== undefined ? `Galáxia: ${gal[dd.core].nome} (${gal[dd.core].docs})`
-      : dd.lua !== undefined ? `chunk ${dd.lua + 1} de ${byPath[dd.path].n_chunks} — clique mostra o texto`
-      : rotulo(byPath[n.id()]) + (byPath[n.id()].tipo ? " · " + byPath[n.id()].tipo : "");
-    tip.style.display = "block";
-  });
-  cy.on("mousemove", e => { tip.style.left = (e.containerX + 14) + "px"; tip.style.top = (e.containerY + 14) + "px"; });
-  cy.on("mouseout", "node", () => { tip.style.display = "none"; });
-  new ResizeObserver(() => cy && cy.resize()).observe(box);
-}
-function atualizarLuas2D() {
-  if (!cy) return;
-  cy.nodes().filter(n => n.data().lua !== undefined).remove();
-  cy.edges().filter(e => e.data().lua !== undefined).remove();
-  if (!selecionado) return;
-  const d = byPath[selecionado], p = cy.$id(selecionado).position();
-  const n = Math.min(d.n_chunks, LUA_MAX), R = 26 + 6 * Math.sqrt(d.n_links + d.n_chunks);
-  const els = [];
-  for (let i = 0; i < n; i++) {
-    const a = TAU * i / n;
-    els.push({ data: { id: "lua|" + d.path + "|" + i, lua: i, path: d.path, tam: 6 },
-      position: { x: p.x + R * Math.cos(a), y: p.y + R * Math.sin(a) } });
-    els.push({ data: { id: "elua|" + d.path + "|" + i, source: d.path, target: "lua|" + d.path + "|" + i, lua: true } });
-  }
-  cy.add(els);
 }
 
 // ---------- seleção / câmera
@@ -606,25 +548,15 @@ function selecionar(path) {
     setDados3D();
     if (selecionado) { const n = N3D.find(n => n.id === selecionado); if (n) cameraNoPlaneta(n, 700); }
   }
-  if (cy) atualizarLuas2D();
   renderLista();
-}
-function setModo(m) {
-  if (m === modo) return;
-  modo = m;
-  $("g3d").style.display = m === "3d" ? "" : "none";
-  $("g2d").style.display = m === "2d" ? "" : "none";
-  if (m === "2d") { if (!cy) init2D(); else cy.resize(); }
-  if (g3d) g3d.pauseAnimation(m !== "3d");
-  document.querySelectorAll(".vtog").forEach(b => b.classList.toggle("on", b.dataset.m === m));
 }
 
 // ---------- lista
 function renderLista() {
   const ul = $("list"); ul.replaceChildren();
-  const vis = docs.filter(matchBusca)
+  const vis = docs.filter(d => matchBusca(d) && matchTipo(d))
     .sort((a, b) => a.galaxia - b.galaxia || (a.id || a.path).localeCompare(b.id || b.path, "pt-BR", { numeric: true }));
-  $("conta").textContent = busca ? `${vis.length} de ${docs.length}` : `${docs.length} documentos`;
+  $("conta").textContent = (busca || tipoF) ? `${vis.length} de ${docs.length}` : `${docs.length} documentos`;
   for (const d of vis) {
     const li = el("li");
     li.append(el("div", rotulo(d), "t"), el("div", [d.tipo, d.subpasta || d.pasta, gal[d.galaxia].nome].filter(Boolean).join(" · "), "m"));
@@ -695,9 +627,20 @@ function linkList(box, titulo, itens, chave) {
 }
 function showDoc(path) {
   const box = $("detail");
-  if (!path || !byPath[path]) { box.replaceChildren(el("p", "Selecione um documento na lista, no grafo ou numa lua.", "m")); return; }
+  if (!path || !byPath[path]) {
+    layout.classList.add("sem-detalhe");  // sem artefato selecionado: o grafo ocupa o espaço todo
+    box.replaceChildren(el("p", "Selecione um documento na lista, no grafo ou numa lua.", "m"));
+    return;
+  }
+  layout.classList.remove("sem-detalhe");  // o painel só aparece com artefato selecionado
   const d = byPath[path];
-  box.replaceChildren(el("h2", rotulo(d), "title"));
+  box.replaceChildren();
+  const topo = el("div", null, "topo");
+  topo.append(el("h2", rotulo(d), "title"));
+  const f = el("button", "×"); f.className = "fechar"; f.setAttribute("aria-label", "Fechar painel");
+  f.onclick = () => { isolado = null; selecionar(null); };  // mesmo efeito do clique no fundo do 3D
+  topo.append(f);
+  box.append(topo);
   const meta = el("div", null, "meta");
   for (const x of [d.tipo, d.subpasta || d.pasta, gal[d.galaxia].nome]) if (x) meta.append(el("span", x, "chip"));
   meta.append(el("span", `${d.n_chunks} chunk${d.n_chunks === 1 ? "" : "s"} · ${d.n_links} link${d.n_links === 1 ? "" : "s"}`, "chip"));
@@ -716,21 +659,86 @@ function fromHash() {
   if (p && byPath[p] && p !== selecionado) selecionar(p);
 }
 
+// ---------- larguras das barras laterais (arraste nos handles; persiste em localStorage)
+const layout = $("layout");
+function larguraAtual(prop) { const v = getComputedStyle(layout).getPropertyValue(prop); return v ? parseFloat(v) : null; }
+function arrastarLargura(handle, prop, chave, min, max) {
+  handle.addEventListener("pointerdown", e => {
+    e.preventDefault();
+    const w0 = larguraAtual(prop) || 300, x0 = e.clientX, sinal = prop === "--w-esq" ? 1 : -1;
+    handle.setPointerCapture(e.pointerId);
+    handle.classList.add("on");
+    document.body.style.userSelect = "none";
+    const mover = ev => {
+      const w = Math.max(min, Math.min(max, w0 + (ev.clientX - x0) * sinal));
+      layout.style.setProperty(prop, w + "px");
+    };
+    const fim = () => {
+      handle.classList.remove("on");
+      document.body.style.userSelect = "";
+      try { localStorage.setItem(chave, Math.round(larguraAtual(prop))); } catch {}
+      handle.removeEventListener("pointermove", mover);
+      handle.removeEventListener("pointerup", fim);
+      handle.removeEventListener("pointercancel", fim);
+    };
+    handle.addEventListener("pointermove", mover);
+    handle.addEventListener("pointerup", fim);
+    handle.addEventListener("pointercancel", fim);
+  });
+}
+arrastarLargura($("arr-esq"), "--w-esq", "explorar-w-esq", 160, 480);
+arrastarLargura($("arr-dir"), "--w-dir", "explorar-w-dir", 280, 700);
+for (const [prop, chave, min, max] of [["--w-esq", "explorar-w-esq", 160, 480], ["--w-dir", "explorar-w-dir", 280, 700]]) {
+  let w = null;
+  try { w = +localStorage.getItem(chave); } catch {}
+  if (w && w >= min && w <= max) layout.style.setProperty(prop, w + "px");
+}
+
+// ---------- arrastar o painel de galáxias (só no header; o clique no item isola)
+function arrastarCaixa(handle, caixa) {
+  handle.addEventListener("pointerdown", e => {
+    if (e.target.closest("button")) return;
+    e.preventDefault();
+    const r = caixa.getBoundingClientRect(), x0 = e.clientX, y0 = e.clientY;
+    handle.setPointerCapture(e.pointerId);
+    const mover = ev => {
+      const x = Math.max(0, Math.min(innerWidth - r.width, r.left + (ev.clientX - x0)));
+      const y = Math.max(0, Math.min(innerHeight - r.height, r.top + (ev.clientY - y0)));
+      caixa.style.left = x + "px"; caixa.style.top = y + "px"; caixa.style.bottom = "auto";
+    };
+    const fim = () => {
+      handle.removeEventListener("pointermove", mover);
+      handle.removeEventListener("pointerup", fim);
+      handle.removeEventListener("pointercancel", fim);
+    };
+    handle.addEventListener("pointermove", mover);
+    handle.addEventListener("pointerup", fim);
+    handle.addEventListener("pointercancel", fim);
+  });
+}
+arrastarCaixa($("gals-h"), $("gals"));
+$("gals-min").onclick = () => {
+  const l = $("gals-l"), min = l.style.display === "none";
+  l.style.display = min ? "" : "none";
+  $("gals-min").textContent = min ? "–" : "+";
+};
+
 // ---------- start
 document.getElementById("name").textContent = D.bundle + " — galáxias do bundle";
 $("stats").textContent = `${docs.length} documentos · ${D.chunks.length} chunks · ${D.links.length} links · ${KGAL} galáxias`;
-$("vtog3d").onclick = () => setModo("3d");
-$("vtog2d").onclick = () => setModo("2d");
-$("corpo").onchange = e => { corCampo = e.target.value; repaleta(); };
+// dropdown por tipo (quantidade desc, nome asc)
+const contTipo = {};
+for (const d of docs) { const t = d.tipo || "(sem tipo)"; contTipo[t] = (contTipo[t] || 0) + 1; }
+const selTipo = $("tipo");
+const todos = el("option", "Todos"); todos.value = ""; selTipo.append(todos);
+for (const t of Object.keys(contTipo).sort((a, b) => contTipo[b] - contTipo[a] || a.localeCompare(b, "pt-BR"))) {
+  const o = el("option", `${t} (${contTipo[t]})`); o.value = t; selTipo.append(o);
+}
+selTipo.onchange = e => { tipoF = e.target.value; renderLista(); repintar(); };
 $("q").addEventListener("input", e => { busca = e.target.value.trim().toLowerCase(); renderLista(); repintar(); });
-repaleta();
+repintar();
 renderLista();
 init3D();
-if (modo === "2d") {  // sem ForceGraph3D (sem WebGL): a vista 2D assume
-  $("g3d").style.display = "none";
-  $("g2d").style.display = "";
-  init2D();
-}
 window.addEventListener("hashchange", fromHash);
 fromHash();
 </script>

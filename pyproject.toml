@@ -1,6 +1,6 @@
 [project]
 name = "mcp-elm"
-version = "3.6.4"
+version = "3.6.5"
 description = "MCP do IBM ELM (EWM, DOORS Next, ETM): operações que leem o pa do projeto"
 readme = "README.md"
 license = "MIT"
