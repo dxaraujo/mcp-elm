@@ -10,7 +10,7 @@ import pytest
 import requests
 from requests.adapters import BaseAdapter
 
-from mcp_elm import ewm, local, oslc
+from mcp_elm import embedder, ewm, local, oslc
 from mcp_elm.config import ElmConfig
 from mcp_elm.http import ElmSession, set_session
 
@@ -82,9 +82,12 @@ def fake_embed(texts):
 
 
 @pytest.fixture(autouse=True)
-def _sem_modelo(monkeypatch):
+def _sem_modelo(monkeypatch, tmp_path):
     monkeypatch.setattr(local, "embed", fake_embed)
     monkeypatch.setattr(local, "SINCRONO", True)  # indexa na própria chamada; o teste do segundo plano desliga
+    # sem elm.properties: embedder no modo local, sem key (nada de API real nos testes)
+    monkeypatch.setenv("MCP_ELM_CONFIG", str(tmp_path / "elm.properties"))
+    embedder.clear_cache()
 
 
 def _clear_caches():

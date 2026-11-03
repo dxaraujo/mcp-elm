@@ -8,6 +8,7 @@ import pytest
 
 from conftest import SERVER, chamar
 from elm_fake import Elm
+from mcp_elm import embedder
 
 
 @pytest.fixture
@@ -27,7 +28,8 @@ def falha(r):
 
 def test_status(elm, projeto):
     assert ok(chamar("elm_status", projeto=projeto)) == {
-        "login": "joao", "servidor": SERVER, "pas": ["alfa"], "valido": True, "faltando": []}
+        "login": "joao", "servidor": SERVER, "pas": ["alfa"], "valido": True, "faltando": [],
+        "embedder": f"local:{embedder.LOCAL_MODEL}"}
     os.remove(os.path.join(projeto, ".kiro/config/elm/pa_alfa.json"))
     d = ok(chamar("elm_status", projeto=projeto))
     assert d["valido"] is False and d["faltando"] == ["pa"]

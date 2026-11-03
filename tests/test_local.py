@@ -4,7 +4,7 @@ import os
 import pytest
 
 from conftest import chamar
-from mcp_elm import local
+from mcp_elm import embedder, local
 
 UC = "03-Casos de Uso/2010-uc-cadastrar-cliente.md"
 RN = "03-Regras/2001-rn-validar-cpf-do-cliente.md"
@@ -95,6 +95,39 @@ def test_busca_indexa_antes_e_filtra(projeto, raiz):
     assert chamar("elm_buscar_req_local", projeto=projeto, texto="  ")["erro"]["codigo"] == "entrada"
     os.remove(os.path.join(raiz, LOGIN))  # apagado do disco sai do índice na próxima busca
     assert all(h["path"] != LOGIN for h in call("elm_buscar_req_local", projeto, texto="login portal senha")["itens"])
+
+
+def test_troca_de_embedder_limpa_e_refaz_o_indice(projeto, raiz, monkeypatch):
+    call("elm_indexar_local", projeto)
+    with local.connect(raiz) as con:
+        assert con.execute("select v from meta where k = 'embedder'").fetchone()[0] == f"local:{embedder.LOCAL_MODEL}"
+        cid_max = con.execute("select max(cid) from chunks").fetchone()[0]
+    # assinatura mudou (troca de modelo: dimensão dos vetores muda) -> índice inteiro renasce
+    monkeypatch.setattr(embedder, "assinatura", lambda: "api:text-embedding-3-small@https://api.test/v1")
+    assert call("elm_indexar_local", projeto) == {"documentos": 3, "restantes": 0, "indexando": False}
+    with local.connect(raiz) as con:
+        assert con.execute("select v from meta where k = 'embedder'").fetchone()[0] == \
+            "api:text-embedding-3-small@https://api.test/v1"
+        assert con.execute("select min(cid) from chunks").fetchone()[0] > cid_max  # nada do índice antigo
+        assert {p for (p,) in con.execute("select path from docs")} == {UC, RN, LOGIN}
+    assert call("elm_buscar_req_local", projeto, texto="CPF")["itens"]  # e a busca segue funcionando
+
+
+def test_busca_com_rerank_reordena_o_top(projeto, raiz, monkeypatch):
+    call("elm_indexar_local", projeto)
+    assert call("elm_buscar_req_local", projeto, texto="módulo 11 dígitos verificadores")["itens"][0]["path"] == RN
+
+    def falso_rerank(texto, hits):  # o documento com "portal" no texto (LOGIN) salta para a frente
+        ordem = sorted(range(len(hits)), key=lambda i: 0 if "portal" in hits[i]["text"].lower() else 1)
+        reordenados = [hits[i] for i in ordem]
+        for pos, h in enumerate(reordenados):
+            h["score"] = 1.0 - pos * 0.01
+        return reordenados
+
+    monkeypatch.setattr(local, "rerank", falso_rerank)
+    d = call("elm_buscar_req_local", projeto, texto="módulo 11 dígitos verificadores")
+    assert d["itens"][0]["path"] == LOGIN and d["itens"][0]["score"] == 1.0
+    assert d["itens"] == sorted(d["itens"], key=lambda i: -i["score"])
 
 
 def test_indexacao_em_segundo_plano_responde_na_hora(projeto, raiz, monkeypatch):

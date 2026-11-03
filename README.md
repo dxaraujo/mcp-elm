@@ -38,6 +38,12 @@ CA próprio: `export REQUESTS_CA_BUNDLE=/caminho/ca.pem`. Login pelo form Jazz, 
 server = https://elm.SEU-SERVIDOR
 user = SEU_USUARIO
 password = SUA_SENHA
+# opcionais: busca semântica do bundle local por API OpenAI-compatível (a mesma base e key para os dois;
+# sem provider_url/provider_api_key o índice usa o modelo local embutido)
+# provider_url = https://sua-api/v1
+# provider_api_key = SUA_KEY
+# provider_embed_model = text-embedding-3-small
+# provider_rerank_model = SEU_MODELO_RERANK
 ```
 
 ## Configuração do projeto
@@ -65,7 +71,7 @@ Um único TextContent, sem `structuredContent`:
 
 | Tool | Faz | `dados` |
 |---|---|---|
-| `elm_status` | confere conexão e pa | `login, servidor, pas[], valido, faltando[]` |
+| `elm_status` | confere conexão e pa | `login, servidor, pas[], valido, faltando[], embedder, rerank?` |
 | `elm_ler_wi` | lê um work item | Markdown |
 | `elm_listar_wi` | lista por iteração, dono, tipo, pai, prefixo, estado | `itens[], truncado, total` |
 | `elm_criar_wi` | cria com padrões do pa | `id, url, valores_usados` |
@@ -84,7 +90,7 @@ Um único TextContent, sem `structuredContent`:
 | `elm_iteracao` | acha ou cria a iteração da sprint e o plano dela (`plano`, só ao criar; padrão: o nome da sprint; caminho `<pai>/<sprint>` relativo à linha de base; o pai nasce se faltar) | `id, pai, planos, criados[]` |
 | `elm_backlog` | lista, usa ou cria o backlog do produto (padrão: iteração `<linha de base>/Backlog` com o plano `Backlog`) e grava no pa | `atual, candidatos[]` ou `nome, id, plano, criados[]` |
 | `elm_sync` | bundle do DOORS Next (plano, baixar, enviar) | `baixar[], enviar[], conflitos[]` · `feitos[], conflitos[]` |
-| `elm_buscar_req_local` | busca no bundle baixado (sentido + palavra) | `itens[], indexando?, restantes?` |
+| `elm_buscar_req_local` | busca no bundle baixado (sentido + palavra, rerank opcional) | `itens[], indexando?, restantes?` |
 | `elm_ler_req_local` | lê documento do bundle (id ou path) com links | `path, markdown, links` |
 | `elm_listar_req_local` | inventário do bundle | `itens[]` |
 | `elm_indexar_local` | indexa o bundle em segundo plano; responde na hora com o progresso | `documentos, restantes, indexando` |
@@ -107,7 +113,9 @@ erro). Duas iterações com o mesmo nome no mesmo pai são erro `entrada`: o MCP
 "Planejado para" da iteração), por isso a sprint é uma iteração e não um plano a mais no pai.
 
 As `_local` leem o bundle em `<projeto>/<rm.download>` (índice em `<bundle>/sqlite3/okf.db`); depois do
-`elm_sync baixar`, indexe com `elm_indexar_local`. Sem nada baixado devolvem `nao_encontrado` com `campo: "bundle"`: baixe com `elm_sync` ou pesquise no
+`elm_sync baixar`, indexe com `elm_indexar_local`. O vetor vem da API OpenAI-compatível do `elm.properties`
+(`provider_url` + `provider_api_key`, com rerank opcional em `provider_rerank_model`) ou do modelo local embutido. Sem nada
+baixado devolvem `nao_encontrado` com `campo: "bundle"`: baixe com `elm_sync` ou pesquise no
 ELM remoto (`elm_buscar_req`/`elm_ler_req`). Detalhes no manual.
 
 ## Testes

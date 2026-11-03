@@ -82,8 +82,19 @@ Quatro tools leem o bundle baixado, sem ir ao ELM — mesmo nome da operação r
 | `elm_listar_req_local` | inventário (sem corpo), mesmos filtros | `itens[{path, id, titulo, tipo, pasta, descricao, indexado}]` |
 | `elm_indexar_local` | indexa o que mudou (sha256) numa thread e responde na hora; chamar de novo mostra o progresso; `forcar` reindexa tudo | `documentos, restantes, indexando, erro_indice?` |
 
-O índice fica em `<bundle>/sqlite3/okf.db` (com `.gitignore`): chunks por heading com vetor do
-`paraphrase-multilingual-MiniLM-L12-v2` (fastembed, carregado só na 1ª busca/indexação) + FTS5, fundidos por RRF.
+O índice fica em `<bundle>/sqlite3/okf.db` (com `.gitignore`): chunks por heading com vetor denso normalizado
++ FTS5, fundidos por RRF (cosseno + BM25). O vetor vem da API OpenAI-compatível do `elm.properties`
+(`provider_url` + `provider_api_key`; modelo em `provider_embed_model`, padrão `text-embedding-3-small`) ou, sem elas, do modelo
+local `paraphrase-multilingual-MiniLM-L12-v2` (fastembed, carregado só na 1ª busca/indexação) — o comportamento
+antigo. A assinatura do embedder (base + modelo) fica na meta do índice: mudou (troca de modelo: a dimensão dos
+vetores muda), o índice é limpo e refeito, porque vetores de modelos diferentes não podem coexistir na matriz.
+
+Com `provider_rerank_model` no `elm.properties` (mesma base e key), a busca é em dois estágios: o RRF larga um top largo
+de candidatos e o rerank (cross-encoder por API) reordena — a score do rerank substitui a do RRF em
+`itens[].score`. `elm_status` mostra o embedder em uso (`embedder`, e `rerank` quando configurado); falhas da
+API de embedding/rerank viram o erro do contrato correspondente (`credencial` 401/403, `config` 404,
+`indisponivel` 429/5xx, com 3 tentativas no rate limit).
+
 A indexação roda numa thread do servidor (o 1º uso baixa o modelo, que leva minutos): nenhuma chamada espera.
 `elm_buscar_req_local` com arquivos alterados dispara a indexação e busca no que já está no índice, devolvendo
 `indexando: true, restantes: n`. Medido: 1.291 documentos em ~1 min com o modelo já baixado.

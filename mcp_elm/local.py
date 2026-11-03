@@ -1,13 +1,14 @@
 """Bundle local do DOORS Next (<projeto>/<rm.download>, o que o elm_sync baixa): leitura, índice e consulta.
 
 Índice em <bundle>/sqlite3/okf.db (WAL: vários processos podem abrir o mesmo): documentos e chunks com vetor denso
-(float32 normalizado) + FTS5 (BM25); busca híbrida cosseno + FTS5 com fusão RRF. Os links entre documentos saem do
-disco a cada leitura, não do índice.
+(float32 normalizado) + FTS5 (BM25); busca híbrida cosseno + FTS5 com fusão RRF, e rerank opcional no fim. O vetor
+vem da API configurada no elm.properties ou do modelo local (embedder); a assinatura do embedder fica na meta do
+índice — mudou (troca de modelo) e o índice é limpo e refeito. Os links entre documentos saem do disco a cada
+leitura, não do índice.
 """
 from __future__ import annotations
 
 import contextlib
-import functools
 import hashlib
 import os
 import posixpath
@@ -21,11 +22,11 @@ import numpy as np
 import yaml
 from markdown_it import MarkdownIt
 
-from . import sync
+from . import embedder, sync
 from .contrato import Erro
 
-MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 RRF_K = 60
+RERANK_WIDE = 100  # candidatos do RRF para o rerank refinar o top
 # testes: True indexa na própria chamada; no servidor, sempre numa thread (o 1º uso baixa o modelo: minutos)
 SINCRONO = False
 _jobs: dict[str, threading.Thread] = {}
@@ -42,9 +43,10 @@ _MD = MarkdownIt()
 SCHEMA = """
 create table if not exists docs(path text primary key, hash text, id text, title text, type text, folder text,
                                 description text);
-create table if not exists chunks(cid integer primary key, path text, section text, text text, vec blob);
+create table if not exists chunks(cid integer primary key autoincrement, path text, section text, text text, vec blob);
 create index if not exists chunks_path on chunks(path);
 create virtual table if not exists chunks_fts using fts5(text, tokenize='unicode61 remove_diacritics 2');
+create table if not exists meta(k text primary key, v text);
 """
 
 
@@ -180,16 +182,18 @@ def connect(root: str):
         con.close()
 
 
-@functools.cache
-def _model():
-    from fastembed import TextEmbedding  # preguiçoso: o servidor sobe sem carregar o modelo
-    return TextEmbedding(MODEL)
-
-
 def embed(texts: list[str]) -> np.ndarray:
-    """(n, dim) float32 com norma 1: produto escalar = cosseno."""
-    v = np.array(list(_model().embed(texts)), dtype=np.float32)
-    return v / np.linalg.norm(v, axis=1, keepdims=True).clip(1e-9)
+    """(n, dim) float32 com norma 1: produto escalar = cosseno (API ou modelo local, veja embedder)."""
+    return embedder.embed(texts)
+
+
+def rerank(texto: str, hits: list[dict]) -> list[dict] | None:
+    """Reordena os chunks pela score do rerank (substitui a do RRF); None sem rerank configurado."""
+    if len(hits) < 2 or (scores := embedder.rerank(texto, [h["text"] for h in hits])) is None:
+        return None
+    for h, s in zip(hits, scores):
+        h["score"] = s
+    return sorted(hits, key=lambda h: h["score"], reverse=True)
 
 
 def _delete(con: sqlite3.Connection, path: str) -> None:
@@ -212,8 +216,18 @@ def _write(con: sqlite3.Connection, doc: dict) -> None:
 
 
 def _indexar(root: str, docs: dict, forcar: bool = False) -> dict:
-    """Remove do índice os apagados e (re)indexa os novos ou alterados (sha256)."""
+    """Remove do índice os apagados e (re)indexa os novos ou alterados (sha256). Assinatura do embedder
+    diferente da meta (troca de modelo: a dimensão dos vetores muda) limpa o índice inteiro, que renasce
+    do bundle + API."""
     with connect(root) as con:
+        sig = embedder.assinatura()
+        if (atual := dict(con.execute("select k, v from meta")).get("embedder")) not in (None, sig):
+            con.execute("delete from chunks_fts")
+            con.execute("delete from chunks")
+            con.execute("delete from docs")
+            con.commit()
+        con.execute("insert into meta(k, v) values ('embedder', ?) on conflict(k) do update set v = excluded.v",
+                    (sig,))
         if forcar:
             con.execute("update docs set hash = ''")  # continua buscável enquanto reindexa
         indexed = dict(con.execute("select path, hash from docs"))
@@ -259,8 +273,12 @@ def _search(con: sqlite3.Connection, query: str, wide: int, folder: str | None, 
     found = {r[0]: r for r in con.execute(
         f"select c.cid, c.path, c.section, c.text, d.id, d.title, d.type, d.folder from chunks c "
         f"join docs d on d.path = c.path where c.cid in ({','.join('?' * len(best))})", best)}
-    return [dict(zip(("path", "section", "text", "id", "title", "type", "folder"), found[cid][1:]),
+    hits = [dict(zip(("path", "section", "text", "id", "title", "type", "folder"), found[cid][1:]),
                  score=rrf[cid]) for cid in best]
+    # 2º estágio: o rerank (cross-encoder, por API) reordena o top do RRF
+    if (reordenados := rerank(query, hits)) is not None:
+        hits = reordenados
+    return hits
 
 
 # --- operações (as tools elm_*_local)
@@ -277,8 +295,11 @@ def _bundle(cfg: dict) -> tuple[str, dict]:
 
 def _progresso(root: str, docs: dict) -> dict:
     with connect(root) as con:
+        meta = dict(con.execute("select k, v from meta")).get("embedder")
         indexed = dict(con.execute("select path, hash from docs"))
-    restantes = sum(indexed.get(p) != d["hash"] for p, d in docs.items()) + sum(p not in docs for p in indexed)
+    embedder_mudou = meta not in (None, embedder.assinatura())  # vetores de outro modelo: tudo renasce
+    restantes = sum(p not in docs for p in indexed) + \
+        (len(docs) if embedder_mudou else sum(indexed.get(p) != d["hash"] for p, d in docs.items()))
     job = _jobs.get(root)
     return {"documentos": len(docs), "restantes": restantes, "indexando": bool(job and job.is_alive()),
             **({"erro_indice": _falhas[root]} if root in _falhas else {})}
@@ -328,8 +349,9 @@ def buscar(cfg: dict, texto: str, limite: int = 8, pasta: str | None = None, tip
     idx = _progresso(root, docs)
     if idx["restantes"]:  # dispara e busca no que já está no índice
         idx = disparar(root, docs)
+    wide = max(limite * 5, RERANK_WIDE) if embedder.tem_rerank() else limite * 5
     with connect(root) as con:
-        hits = _search(con, texto, limite * 5, pasta, tipo)
+        hits = _search(con, texto, wide, pasta, tipo)
     out: dict[str, dict] = {}
     for h in hits:
         r = out.get(h["path"])

@@ -1,0 +1,113 @@
+"""Embedder/rerank: fallback local sem key, modo API (mesma base/key para os dois), assinatura, retry e erros."""
+import json
+
+import pytest
+import requests
+
+from mcp_elm import embedder
+from mcp_elm.contrato import Erro
+
+BASE = "[DEFAULT]\nserver = https://elm.test\nuser = u\npassword = p\n"
+
+
+def _props(tmp_path, **extra):
+    p = tmp_path / "elm.properties"
+    p.write_text(BASE + "".join(f"{k} = {v}\n" for k, v in extra.items()), encoding="utf-8")
+    return p
+
+
+def _resp(status, body):
+    r = requests.Response()
+    r.status_code = status
+    r._content = json.dumps(body).encode()
+    r.headers["Content-Type"] = "application/json"
+    return r
+
+
+def _api(monkeypatch, tmp_path, **extra):
+    monkeypatch.setenv("MCP_ELM_CONFIG", str(_props(tmp_path, **extra)))
+    embedder.clear_cache()
+
+
+@pytest.fixture(autouse=True)
+def _isolado(monkeypatch, tmp_path):
+    monkeypatch.setenv("MCP_ELM_CONFIG", str(tmp_path / "nao-existe.properties"))
+    embedder.clear_cache()
+    yield
+    embedder.clear_cache()
+
+
+def test_sem_config_usa_local():
+    assert embedder.assinatura() == f"local:{embedder.LOCAL_MODEL}"
+    assert embedder.tem_rerank() is False
+    assert embedder.rerank_modelo() is None
+    assert embedder.rerank("q", ["a", "b"]) is None
+
+
+def test_assinatura_reflete_base_e_modelo(monkeypatch, tmp_path):
+    _api(monkeypatch, tmp_path, provider_url="https://api.test/v1/", provider_api_key="k")
+    assert embedder.assinatura() == "api:text-embedding-3-small@https://api.test/v1"  # trailing / some
+    _api(monkeypatch, tmp_path, provider_url="https://api.test/v1", provider_api_key="k", provider_embed_model="bge-m3")
+    assert embedder.assinatura() == "api:bge-m3@https://api.test/v1"
+    _api(monkeypatch, tmp_path, provider_url="https://api.test/v1")  # sem key: volta ao local
+    assert embedder.assinatura().startswith("local:")
+
+
+def test_embed_por_api_preserva_ordem_e_normaliza(monkeypatch, tmp_path):
+    _api(monkeypatch, tmp_path, provider_url="https://api.test/v1", provider_api_key="k")
+    chamadas = []
+
+    def _post(url, key, payload):
+        chamadas.append((url, key, payload))
+        return {"data": [{"embedding": [0.0, 2.0], "index": 1}, {"embedding": [3.0, 0.0], "index": 0}]}
+
+    monkeypatch.setattr(embedder, "_post", _post)
+    v = embedder.embed(["a", "b"])
+    assert chamadas == [("https://api.test/v1/embeddings", "k",
+                         {"model": "text-embedding-3-small", "input": ["a", "b"]})]
+    assert v[0] == pytest.approx([1.0, 0.0]) and v[1] == pytest.approx([0.0, 1.0])  # pela ordem de `index`, norma 1
+
+
+def test_rerank_chama_a_api_na_ordem_de_docs(monkeypatch, tmp_path):
+    _api(monkeypatch, tmp_path, provider_url="https://api.test/v1", provider_api_key="k", provider_rerank_model="rerank-1")
+    assert embedder.rerank_modelo() == "rerank-1" and embedder.tem_rerank()
+    chamadas = []
+
+    def _post(url, key, payload):
+        chamadas.append((url, payload))
+        return {"results": [{"index": 1, "relevance_score": 0.9}, {"index": 0, "relevance_score": 0.1}]}
+
+    monkeypatch.setattr(embedder, "_post", _post)
+    assert embedder.rerank("q", ["a", "b"]) == [0.1, 0.9]  # na ordem de `docs`, não da resposta
+    assert chamadas[0] == ("https://api.test/v1/rerank",
+                           {"model": "rerank-1", "query": "q", "documents": ["a", "b"], "top_n": 2})
+    assert embedder.rerank("q", ["a"]) is None  # um documento: nada a reordenar
+    _api(monkeypatch, tmp_path, provider_url="https://api.test/v1", provider_api_key="k")  # sem provider_rerank_model
+    assert embedder.rerank("q", ["a", "b"]) is None
+
+
+def test_repete_rate_limit_e_5xx(monkeypatch):
+    posts = []
+
+    def _post(url, headers=None, json=None, timeout=None):
+        posts.append(url)
+        return _resp(429, {"error": "rate limit"}) if len(posts) == 1 else \
+            _resp(200, {"data": [{"embedding": [1.0], "index": 0}]})
+
+    monkeypatch.setattr(embedder.requests, "post", _post)
+    monkeypatch.setattr(embedder.time, "sleep", lambda s: None)
+    data = embedder._post("https://api.test/v1/embeddings", "k", {})
+    assert posts == ["https://api.test/v1/embeddings"] * 2 and data["data"][0]["embedding"] == [1.0]
+
+
+@pytest.mark.parametrize("status,codigo,campo", [(401, "credencial", "provider_api_key"),
+                                                  (404, "config", "provider_embed_model"),
+                                                  (400, "entrada", None),
+                                                  (503, "indisponivel", None)])
+def test_erros_da_api_viram_contrato(monkeypatch, status, codigo, campo):
+    monkeypatch.setattr(embedder.requests, "post",
+                        lambda *a, **k: _resp(status, {"error": {"message": "falhou"}}))
+    monkeypatch.setattr(embedder.time, "sleep", lambda s: None)
+    with pytest.raises(Erro) as e:
+        embedder._post("https://api.test/v1/embeddings", "k", {})
+    assert e.value.codigo == codigo and e.value.campo == campo and "falhou" in e.value.detalhe

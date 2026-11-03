@@ -6,7 +6,7 @@ from typing import Annotated, Literal
 from mcp.server.mcpserver import MCPServer
 from pydantic import Field
 
-from . import ewm, local, projeto as prj, qm as etm, rm as dng, sync
+from . import embedder, ewm, local, projeto as prj, qm as etm, rm as dng, sync
 from .contrato import Erro, operacao
 from .http import get_session
 
@@ -48,7 +48,7 @@ def tool(fn):
 
 @tool
 def elm_status(projeto: Projeto, pa: Pa = None) -> str:
-    """Confere a conexão e o pa. → dados: {login, servidor, pas[], valido, faltando[]}"""
+    """Confere a conexão e o pa. → dados: {login, servidor, pas[], valido, faltando[], embedder, rerank?}"""
     try:
         faltando = prj.faltando(prj.ler(prj.arquivo(projeto, pa)))
     except Erro as e:
@@ -56,7 +56,8 @@ def elm_status(projeto: Projeto, pa: Pa = None) -> str:
             raise
         faltando = [e.campo or "pa"]
     return {"login": ewm.whoami(), "servidor": get_session().cfg.server, "pas": prj.nomes(projeto),
-            "valido": not faltando, "faltando": faltando}
+            "valido": not faltando, "faltando": faltando, "embedder": embedder.assinatura(),
+            **({"rerank": embedder.rerank_modelo()} if embedder.tem_rerank() else {})}
 
 
 @tool
@@ -231,8 +232,8 @@ TipoReq = Annotated[str | None, Field(description="type do frontmatter")]
 @tool
 def elm_buscar_req_local(projeto: Projeto, texto: str, limite: int = 8, pasta: Pasta = None, tipo: TipoReq = None,
                          pa: Pa = None) -> str:
-    """Busca híbrida (sentido + palavra) no bundle baixado; o que mudou indexa em segundo plano. → dados: {itens[{path, id,
-    titulo, tipo, pasta, score, trechos[{secao, texto}]}], indexando?, restantes?}"""
+    """Busca híbrida (sentido + palavra, com rerank se configurado) no bundle baixado; o que mudou indexa em segundo
+    plano. → dados: {itens[{path, id, titulo, tipo, pasta, score, trechos[{secao, texto}]}], indexando?, restantes?}"""
     return local.buscar(prj.carregar(projeto, pa), texto, limite, pasta, tipo)
 
 

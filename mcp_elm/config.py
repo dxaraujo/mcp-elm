@@ -19,6 +19,11 @@ class ElmConfig:
     server: str
     user: str
     password: str = field(repr=False)
+    # busca semântica do bundle local (API OpenAI-compatível; mesma base/key para embedding e rerank)
+    provider_url: str | None = None
+    provider_api_key: str = field(repr=False, default="")
+    provider_embed_model: str | None = None
+    provider_rerank_model: str | None = None
 
 
 def default_path() -> Path:
@@ -40,8 +45,16 @@ def load_config(path: Path | None = None) -> ElmConfig:
     missing = [k for k in REQUIRED if not section.get(k, "").strip()]
     if missing:
         raise CredencialError(f"chave(s) ausente(s) em {path} [DEFAULT]: {', '.join(missing)}")
+
+    def opcional(chave: str) -> str | None:
+        return (section.get(chave, "") or "").strip() or None
+
     return ElmConfig(
         server=section["server"].strip().rstrip("/"),
         user=section["user"].strip(),
         password=section["password"],
+        provider_url=opcional("provider_url"),
+        provider_api_key=opcional("provider_api_key") or "",
+        provider_embed_model=opcional("provider_embed_model"),
+        provider_rerank_model=opcional("provider_rerank_model"),
     )
