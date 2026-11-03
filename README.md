@@ -94,6 +94,7 @@ Um único TextContent, sem `structuredContent`:
 | `elm_ler_req_local` | lê documento do bundle (id ou path) com links | `path, markdown, links` |
 | `elm_listar_req_local` | inventário do bundle | `itens[]` |
 | `elm_indexar_local` | indexa o bundle em segundo plano; responde na hora com o progresso | `documentos, restantes, indexando` |
+| `elm_explorar_local` | gera o `explorar.html` (visualizador offline 3D/2D do bundle) na pasta do bundle | `path, documentos, chunks, galaxias, links, gerado_em` |
 | `elm_setup_descobrir` | dados para montar o pa | `ccm, rm?, qm?, valores_de?` |
 
 **Estrutura padrão no EWM.** Cada sprint é uma iteração com o seu plano; o backlog é uma iteração irmã dos pais:
@@ -114,7 +115,9 @@ erro). Duas iterações com o mesmo nome no mesmo pai são erro `entrada`: o MCP
 
 As `_local` leem o bundle em `<projeto>/<rm.download>` (índice em `<bundle>/sqlite3/okf.db`); depois do
 `elm_sync baixar`, indexe com `elm_indexar_local`. O vetor vem da API OpenAI-compatível do `elm.properties`
-(`provider_url` + `provider_api_key`, com rerank opcional em `provider_rerank_model`) ou do modelo local embutido. Sem nada
+(`provider_url` + `provider_api_key`, com rerank opcional em `provider_rerank_model`) ou do modelo local embutido. `elm_explorar_local`
+gera um `explorar.html` autocontido na pasta do bundle: o bundle em galáxias, 3D (3d-force-graph/three.js) ou
+2D (Cytoscape.js), sem internet. Sem nada
 baixado devolvem `nao_encontrado` com `campo: "bundle"`: baixe com `elm_sync` ou pesquise no
 ELM remoto (`elm_buscar_req`/`elm_ler_req`). Detalhes no manual.
 
