@@ -90,7 +90,7 @@ Um único TextContent, sem `structuredContent`:
 | `elm_iteracao` | acha ou cria a iteração da sprint e o plano dela (`plano`, só ao criar; padrão: o nome da sprint; caminho `<pai>/<sprint>` relativo à linha de base; o pai nasce se faltar) | `id, pai, planos, criados[]` |
 | `elm_backlog` | lista, usa ou cria o backlog do produto (padrão: iteração `<linha de base>/Backlog` com o plano `Backlog`) e grava no pa | `atual, candidatos[]` ou `nome, id, plano, criados[]` |
 | `elm_sync` | bundle do DOORS Next (plano, baixar, enviar) | `baixar[], enviar[], conflitos[]` · `feitos[], conflitos[]` |
-| `elm_buscar_req_local` | busca no bundle baixado (sentido + palavra, rerank opcional) | `itens[], indexando?, restantes?, erro_rerank?` |
+| `elm_buscar_req_local` | busca no bundle baixado (sentido + palavra, rerank opcional, type-boost no ranking) | `itens[], indexando?, restantes?, erro_rerank?` |
 | `elm_ler_req_local` | lê documento do bundle (id ou path) com links | `path, markdown, links` |
 | `elm_listar_req_local` | inventário do bundle | `itens[]` |
 | `elm_indexar_local` | indexa o bundle em segundo plano; responde na hora com o progresso | `documentos, restantes, indexando` |

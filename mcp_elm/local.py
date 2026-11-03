@@ -2,7 +2,8 @@
 
 Índice em <bundle>/sqlite3/okf.db (WAL: vários processos podem abrir o mesmo): documentos e chunks com vetor denso
 (float32 normalizado) + FTS5 (BM25); busca híbrida cosseno + FTS5 com fusão RRF, e rerank opcional no fim (falhou,
-a busca segue na ordem RRF e devolve `erro_rerank`). O vetor vem da API configurada no elm.properties ou do modelo
+a busca segue na ordem RRF e devolve `erro_rerank`), e type-boost no pool inteiro antes do slicing (Caso de Uso
+> História de Usuário > Regra). O vetor vem da API configurada no elm.properties ou do modelo
 local (embedder); a assinatura do embedder e a versão do chunking ficam na meta do índice — mudou (troca de modelo
 ou formato de chunk) e o índice é limpo e refeito. Os links entre documentos saem do disco a cada leitura, não do
 índice.
@@ -29,6 +30,9 @@ from .contrato import Erro
 RRF_K = 60
 RERANK_WIDE = 100  # candidatos do RRF para o rerank refinar o top
 RERANK_MAX = 8000  # chars por chunk no rerank: margem de segurança no contexto de 8192 tokens do modelo
+# type-boost: multiplicativo pós-rerank, no pool inteiro antes do slicing; a chave é o `type` exato do
+# frontmatter ("Regra de Negócio" não é "Regra"); o score devolvido é o ajustado
+TYPE_BOOST = {"Caso de Uso": 1.03, "História de Usuário": 1.02, "Regra": 1.01}
 # testes: True indexa na própria chamada; no servidor, sempre numa thread (o 1º uso baixa o modelo: minutos)
 SINCRONO = False
 _jobs: dict[str, threading.Thread] = {}
@@ -288,7 +292,7 @@ def _indexar(root: str, docs: dict, forcar: bool = False) -> dict:
 def _search(con: sqlite3.Connection, query: str, wide: int, folder: str | None, type_: str | None) \
         -> tuple[list[dict], str | None]:
     """Até `wide` chunks, do mais relevante: [{path, section, text, id, title, type, folder, score}], com o
-    erro do rerank (None se ele reordenou ou não está configurado)."""
+    erro do rerank (None se ele reordenou ou não está configurado); o score sai ajustado pelo type-boost."""
     where, args = "1 = 1", []
     for col, value in (("folder", folder), ("type", type_)):
         if value is not None:
@@ -322,6 +326,10 @@ def _search(con: sqlite3.Connection, query: str, wide: int, folder: str | None, 
     reordenados, erro_rerank = rerank(query, hits)
     if reordenados is not None:
         hits = reordenados
+    # 3º estágio: type-boost — o pool inteiro multiplica pelo fator do type antes do slicing
+    for h in hits:
+        h["score"] *= TYPE_BOOST.get(h["type"] or "", 1.0)
+    hits.sort(key=lambda h: h["score"], reverse=True)
     return hits, erro_rerank
 
 

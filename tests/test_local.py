@@ -149,6 +149,28 @@ def test_mudanca_de_chunking_limpa_e_refaz_o_indice(projeto, raiz, monkeypatch):
         assert con.execute("select v from meta where k = 'chunking'").fetchone()[0] == str(local.CHUNK_VER)
 
 
+def test_type_boost_ajusta_o_ranking_e_o_score(projeto, raiz, monkeypatch):
+    """3º estágio (pós-rerank): o pool inteiro multiplica pelo fator do type antes do slicing; score = ajustado."""
+    with open(os.path.join(raiz, "03-Regras/2003-rn-cotacao-do-dia.md"), "w", encoding="utf-8") as f:
+        f.write('---\ntype: Regra\ntitle: RN - Cotação do dia\nid: 2003\n---\nA cotação do dia é aplicada sobre o saldo.\n')
+    REGRA = "03-Regras/2003-rn-cotacao-do-dia.md"
+    call("elm_indexar_local", projeto)
+
+    def falso_rerank(texto, hits):  # sem o boost, a Regra leva 0.01 de vantagem sobre a UC
+        for h in hits:
+            h["score"] = {"Caso de Uso": 0.92, "Regra": 0.93}.get(h["type"], 0.91)
+        return sorted(hits, key=lambda h: -h["score"]), None
+    monkeypatch.setattr(local, "rerank", falso_rerank)
+    d = call("elm_buscar_req_local", projeto, texto="cotação saldo")
+    itens = {i["path"]: i for i in d["itens"]}
+    assert [i["path"] for i in d["itens"][:2]] == [UC, REGRA]  # 0.92×1.03 > 0.93×1.01: a UC sobe
+    assert itens[UC]["score"] == round(0.92 * local.TYPE_BOOST["Caso de Uso"], 4)
+    assert itens[REGRA]["score"] == round(0.93 * local.TYPE_BOOST["Regra"], 4)
+    assert itens[RN]["score"] == 0.91  # "Regra de Negócio" não é "Regra": a chave é o type exato
+    monkeypatch.setattr(local, "TYPE_BOOST", {})  # sem o boost, a Regra volta à frente
+    assert call("elm_buscar_req_local", projeto, texto="cotação saldo")["itens"][0]["path"] == REGRA
+
+
 def test_busca_com_rerank_reordena_o_top(projeto, raiz, monkeypatch):
     call("elm_indexar_local", projeto)
     assert call("elm_buscar_req_local", projeto, texto="módulo 11 dígitos verificadores")["itens"][0]["path"] == RN

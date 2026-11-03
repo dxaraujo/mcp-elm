@@ -102,6 +102,11 @@ quando configurado); falhas da
 API de embedding/rerank viram o erro do contrato correspondente (`credencial` 401/403, `config` 404,
 `indisponivel` 429/5xx, com 3 tentativas no rate limit) — na indexação, `erro_indice` em `dados`.
 
+Depois do 2º estágio (ou do RRF, sem rerank ou na falha dele), o type-boost ajusta o pool inteiro antes do
+slicing: cada chunk multiplica a score pelo fator do `type` exato do frontmatter — Caso de Uso ×1,03 >
+História de Usuário ×1,02 > Regra ×1,01 > demais ×1,00 ("Regra de Negócio" não é "Regra"). Tipos de negócio
+ficam acima de chunks de relevância equivalente, e `itens[].score` é o valor ajustado.
+
 A indexação roda numa thread do servidor (o 1º uso baixa o modelo, que leva minutos): nenhuma chamada espera.
 `elm_buscar_req_local` com arquivos alterados dispara a indexação e busca no que já está no índice, devolvendo
 `indexando: true, restantes: n`. Medido: 1.291 documentos em ~1 min com o modelo já baixado.

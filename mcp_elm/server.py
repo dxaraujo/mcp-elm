@@ -233,8 +233,9 @@ TipoReq = Annotated[str | None, Field(description="type do frontmatter")]
 def elm_buscar_req_local(projeto: Projeto, texto: str, limite: int = 8, pasta: Pasta = None, tipo: TipoReq = None,
                          pa: Pa = None) -> str:
     """Busca híbrida (sentido + palavra, com rerank se configurado; falhou, segue a ordem RRF) no bundle
-    baixado; o que mudou indexa em segundo plano. → dados: {itens[{path, id, titulo, tipo, pasta, score,
-    trechos[{secao, texto}]}], indexando?, restantes?, erro_rerank?}"""
+    baixado; score ajustado por type-boost (Caso de Uso ×1,03 > História ×1,02 > Regra ×1,01); o que mudou
+    indexa em segundo plano. → dados: {itens[{path, id, titulo, tipo, pasta, score, trechos[{secao, texto}]}],
+    indexando?, restantes?, erro_rerank?}"""
     return local.buscar(prj.carregar(projeto, pa), texto, limite, pasta, tipo)
 
 
