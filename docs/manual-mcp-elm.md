@@ -73,7 +73,7 @@ indexa agora.
 
 ### Bundle local
 
-Quatro tools leem o bundle baixado, sem ir ao ELM — mesmo nome da operação remota com o sufixo `_local`:
+Cinco tools leem o bundle baixado, sem ir ao ELM — mesmo nome da operação remota com o sufixo `_local`:
 
 | Tool | Faz | `dados` |
 |---|---|---|
@@ -81,6 +81,7 @@ Quatro tools leem o bundle baixado, sem ir ao ELM — mesmo nome da operação r
 | `elm_ler_req_local` | documento por id ou path relativo, com links de saída e de entrada | `path, markdown, links{saida[], entrada[]}` |
 | `elm_listar_req_local` | inventário (sem corpo), mesmos filtros | `itens[{path, id, titulo, tipo, pasta, descricao, indexado}]` |
 | `elm_indexar_local` | indexa o que mudou (sha256) numa thread e responde na hora; chamar de novo mostra o progresso; `forcar` reindexa tudo | `documentos, restantes, indexando, erro_indice?` |
+| `elm_explorar_local` | gera o `explorar.html` (visualizador offline do bundle em galáxias) na pasta do bundle | `path, documentos, chunks, galaxias, links, gerado_em` |
 
 O índice fica em `<bundle>/sqlite3/okf.db` (com `.gitignore`): chunks por heading e parágrafo — parágrafo maior
 que ~1.500 chars quebra por linha (lista longa não vira um único vetor diluído), e tabela markdown repete
@@ -111,7 +112,20 @@ A indexação roda numa thread do servidor (o 1º uso baixa o modelo, que leva m
 `elm_buscar_req_local` com arquivos alterados dispara a indexação e busca no que já está no índice, devolvendo
 `indexando: true, restantes: n`. Medido: 1.291 documentos em ~1 min com o modelo já baixado.
 
-**Nada baixado** (pasta de `rm.download` ausente ou sem `.md`): buscar, ler, listar e indexar devolvem
+**Visualizador** (`elm_explorar_local`): gera `<bundle>/explorar.html` — HTML único que abre o bundle no
+navegador sem internet (intranet): galáxias de documentos (planeta = documento, lua = chunk do planeta
+selecionado) na vista 3D (3d-force-graph/three.js) ou 2D (Cytoscape.js), com busca, filtros por
+tipo/pasta/galáxia e Markdown (marked + DOMPurify). As quatro libs ficam em `assets/` e vão embutidas no
+HTML no gerar. Documentos, vetores e chunks saem do índice em modo somente leitura (nada de reindexação
+aqui): sem índice, `precondicao` com `campo: "indice"` apontando o `elm_indexar_local`. O agrupamento é
+semântico, não por pasta: agregativo, linkage média, distância de cosseno entre a média normalizada dos
+vetores dos chunks do documento, funde enquanto a distância for menor que 0.30. Nota: o asset do
+3d-force-graph é o 1.73.4 e, no embutir, recebe o backport do fix oficial upstream
+(vasturiano/three-forcegraph@`f89a2000ee`, "Prevent layoutTick from running before layout is assigned") —
+sem ele, o 1º `graphData` faz `state.layout.tick()` num layout ainda não atribuído e a vista 3D nasce em
+branco (o `RuntimeError` do `_ler_asset` trava o gerar se o asset trocar de versão).
+
+**Nada baixado** (pasta de `rm.download` ausente ou sem `.md`): buscar, ler, listar, indexar e explorar devolvem
 `nao_encontrado` com `campo: "bundle"` e o detalhe indica baixar com `elm_sync` (`direcao: "baixar"`) ou pesquisar no
 ELM remoto com `elm_buscar_req`/`elm_ler_req`. Sem `rm.download` no pa: `config`.
 

@@ -6,7 +6,7 @@ from typing import Annotated, Literal
 from mcp.server.mcpserver import MCPServer
 from pydantic import Field
 
-from . import embedder, ewm, local, projeto as prj, qm as etm, rm as dng, sync
+from . import embedder, ewm, local, projeto as prj, qm as etm, rm as dng, sync, visualizar
 from .contrato import Erro, operacao
 from .http import get_session
 
@@ -258,6 +258,13 @@ def elm_indexar_local(projeto: Projeto, forcar: Annotated[bool, Field(descriptio
     """Indexa o bundle baixado em segundo plano e responde na hora; chame de novo para ver o progresso.
     → dados: {documentos, restantes, indexando, erro_indice?}"""
     return local.indexar(prj.carregar(projeto, pa), forcar)
+
+
+@tool
+def elm_explorar_local(projeto: Projeto, pa: Pa = None) -> str:
+    """Gera o explorar.html (visualizador offline 3D/2D do bundle) na pasta do bundle. → dados: {path,
+    documentos, chunks, galaxias, links, gerado_em}"""
+    return visualizar.gerar(prj.carregar(projeto, pa))
 
 
 @tool
