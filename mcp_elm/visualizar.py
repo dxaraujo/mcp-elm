@@ -405,9 +405,10 @@ function montarGalo() {
   const gl = (modo === "sem" ? D.semantica : D.galaxias);
   const KGAL = gl.length;
   // raio EXTERNO do volume ∝ nº de membros: cada pétala recebe o mesmo volume de espaço (4/3·π·ΔR³ ≈
-  // 1400 u³ ≈ (11 u)³ → vizinhos a ~1,2× o diâmetro máximo de pétala), entre o raio interno 14 u (logo
-  // fora do sol 6,6 u + pétala 5,5 u) e RAIO — pétalas em profundidades diferentes, em volume (dente-de-leão)
-  const RAIO = gl.map(g => Math.cbrt(14 ** 3 + g.docs * 1400 / (4 / 3 * Math.PI)));
+  // 1400 u³ ≈ (11 u)³ → vizinhos a ~1,2× o diâmetro máximo de pétala), entre o raio interno 20 u (folga
+  // do sol 6,6 u + pétala 5,5 u: 7,9 u entre as superfícies) e RAIO — pétalas em profundidades diferentes,
+  // em volume (dente-de-leão)
+  const RAIO = gl.map(g => Math.cbrt(20 ** 3 + g.docs * 1400 / (4 / 3 * Math.PI)));
   const R_MAX = KGAL ? Math.max(...RAIO) : 0;
   // rotação lenta da casca em torno do core: eixo unitário e período (20–60 s) derivados do índice da
   // galáxia (determinístico, estável entre gerações); a direção alterna entre galáxias vizinhas
@@ -508,13 +509,13 @@ function luas3D() {
 function buildNodes3D() {
   // k = índice do doc na galáxia (ordem determinística do payload): direção pela espiral de Fibonacci
   // (uniforme na esfera — antes o hash por caminho concentrava direções) e profundidade uniforme no
-  // volume (14 u até RAIO, semente por caminho) — pétalas em raios diferentes, presas por um fio ao miolo
+  // volume (20 u até RAIO, semente por caminho) — pétalas em raios diferentes, presas por um fio ao miolo
   const kGal = G.list.map(() => 0);
   const nodes = docs.map(d => {
     const i = idxDoc(d), k = kGal[i]++, N = G.list[i].docs;
     const phi = Math.acos(1 - 2 * (k + 0.5) / N), th = Math.PI * (1 + Math.sqrt(5)) * (k + 0.5);
     const sp = Math.sin(phi), u = (semente(d.path, 6) + 1) / 2;
-    const rAlvo = Math.cbrt(14 ** 3 + (G.RAIO[i] ** 3 - 14 ** 3) * u);
+    const rAlvo = Math.cbrt(20 ** 3 + (G.RAIO[i] ** 3 - 20 ** 3) * u);
     // direção-alvo guardada no nó: a mola prende direção E raio; sem ela, os links puxam todas as
     // pétalas para a mesma direção (espinha) — o raio sozinho não segurava a angulação
     const dx = sp * Math.cos(th), dy = sp * Math.sin(th), dz = Math.cos(phi);
