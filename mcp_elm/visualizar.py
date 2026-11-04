@@ -404,11 +404,16 @@ let G = null;
 function montarGalo() {
   const gl = (modo === "sem" ? D.semantica : D.galaxias);
   const KGAL = gl.length;
-  // raio EXTERNO do volume ∝ nº de membros: cada pétala recebe o mesmo volume de espaço (4/3·π·ΔR³ ≈
-  // 1400 u³ ≈ (11 u)³ → vizinhos a ~1,2× o diâmetro máximo de pétala), entre o raio interno 20 u (folga
-  // do sol 6,6 u + pétala 5,5 u: 7,9 u entre as superfícies) e RAIO — pétalas em profundidades diferentes,
+  // relações internas de cada galáxia (links com as duas pontas nela): a esfera cresce com elas —
+  // galáxia de web densa ganha mais espaço para as pétalas (antes só o nº de docs mandava)
+  const gDePath = new Map(D.docs.map(d => [d.path, idxDoc(d)]));
+  const REL = gl.map(() => 0);
+  for (const l of D.links) { const a = gDePath.get(l.de), b = gDePath.get(l.para); if (a !== undefined && a === b) REL[a]++; }
+  // raio EXTERNO do volume: miolo do sol (20³) + volume por documento (2400 u³ ≈ (13,4 u)³) +
+  // volume por relação interna (1200 u³) — pétalas com folga (colisão medida no layout-alvo: 27 pares
+  // sobrepostos com o volume fixo de 1400 u³/doc → 3 com esta fórmula); profundidades diferentes,
   // em volume (dente-de-leão)
-  const RAIO = gl.map(g => Math.cbrt(20 ** 3 + g.docs * 1400 / (4 / 3 * Math.PI)));
+  const RAIO = gl.map((g, i) => Math.cbrt(20 ** 3 + (g.docs * 2400 + REL[i] * 1200) / (4 / 3 * Math.PI)));
   const R_MAX = KGAL ? Math.max(...RAIO) : 0;
   // rotação lenta da casca em torno do core: eixo unitário e período (20–60 s) derivados do índice da
   // galáxia (determinístico, estável entre gerações); a direção alterna entre galáxias vizinhas

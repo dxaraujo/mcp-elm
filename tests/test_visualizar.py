@@ -357,9 +357,13 @@ def test_explorar_petalas_em_volume(projeto, raiz):
     html = open(d["path"], encoding="utf-8").read()
     # dente-de-leão em volume: raio externo ∝ cbrt(N) e cada pétala com o próprio raio-alvo, em
     # profundidades diferentes (antes: casca fina, todos no mesmo raio — o print mostrava 59,4u exato)
-    assert "Math.cbrt(20 ** 3 + g.docs * 1400 / (4 / 3 * Math.PI))" in html
+    assert "Math.cbrt(20 ** 3 + (g.docs * 2400 + REL[i] * 1200) / (4 / 3 * Math.PI))" in html
     assert "12 + 3 * Math.sqrt(g.docs - 1)" not in html
     assert "const rAlvo = Math.cbrt(20 ** 3 + (G.RAIO[i] ** 3 - 20 ** 3) * u);" in html
+    # o raio cresce também com as relações internas da galáxia (links com as duas pontas nela):
+    # antes só o nº de docs mandava e as pétalas grandes colidiam
+    assert "const REL = gl.map(() => 0);" in html
+    assert "if (a !== undefined && a === b) REL[a]++;" in html
     # direção pela espiral de Fibonacci (uniforme na esfera), não pelo hash por caminho (concentrava)
     assert "Math.acos(1 - 2 * (k + 0.5) / N)" in html
     # a mola é POSICIONAL: persegue direção × raio-alvo do nó. Mola só radial segurava o raio mas
