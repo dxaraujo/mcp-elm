@@ -417,7 +417,8 @@ function montarGalo() {
   });
   // grade de Fibonacci dos centros: o termo base é o piso; se as maiores esferas não couberem entre
   // vizinhos, escala R_GAL por f (menor distância entre pares no layout de Fibonacci de raio 1,
-  // medida abaixo) para distância entre centros ≥ 2·R_MAX + 10 → nenhuma galáxia sobrepõe a vizinha
+  // medida abaixo) para distância entre centros ≥ 2,5·R_MAX → folga entre as bordas das duas maiores
+  // galáxias ≈ metade do raio da maior (antes: 10u fixos) → nenhuma galáxia sobrepõe a vizinha
   let R_GAL = 0, CENTRO = [];
   if (KGAL === 1) CENTRO = [[0, 0, 0]];
   else if (KGAL > 1) {
@@ -430,7 +431,7 @@ function montarGalo() {
       const dx = u[i][0] - u[j][0], dy = u[i][1] - u[j][1], dz = u[i][2] - u[j][2];
       f = Math.min(f, Math.hypot(dx, dy, dz));
     }
-    R_GAL = Math.max(120 + 26 * Math.sqrt(KGAL), (2 * R_MAX + 10) / f);
+    R_GAL = Math.max(120 + 26 * Math.sqrt(KGAL), (2 * R_MAX + 0.5 * R_MAX) / f);
     CENTRO = u.map(p => [p[0] * R_GAL, p[1] * R_GAL, p[2] * R_GAL]);
   }
   G = {

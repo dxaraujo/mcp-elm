@@ -298,6 +298,16 @@ def test_explorar_header_sels_do_lado(projeto, raiz):
     assert "/* sem max-width, o select estica para a opção mais larga */" in estilo
 
 
+def test_explorar_folga_entre_galaxias(projeto, raiz):
+    call("elm_indexar_local", projeto)
+    d = call("elm_explorar_local", projeto)
+    html = open(d["path"], encoding="utf-8").read()
+    # escala dos centros: distância entre centros ≥ 2,5·R_MAX → folga entre as bordas das duas maiores
+    # ≈ metade do raio da maior (antes: 10u fixos, e no PAB as maiores quase se tocavam)
+    assert "R_GAL = Math.max(120 + 26 * Math.sqrt(KGAL), (2 * R_MAX + 0.5 * R_MAX) / f);" in html
+    assert "2·R_MAX + 10" not in html
+
+
 def test_explorar_cameras_seguem_isolacao(projeto, raiz):
     call("elm_indexar_local", projeto)
     d = call("elm_explorar_local", projeto)
