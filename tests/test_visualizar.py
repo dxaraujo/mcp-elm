@@ -329,6 +329,15 @@ def test_explorar_sol_maior_e_claro(projeto, raiz):
     assert "G.corGal.get(n.core)" not in html
 
 
+def test_explorar_sol_e_o_maior(projeto, raiz):
+    call("elm_indexar_local", projeto)
+    d = call("elm_explorar_local", projeto)
+    html = open(d["path"], encoding="utf-8").read()
+    # o sol é o maior nó da cena: raio dos planetas com teto 5,5 (UCs de alto grau chegavam a 9,3u,
+    # maiores que o sol de 6,6u, e roubavam o centro da galáxia na visão global)
+    assert "Math.pow(Math.min(5.5, 2 + 0.55 * Math.sqrt(d.n_links + d.n_chunks)) / TAM, 3)" in html
+
+
 def test_explorar_raios_core_documento(projeto, raiz):
     call("elm_indexar_local", projeto)
     d = call("elm_explorar_local", projeto)

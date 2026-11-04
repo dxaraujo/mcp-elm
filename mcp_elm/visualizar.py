@@ -489,7 +489,7 @@ function repintar() {
 }
 
 // ---------- vista 3D (3d-force-graph, three.js)
-const valDoc = d => Math.pow((2 + 0.55 * Math.sqrt(d.n_links + d.n_chunks)) / TAM, 3);  // raio = TAM * cbrt(val)
+const valDoc = d => Math.pow(Math.min(5.5, 2 + 0.55 * Math.sqrt(d.n_links + d.n_chunks)) / TAM, 3);  // raio = TAM * cbrt(val); planeta com teto 5,5 — o sol (6,6) é o maior nó
 const valCore = () => Math.pow(6.6 / TAM, 3);
 const valLua = () => Math.pow(0.6 / TAM, 3);
 function luas3D() {
