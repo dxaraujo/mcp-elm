@@ -6,7 +6,8 @@ vetor do documento — média normalizada dos vetores dos chunks, artefato-a-art
 do centro); a relação direta manda e cada documento entra em no máximo uma galáxia (centro de menor path); o
 resto vai para a galáxia catch-all "Tudo" (bundle sem UC/HF: uma única "Tudo" com tudo). Planeta = documento
 (tamanho proporcional a links + chunks); lua = chunk (orbita o planeta selecionado). No 3D, cada galáxia é
-uma esfera: o centro fixo e os demais numa casca de raio que cresce com o nº de membros. O header tem o
+uma esfera: o centro fixo e os demais numa casca de raio ∝ sqrt dos membros (área da esfera ∝ nº de
+membros). O header tem o
 seletor de galáxia (isolar uma; "Todas as galáxias" solta — o clique no core 3D sincroniza) e o combobox
 do modo das galáxias: UC/HF (acima, padrão) ou semântico (aglomerativo, linkage média, cosseno ≤ LIMITE:
 uma galáxia por cluster, centro = o documento com a maior média de cosseno com os demais membros). Os
@@ -396,19 +397,35 @@ const idxDoc = d => (modo === "sem" ? d.gsem : d.galaxia);
 let G = null;
 function montarGalo() {
   const gl = (modo === "sem" ? D.semantica : D.galaxias);
-  const KGAL = gl.length, R_GAL = KGAL <= 1 ? 0 : 120 + 26 * Math.sqrt(KGAL);
+  const KGAL = gl.length;
+  // raio da casca ∝ sqrt dos membros: área da esfera (4πR²) ∝ nº de membros → cada nó recebe a mesma
+  // área de superfície (na PAB a maior galáxia fica ~4× o raio do singleton, ~16× a área)
+  const RAIO = gl.map(g => 12 + 3 * Math.sqrt(g.docs - 1));
+  const R_MAX = KGAL ? Math.max(...RAIO) : 0;
+  // grade de Fibonacci dos centros: o termo base é o piso; se as maiores esferas não couberem entre
+  // vizinhos, escala R_GAL por f (menor distância entre pares no layout de Fibonacci de raio 1,
+  // medida abaixo) para distância entre centros ≥ 2·R_MAX + 10 → nenhuma galáxia sobrepõe a vizinha
+  let R_GAL = 0, CENTRO = [];
+  if (KGAL === 1) CENTRO = [[0, 0, 0]];
+  else if (KGAL > 1) {
+    const u = gl.map((g, i) => {
+      const phi = Math.acos(1 - 2 * (i + 0.5) / KGAL), th = Math.PI * (1 + Math.sqrt(5)) * (i + 0.5);
+      return [Math.sin(phi) * Math.cos(th), Math.sin(phi) * Math.sin(th), Math.cos(phi)];
+    });
+    let f = Infinity;
+    for (let i = 0; i < KGAL; i++) for (let j = i + 1; j < KGAL; j++) {
+      const dx = u[i][0] - u[j][0], dy = u[i][1] - u[j][1], dz = u[i][2] - u[j][2];
+      f = Math.min(f, Math.hypot(dx, dy, dz));
+    }
+    R_GAL = Math.max(120 + 26 * Math.sqrt(KGAL), (2 * R_MAX + 10) / f);
+    CENTRO = u.map(p => [p[0] * R_GAL, p[1] * R_GAL, p[2] * R_GAL]);
+  }
   G = {
     list: gl,
     gal: Object.fromEntries(gl.map(g => [g.id, g])),
     KGAL, R_GAL,
-    // centros das galáxias: grade de Fibonacci na esfera (determinístico, sem solapar)
-    CENTRO: gl.map((g, i) => {
-      if (KGAL === 1) return [0, 0, 0];
-      const phi = Math.acos(1 - 2 * (i + 0.5) / KGAL), th = Math.PI * (1 + Math.sqrt(5)) * (i + 0.5);
-      return [R_GAL * Math.sin(phi) * Math.cos(th), R_GAL * Math.sin(phi) * Math.sin(th), R_GAL * Math.cos(phi)];
-    }),
-    // casca esférica de cada galáxia: core fixo no centro, os demais a R_gal (cresce com o nº de membros)
-    RAIO: gl.map(g => Math.max(8, 6 + 3.5 * Math.cbrt(g.docs - 1))),
+    CENTRO,
+    RAIO,
     // cor fixa por galáxia (ângulo dourado); a catch-all "Tudo" (sem centro UC/HF) fica discreta
     corGal: new Map(gl.map((g, i) => [i, g.centro == null ? "hsl(215, 14%, 52%)" : `hsl(${Math.round(i * 137.508) % 360}, 62%, 58%)`]))
   };
