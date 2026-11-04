@@ -317,6 +317,15 @@ def test_explorar_opacidade_da_web_de_links(projeto, raiz):
     assert ".linkOpacity(0.5)" not in html
 
 
+def test_explorar_web_de_citacoes_somente_isolada(projeto, raiz):
+    call("elm_indexar_local", projeto)
+    d = call("elm_explorar_local", projeto)
+    html = open(d["path"], encoding="utf-8").read()
+    # na visão global a teia documento↔documento some (as cordas que preenchem o interior da esfera);
+    # ao isolar, os intra-galáxia reaparecem e os inter-galáxia seguem apagados pelo dim
+    assert "if (!l.lua && isolado === null) return \"#0d1424\";" in html
+
+
 def test_explorar_sol_maior_e_claro(projeto, raiz):
     call("elm_indexar_local", projeto)
     d = call("elm_explorar_local", projeto)
