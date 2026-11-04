@@ -317,6 +317,18 @@ def test_explorar_opacidade_da_web_de_links(projeto, raiz):
     assert ".linkOpacity(0.5)" not in html
 
 
+def test_explorar_sol_maior_e_claro(projeto, raiz):
+    call("elm_indexar_local", projeto)
+    d = call("elm_explorar_local", projeto)
+    html = open(d["path"], encoding="utf-8").read()
+    # o sol é maior (raio 6,6u, antes 4,4u) e leva a variante mais clara do ângulo da galáxia
+    assert "const valCore = () => Math.pow(6.6 / TAM, 3);" in html
+    assert "solGal: new Map" in html
+    # o core pinta por solGal; planetas e luas seguem usando corGal (e o cinza fixo)
+    assert "G.solGal.get(n.core)" in html
+    assert "G.corGal.get(n.core)" not in html
+
+
 def test_explorar_cameras_seguem_isolacao(projeto, raiz):
     call("elm_indexar_local", projeto)
     d = call("elm_explorar_local", projeto)

@@ -443,7 +443,9 @@ function montarGalo() {
     ROT,
     porGal: gl.map(() => []),  // nós membros por galáxia, preenchido em setDados3D (a rotação usa)
     // cor fixa por galáxia (ângulo dourado); a catch-all "Tudo" (sem centro UC/HF) fica discreta
-    corGal: new Map(gl.map((g, i) => [i, g.centro == null ? "hsl(215, 14%, 52%)" : `hsl(${Math.round(i * 137.508) % 360}, 62%, 58%)`]))
+    corGal: new Map(gl.map((g, i) => [i, g.centro == null ? "hsl(215, 14%, 52%)" : `hsl(${Math.round(i * 137.508) % 360}, 62%, 58%)`])),
+    // o sol (core) leva a variante mais clara do mesmo ângulo: identidade própria, à parte dos planetas
+    solGal: new Map(gl.map((g, i) => [i, g.centro == null ? "hsl(215, 14%, 68%)" : `hsl(${Math.round(i * 137.508) % 360}, 62%, 76%)`]))
   };
 }
 montarGalo();
@@ -486,7 +488,7 @@ function repintar() {
 
 // ---------- vista 3D (3d-force-graph, three.js)
 const valDoc = d => Math.pow((2 + 0.55 * Math.sqrt(d.n_links + d.n_chunks)) / TAM, 3);  // raio = TAM * cbrt(val)
-const valCore = () => Math.pow(4.4 / TAM, 3);
+const valCore = () => Math.pow(6.6 / TAM, 3);
 const valLua = () => Math.pow(0.6 / TAM, 3);
 function luas3D() {
   if (!selecionado) return [];
@@ -518,7 +520,7 @@ function buildLinks3D() {
   if (selecionado) for (const m of luas3D()) links.push({ source: selecionado, target: m.id, lua: true });
   return links;
 }
-const nodeColor3 = n => n.core !== undefined ? (dimCore(n.core) ? "#0d1424" : G.corGal.get(n.core))
+const nodeColor3 = n => n.core !== undefined ? (dimCore(n.core) ? "#0d1424" : G.solGal.get(n.core))
   : n.lua !== undefined ? "#94a3b8" : (dimDoc(byPath[n.id]) ? "#0d1424" : G.corGal.get(idxDoc(byPath[n.id])));
 const linkColor3 = l => {
   const s = l.source, t = l.target;
