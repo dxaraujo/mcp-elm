@@ -115,7 +115,8 @@ A indexação roda numa thread do servidor (o 1º uso baixa o modelo, que leva m
 **Visualizador** (`elm_explorar_local`): gera `<bundle>/explorar.html` — HTML único que abre o bundle no
 navegador sem internet (intranet): galáxias de documentos (planeta = documento, lua = chunk do planeta
 selecionado) na vista 3D (3d-force-graph/three.js) — a única vista: sem WebGL, uma mensagem de
-indisponível (sem fallback 2D) —, com busca, filtro por tipo, isolamento por galáxia e
+indisponível (sem fallback 2D) —, com busca, filtro por tipo, isolamento por galáxia, combobox no header que
+alterna o modo das galáxias (UC/HF — padrão — ou semântico, persistido em `localStorage`) e
 Markdown (marked + DOMPurify).
 As três libs ficam em `assets/` e vão embutidas no HTML no gerar. Documentos, vetores e chunks saem do
 índice em modo somente leitura (nada de reindexação aqui): sem índice, `precondicao` com `campo: "indice"`
@@ -125,6 +126,9 @@ documento com RELAÇÃO DIRETA (link de entrada ou de saída, qualquer rel) OU r
 cosseno ≤ 0.30 entre a média normalizada dos vetores dos chunks do documento e a do centro —
 artefato-a-artefato, nunca chunk a chunk); a direta manda, cada documento vai a UMA galáxia (os centros, por
 menor path) e o resto fica na galáxia catch-all "Tudo" (omitida se vazia; bundle sem UC/HF, só "Tudo").
+O modo semântico (aglomerativo, linkage média, cosseno ≤ 0.30) faz uma galáxia por cluster: todo documento
+pertence a exatamente um (singleton vira galáxia de 1), o centro é o documento do cluster com a maior média
+de cosseno com os demais (empate: menor path) e o nome, o título do centro.
 Nota: o asset do 3d-force-graph é o 1.73.4 e, no embutir, recebe o backport do fix oficial upstream
 (vasturiano/three-forcegraph@`f89a2000ee`, "Prevent layoutTick from running before layout is assigned") —
 sem ele, o 1º `graphData` faz `state.layout.tick()` num layout ainda não atribuído e a vista 3D nasce em

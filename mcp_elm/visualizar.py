@@ -6,7 +6,10 @@ vetor do documento — média normalizada dos vetores dos chunks, artefato-a-art
 do centro); a relação direta manda e cada documento entra em no máximo uma galáxia (centro de menor path); o
 resto vai para a galáxia catch-all "Tudo" (bundle sem UC/HF: uma única "Tudo" com tudo). Planeta = documento
 (tamanho proporcional a links + chunks); lua = chunk (orbita o planeta selecionado). No 3D, cada galáxia é
-uma esfera: o centro fixo e os demais numa casca de raio que cresce com o nº de membros. Os documentos e
+uma esfera: o centro fixo e os demais numa casca de raio que cresce com o nº de membros. O combobox do
+header alterna o modo das galáxias: UC/HF (acima, padrão) ou semântico (aglomerativo, linkage média,
+cosseno ≤ LIMITE: uma galáxia por cluster, centro = o documento com a maior média de cosseno com os
+demais membros). Os documentos e
 vetores saem do índice local em modo somente leitura (nada de reindexação aqui) e os links saem do disco com
 a mesma lógica do elm_ler_req_local. As bibliotecas (3d-force-graph/three.js no grafo 3D — a 3D é só do
 3d-force-graph, sem fallback 2D —, marked + DOMPurify no Markdown) ficam em assets/ e vão embutidas no HTML:
@@ -160,6 +163,33 @@ def galaxias_docs(paths: list[str], titulos: dict[str, str], tipos: dict[str, st
     return nomes, grupos_l, centros_l
 
 
+def galaxias_semanticas(paths: list[str], titulos: dict[str, str], X: np.ndarray) -> tuple[list[str], list[list[str]], list[str]]:
+    """Semântico (aglomerativo, linkage média, cosseno ≤ LIMITE): uma galáxia por cluster; centro = o
+    documento com a MAIOR MÉDIA de cosseno com os demais membros (singleton: ele mesmo; empate: o menor
+    path) e nome = o título do centro. Sem "Tudo" (toda linha entra em um cluster; sem vetor: linha zero,
+    distância 1 de tudo → singleton). Mesma forma de `galaxias_docs` → (nomes, grupos, centros)."""
+    n = len(paths)
+    if n == 0:
+        return [], [], []
+    rot = aglomerar(X, LIMITE)
+    grupos: list[list[int]] = [[] for _ in range(max(rot) + 1)]
+    for i, r in enumerate(rot):
+        grupos[r].append(i)
+    S = X @ X.T
+    nomes, grupos_l, centros_l = [], [], []
+    for g in grupos:
+        if len(g) == 1:
+            c = g[0]
+        else:
+            s = S[np.ix_(g, g)]
+            media = (s.sum(axis=1) - np.diag(s)) / (len(g) - 1)  # média do cosseno com os demais
+            c = g[int(np.argmax(media))]  # empate: o primeiro (g em ordem de path) → menor path
+        centros_l.append(paths[c])
+        nomes.append(titulos.get(paths[c]) or paths[c])
+        grupos_l.append([paths[i] for i in g])
+    return nomes, grupos_l, centros_l
+
+
 def _pagina(dados: dict) -> str:
     js = json.dumps(dados, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
     html = PAGINA
@@ -212,6 +242,16 @@ def gerar(cfg: dict) -> dict:
     for gid, membros in enumerate(grupos):
         for p in membros:
             gal_de[p] = gid
+    # modo semântico: uma galáxia por cluster (aglomerativo, linkage média); sem vetor: linha zero
+    dim = next(iter(vetores.values()), np.zeros(0)).shape[0]
+    X = np.stack([vetores.get(p, np.zeros(dim)) for p in paths]) if paths else np.zeros((0, dim))
+    nomes_s, grupos_s, centros_s = galaxias_semanticas(paths, titulo, X)
+    ordenado_s = sorted(zip(nomes_s, grupos_s, centros_s), key=lambda t: (-len(t[1]), min(t[1])))
+    nomes_s, grupos_s, centros_s = (list(a) for a in zip(*ordenado_s))
+    gsem_de: dict[str, int] = {}
+    for k, membros in enumerate(grupos_s):
+        for p in membros:
+            gsem_de[p] = k
 
     docs_json = []
     for p, doc_id, doc_titulo, tipo, pasta, desc in linhas:
@@ -219,13 +259,15 @@ def gerar(cfg: dict) -> dict:
         docs_json.append({"path": p, "id": doc_id, "titulo": doc_titulo or "", "tipo": tipo, "pasta": pasta,
                           "subpasta": p.rsplit("/", 1)[0] if "/" in p else None, "descricao": desc,
                           "n_chunks": n_chunks.get(p, 0), "n_links": grau.get(p, 0), "galaxia": gal_de[p],
-                          "corpo": d["body"] if d else ""})
+                          "gsem": gsem_de[p], "corpo": d["body"] if d else ""})
     dados = {"bundle": os.path.basename(root),
              "docs": docs_json,
              "links": links,
              "chunks": [{"path": p, "secao": s, "texto": t} for p, s, t in chunk_rows],
              "galaxias": [{"id": gid, "nome": nomes[gid], "docs": len(m), "centro": centros[gid]}
-                           for gid, m in enumerate(grupos)]}
+                           for gid, m in enumerate(grupos)],
+             "semantica": [{"id": k, "nome": nomes_s[k], "docs": len(m), "centro": centros_s[k]}
+                            for k, m in enumerate(grupos_s)]}
     out = Path(root) / "explorar.html"
     out.write_text(_pagina(dados), encoding="utf-8")
     return {"path": str(out), "documentos": len(docs_json), "chunks": len(chunk_rows),
@@ -259,6 +301,7 @@ main.sem-detalhe #graph { border-right:0; }
 aside, section { overflow:auto; border-right:1px solid var(--line); background:var(--panel); }
 #filters { padding:10px 12px; display:grid; gap:8px; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--panel); z-index:1; }
 input, select { width:100%; padding:6px 8px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); font:inherit; }
+#modo { width:auto; margin-left:auto; }
 #conta { color:var(--muted); font-size:12px; }
 #list { list-style:none; margin:0; padding:0; }
 #list li { padding:8px 12px; border-bottom:1px solid var(--line); cursor:pointer; }
@@ -328,6 +371,10 @@ pre.raw { white-space:pre-wrap; font:13px/1.5 ui-monospace, monospace; }
 <header>
   <h1 id="name"></h1>
   <span class="stat" id="stats"></span>
+  <select id="modo" aria-label="Modo de galáxias">
+    <option value="uc">Galáxias UC/HF</option>
+    <option value="sem">Galáxias semânticas</option>
+  </select>
 </header>
 <main id="layout" class="sem-detalhe">
   <aside>
@@ -357,19 +404,31 @@ const D = JSON.parse(document.getElementById("data").textContent);
 const docs = D.docs;
 const byPath = Object.fromEntries(docs.map(d => [d.path, d]));
 const byId = Object.fromEntries(docs.filter(d => d.id).map(d => [d.id, d]));
-const gal = Object.fromEntries(D.galaxias.map(g => [g.id, g]));
-const KGAL = D.galaxias.length;
-// centros das galáxias: grade de Fibonacci na esfera (determinístico, sem solapar)
-const R_GAL = KGAL <= 1 ? 0 : 120 + 26 * Math.sqrt(KGAL);
-const CENTRO = D.galaxias.map((g, i) => {
-  if (KGAL === 1) return [0, 0, 0];
-  const phi = Math.acos(1 - 2 * (i + 0.5) / KGAL), th = Math.PI * (1 + Math.sqrt(5)) * (i + 0.5);
-  return [R_GAL * Math.sin(phi) * Math.cos(th), R_GAL * Math.sin(phi) * Math.sin(th), R_GAL * Math.cos(phi)];
-});
-// casca esférica de cada galáxia: core fixo no centro, os demais a R_gal (cresce com o nº de membros)
-const RAIO = D.galaxias.map(g => Math.max(8, 6 + 3.5 * Math.cbrt(g.docs - 1)));
-// cor fixa por galáxia (ângulo dourado); a catch-all "Tudo" (sem centro UC/HF) fica discreta
-const corGal = new Map(D.galaxias.map((g, i) => [i, g.centro == null ? "hsl(215, 14%, 52%)" : `hsl(${Math.round(i * 137.508) % 360}, 62%, 58%)`]));
+// ---------- modo de galáxias: "uc" (UC/HF, padrão) ou "sem" (semântico); combobox no header, persiste
+let modo = "uc";
+try { const m0 = localStorage.getItem("explorar-modo"); if (m0 === "uc" || m0 === "sem") modo = m0; } catch {}
+const idxDoc = d => (modo === "sem" ? d.gsem : d.galaxia);
+let G = null;
+function montarGalo() {
+  const gl = (modo === "sem" ? D.semantica : D.galaxias);
+  const KGAL = gl.length, R_GAL = KGAL <= 1 ? 0 : 120 + 26 * Math.sqrt(KGAL);
+  G = {
+    list: gl,
+    gal: Object.fromEntries(gl.map(g => [g.id, g])),
+    KGAL, R_GAL,
+    // centros das galáxias: grade de Fibonacci na esfera (determinístico, sem solapar)
+    CENTRO: gl.map((g, i) => {
+      if (KGAL === 1) return [0, 0, 0];
+      const phi = Math.acos(1 - 2 * (i + 0.5) / KGAL), th = Math.PI * (1 + Math.sqrt(5)) * (i + 0.5);
+      return [R_GAL * Math.sin(phi) * Math.cos(th), R_GAL * Math.sin(phi) * Math.sin(th), R_GAL * Math.cos(phi)];
+    }),
+    // casca esférica de cada galáxia: core fixo no centro, os demais a R_gal (cresce com o nº de membros)
+    RAIO: gl.map(g => Math.max(8, 6 + 3.5 * Math.cbrt(g.docs - 1))),
+    // cor fixa por galáxia (ângulo dourado); a catch-all "Tudo" (sem centro UC/HF) fica discreta
+    corGal: new Map(gl.map((g, i) => [i, g.centro == null ? "hsl(215, 14%, 52%)" : `hsl(${Math.round(i * 137.508) % 360}, 62%, 58%)`]))
+  };
+}
+montarGalo();
 const out = {}, inc = {};
 for (const l of D.links) { (out[l.de] ||= []).push(l); (inc[l.para] ||= []).push(l); }
 const deDoc = {};
@@ -389,19 +448,19 @@ const rotulo = d => (d.id ? d.id + " — " : "") + d.titulo;
 const docHash = p => "#doc=" + encodeURIComponent(p);
 // semente determinística por caminho (direção inicial dos planetas na casca, em [-1, 1])
 const semente = (s, k) => { let h = 2166136261 ^ s.length; for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619); h = Math.imul(h ^ (h >>> (5 * k + 3)), 16777619); return ((h >>> 0) % 1000) / 500 - 1; };
-const matchBusca = d => !busca || [d.id, d.titulo, d.descricao, d.pasta, d.path, gal[d.galaxia].nome].some(x => x && String(x).toLowerCase().includes(busca));
-const matchGal = i => !busca || String(gal[i].nome).toLowerCase().includes(busca);
+const matchBusca = d => !busca || [d.id, d.titulo, d.descricao, d.pasta, d.path, G.gal[idxDoc(d)].nome].some(x => x && String(x).toLowerCase().includes(busca));
+const matchGal = i => !busca || String(G.gal[i].nome).toLowerCase().includes(busca);
 const matchTipo = d => !tipoF || (d.tipo || "(sem tipo)") === tipoF;
-const dimDoc = d => (!matchTipo(d) || !matchBusca(d)) || (isolado !== null && d.galaxia !== isolado);
+const dimDoc = d => (!matchTipo(d) || !matchBusca(d)) || (isolado !== null && idxDoc(d) !== isolado);
 const dimCore = i => !matchGal(i) || (isolado !== null && isolado !== i);
 
 // ---------- painel flutuante de galáxias (arrasta no header, clique no item isola)
 function renderGals() {
-  $("gals-t").textContent = `Galáxias (${KGAL})` + (isolado !== null ? ` · isola: ${gal[isolado].nome}` : " · clique isola");
+  $("gals-t").textContent = `Galáxias (${G.KGAL})` + (isolado !== null ? ` · isola: ${G.gal[isolado].nome}` : " · clique isola");
   const box = $("gals-l"); box.replaceChildren();
-  for (const g of D.galaxias) {
+  for (const g of G.list) {
     const item = el("div", null, "galitem" + (isolado === g.id ? " on" : ""));
-    const sw = el("span", null, "sw"); sw.style.background = corGal.get(g.id);
+    const sw = el("span", null, "sw"); sw.style.background = G.corGal.get(g.id);
     item.append(sw, el("span", g.nome, "nm"), el("span", `(${g.docs})`, "ct"));
     item.title = g.nome;
     item.onclick = () => { isolado = isolado === g.id ? null : g.id; repintar(); };
@@ -422,7 +481,7 @@ function luas3D() {
   const d = byPath[selecionado], n = Math.min(d.n_chunks, LUA_MAX);
   const r = 2 + 0.55 * Math.sqrt(d.n_links + d.n_chunks);
   const base = N3D.find(x => x.id === selecionado);
-  const c = base ? [base.x, base.y, base.z] : CENTRO[d.galaxia];
+  const c = base ? [base.x, base.y, base.z] : G.CENTRO[idxDoc(d)];
   return Array.from({ length: n }, (_, i) => {
     const a0 = TAU * i / n, R = r + 2.2 + (i % 3) * 0.7;
     return { id: "lua|" + d.path + "|" + i, lua: i, val: valLua(), a0, R,
@@ -431,14 +490,14 @@ function luas3D() {
 }
 function buildNodes3D() {
   const nodes = docs.map(d => {
-    const c = CENTRO[d.galaxia];
+    const i = idxDoc(d);
     // começa na casca da galáxia (direção determinística por caminho)
     const vx = semente(d.path, 3), vy = semente(d.path, 4), vz = semente(d.path, 5);
     const r = Math.hypot(vx, vy, vz) || 1;
-    return { id: d.path, g: d.galaxia, val: valDoc(d),
-             x: c[0] + vx / r * RAIO[d.galaxia], y: c[1] + vy / r * RAIO[d.galaxia], z: c[2] + vz / r * RAIO[d.galaxia] };
+    return { id: d.path, g: i, val: valDoc(d),
+             x: G.CENTRO[i][0] + vx / r * G.RAIO[i], y: G.CENTRO[i][1] + vy / r * G.RAIO[i], z: G.CENTRO[i][2] + vz / r * G.RAIO[i] };
   });
-  nodes.push(...D.galaxias.map((g, i) => ({ id: "core:" + i, core: i, val: valCore(), x: CENTRO[i][0], y: CENTRO[i][1], z: CENTRO[i][2] })));
+  nodes.push(...G.list.map((g, i) => ({ id: "core:" + i, core: i, val: valCore(), x: G.CENTRO[i][0], y: G.CENTRO[i][1], z: G.CENTRO[i][2] })));
   nodes.push(...luas3D());
   return nodes;
 }
@@ -447,8 +506,8 @@ function buildLinks3D() {
   if (selecionado) for (const m of luas3D()) links.push({ source: selecionado, target: m.id, lua: true });
   return links;
 }
-const nodeColor3 = n => n.core !== undefined ? (dimCore(n.core) ? "#0d1424" : corGal.get(n.core))
-  : n.lua !== undefined ? "#94a3b8" : (dimDoc(byPath[n.id]) ? "#0d1424" : corGal.get(byPath[n.id].galaxia));
+const nodeColor3 = n => n.core !== undefined ? (dimCore(n.core) ? "#0d1424" : G.corGal.get(n.core))
+  : n.lua !== undefined ? "#94a3b8" : (dimDoc(byPath[n.id]) ? "#0d1424" : G.corGal.get(idxDoc(byPath[n.id])));
 const linkColor3 = l => {
   const s = l.source, t = l.target;
   const dim = (s.core !== undefined ? dimCore(s.core) : dimDoc(byPath[s.id])) ||
@@ -457,18 +516,18 @@ const linkColor3 = l => {
   return l.lua ? "#94a3b8" : (l.rel.includes("cita") ? "#475569" : "#3b82f6");
 };
 function labelDoc(d) {
-  return `<b>${esc(rotulo(d))}</b><br>${esc([d.tipo, d.pasta, gal[d.galaxia].nome,
+  return `<b>${esc(rotulo(d))}</b><br>${esc([d.tipo, d.pasta, G.gal[idxDoc(d)].nome,
     d.n_chunks + " chunk" + (d.n_chunks === 1 ? "" : "s"), d.n_links + " link" + (d.n_links === 1 ? "" : "s")].filter(Boolean).join(" · "))}`;
 }
 const forcaGalaxia = () => {
   for (const n of N3D) {
     const i = n.core !== undefined ? n.core : n.g;
-    const c = CENTRO[i];
+    const c = G.CENTRO[i];
     if (n.core !== undefined) { n.x = c[0]; n.y = c[1]; n.z = c[2]; n.vx = n.vy = n.vz = 0; }
     else if (n.lua === undefined) {
       // esfera limpa: mola radial forte devolve a distância do centro para R_gal a cada tick
       const dx = n.x - c[0], dy = n.y - c[1], dz = n.z - c[2];
-      const r = Math.hypot(dx, dy, dz) || 1e-6, f = (RAIO[i] - r) / r * 0.5;
+      const r = Math.hypot(dx, dy, dz) || 1e-6, f = (G.RAIO[i] - r) / r * 0.5;
       n.vx += dx * f; n.vy += dy * f; n.vz += dz * f;
     }
   }
@@ -507,7 +566,7 @@ function init3D() {
     .nodeRelSize(TAM).nodeResolution(10)
     .nodeColor(nodeColor3)
     .nodeLabel(n => n.core !== undefined
-      ? `<b>Galáxia: ${esc(gal[n.core].nome)}</b><br>${esc(gal[n.core].centro ? rotulo(byPath[gal[n.core].centro]) : "sem centro (Tudo)")} · ${gal[n.core].docs} documento${gal[n.core].docs === 1 ? "" : "s"} · clique isola`
+      ? `<b>Galáxia: ${esc(G.gal[n.core].nome)}</b><br>${esc(G.gal[n.core].centro ? rotulo(byPath[G.gal[n.core].centro]) : "sem centro (Tudo)")} · ${G.gal[n.core].docs} documento${G.gal[n.core].docs === 1 ? "" : "s"} · clique isola`
       : n.lua !== undefined ? "chunk do planeta — clique abre o documento"
       : labelDoc(byPath[n.id]))
     .linkColor(linkColor3)
@@ -530,7 +589,7 @@ function init3D() {
   g3d.d3Force("link").distance(26).strength(0.2);
   g3d.warmupTicks(50);  // reaquecimento das seleções (a entrada anima na tela)
   g3d.onEngineTick(orbitarLuas);
-  g3d.cameraPosition({ x: 0, y: 0, z: 2.2 * Math.max(R_GAL + 90, 140) });
+  g3d.cameraPosition({ x: 0, y: 0, z: 2.2 * Math.max(G.R_GAL + 90, 140) });
   new ResizeObserver(() => g3d && g3d.width(box.clientWidth).height(box.clientHeight)).observe(box);
   box.append(el("div", "arraste para girar · roda para zoom · clique no planeta abre o documento", "hint"));
 }
@@ -555,11 +614,11 @@ function selecionar(path) {
 function renderLista() {
   const ul = $("list"); ul.replaceChildren();
   const vis = docs.filter(d => matchBusca(d) && matchTipo(d))
-    .sort((a, b) => a.galaxia - b.galaxia || (a.id || a.path).localeCompare(b.id || b.path, "pt-BR", { numeric: true }));
+    .sort((a, b) => idxDoc(a) - idxDoc(b) || (a.id || a.path).localeCompare(b.id || b.path, "pt-BR", { numeric: true }));
   $("conta").textContent = (busca || tipoF) ? `${vis.length} de ${docs.length}` : `${docs.length} documentos`;
   for (const d of vis) {
     const li = el("li");
-    li.append(el("div", rotulo(d), "t"), el("div", [d.tipo, d.subpasta || d.pasta, gal[d.galaxia].nome].filter(Boolean).join(" · "), "m"));
+    li.append(el("div", rotulo(d), "t"), el("div", [d.tipo, d.subpasta || d.pasta, G.gal[idxDoc(d)].nome].filter(Boolean).join(" · "), "m"));
     li.onclick = () => { if (selecionado !== d.path) { location.hash = docHash(d.path); selecionar(d.path); } };
     if (d.path === selecionado) li.classList.add("on");
     ul.append(li);
@@ -642,7 +701,7 @@ function showDoc(path) {
   topo.append(f);
   box.append(topo);
   const meta = el("div", null, "meta");
-  for (const x of [d.tipo, d.subpasta || d.pasta, gal[d.galaxia].nome]) if (x) meta.append(el("span", x, "chip"));
+  for (const x of [d.tipo, d.subpasta || d.pasta, G.gal[idxDoc(d)].nome]) if (x) meta.append(el("span", x, "chip"));
   meta.append(el("span", `${d.n_chunks} chunk${d.n_chunks === 1 ? "" : "s"} · ${d.n_links} link${d.n_links === 1 ? "" : "s"}`, "chip"));
   const raw = el("a", "abrir .md"); raw.href = d.path.split("/").map(encodeURIComponent).join("/"); raw.target = "_blank"; raw.rel = "noopener";
   meta.append(raw);
@@ -725,7 +784,20 @@ $("gals-min").onclick = () => {
 
 // ---------- start
 document.getElementById("name").textContent = D.bundle + " — galáxias do bundle";
-$("stats").textContent = `${docs.length} documentos · ${D.chunks.length} chunks · ${D.links.length} links · ${KGAL} galáxias`;
+const textStats = () => `${docs.length} documentos · ${D.chunks.length} chunks · ${D.links.length} links · ${G.KGAL} galáxias`;
+// combobox do modo de galáxias (persiste em localStorage; ao trocar: solta o isolamento, mantém a seleção)
+$("modo").value = modo;
+$("modo").onchange = e => {
+  modo = e.target.value;
+  montarGalo();
+  isolado = null;
+  $("stats").textContent = textStats();
+  if (g3d) setDados3D();
+  renderLista(); repintar();
+  if (selecionado) showDoc(selecionado);
+  try { localStorage.setItem("explorar-modo", modo); } catch {}
+};
+$("stats").textContent = textStats();
 // dropdown por tipo (quantidade desc, nome asc)
 const contTipo = {};
 for (const d of docs) { const t = d.tipo || "(sem tipo)"; contTipo[t] = (contTipo[t] || 0) + 1; }

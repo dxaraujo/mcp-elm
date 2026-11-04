@@ -145,6 +145,60 @@ def test_galaxias_docs_deterministico():
     assert visualizar.galaxias_docs(**kw) == visualizar.galaxias_docs(**kw)
 
 
+# ---------- galaxias_semanticas ----------
+
+def test_galaxias_semanticas_centro_e_o_mais_central():
+    # b é o mais central (maior média de cosseno com os demais) — não o primeiro da lista
+    x = _unit([1, 0, 0, 0],
+              [np.cos(0.3), np.sin(0.3), 0, 0],
+              [np.cos(0.6), np.sin(0.6), 0, 0])
+    nomes, grupos, centros = visualizar.galaxias_semanticas(
+        ["a.md", "b.md", "c.md"], {"b.md": "B"}, x)
+    assert grupos == [["a.md", "b.md", "c.md"]]
+    assert centros == ["b.md"]
+    assert nomes == ["B"]
+
+
+def test_galaxias_semanticas_singleton_e_empate_menor_path():
+    # c ortogonal (d=1): galáxia própria; a e b com vetor idêntico: empate na média → menor path
+    x = _unit([1, 0, 0, 0],
+              [1, 0, 0, 0],
+              [0, 0, 1, 0])
+    nomes, grupos, centros = visualizar.galaxias_semanticas(
+        ["a.md", "b.md", "c.md"], {"a.md": "A", "c.md": "C"}, x)
+    assert grupos == [["a.md", "b.md"], ["c.md"]]
+    assert centros == ["a.md", "c.md"]
+    assert nomes == ["A", "C"]
+
+
+def test_galaxias_semanticas_particao_disjunta_deterministica():
+    x = _unit([1, 0, 0, 0],
+              [np.cos(0.2), np.sin(0.2), 0, 0],
+              [0, 1, 0, 0],
+              [0, 0, 1, 0])
+    kw = dict(paths=["a.md", "b.md", "c.md", "d.md"], titulos={}, X=x)
+    r = visualizar.galaxias_semanticas(**kw)
+    assert r == visualizar.galaxias_semanticas(**kw)  # determinístico
+    _, grupos, _ = r
+    flat = [p for g in grupos for p in g]  # partição disjunta que cobre tudo
+    assert sorted(flat) == kw["paths"] and len(set(flat)) == len(flat)
+
+
+def test_galaxias_semanticas_sem_vetor_fica_singleton():
+    # linha zero: distância 1 de tudo → galáxia própria; sem título: nome = path
+    x = _unit([1, 0, 0], [0.8, 0.6, 0])
+    x[1] = 0.0
+    nomes, grupos, centros = visualizar.galaxias_semanticas(
+        ["a.md", "b.md"], {"a.md": "A"}, x)
+    assert grupos == [["a.md"], ["b.md"]]
+    assert centros == ["a.md", "b.md"]
+    assert nomes == ["A", "b.md"]
+
+
+def test_galaxias_semanticas_vazio():
+    assert visualizar.galaxias_semanticas([], {}, np.zeros((0, 2))) == ([], [], [])
+
+
 # ---------- _ler_asset ----------
 
 def test_ler_asset_aplica_guard_de_layout():
@@ -200,3 +254,19 @@ def test_explorar_gera_html_com_guard_e_dados_coerentes(projeto, raiz):
     g = data["galaxias"][0]
     assert (g["nome"], g["docs"], g["centro"]) == ("UC - Cadastrar cliente", 3, UC)
     assert {(l["de"], l["para"]) for l in data["links"]} == {(UC, LOGIN), (UC, RN), (LOGIN, RN)}
+
+    # modo semântico: gsem coerente com semantica (nº de clusters depende do embedding, não aserto exato)
+    k = len(data["semantica"])
+    assert k >= 1 and [g["id"] for g in data["semantica"]] == list(range(k))
+    assert all(g["centro"] for g in data["semantica"])  # centro sempre um doc do cluster
+    assert sum(g["docs"] for g in data["semantica"]) == len(data["docs"])  # união cobre tudo
+    por_k = {}
+    for doc in data["docs"]:
+        assert 0 <= doc["gsem"] < k
+        por_k.setdefault(doc["gsem"], []).append(doc["path"])
+    for g in data["semantica"]:
+        assert g["centro"] in por_k[g["id"]]  # centro pertence ao próprio cluster
+        assert len(por_k[g["id"]]) == g["docs"]
+    docs_s = [g["docs"] for g in data["semantica"]]
+    assert docs_s == sorted(docs_s, reverse=True)  # maior cluster primeiro
+    assert 'id="modo"' in html and "Galáxias semânticas" in html  # combobox de modo no header

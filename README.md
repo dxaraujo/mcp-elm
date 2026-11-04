@@ -117,7 +117,8 @@ As `_local` leem o bundle em `<projeto>/<rm.download>` (índice em `<bundle>/sql
 `elm_sync baixar`, indexe com `elm_indexar_local`. O vetor vem da API OpenAI-compatível do `elm.properties`
 (`provider_url` + `provider_api_key`, com rerank opcional em `provider_rerank_model`) ou do modelo local embutido. `elm_explorar_local`
 gera um `explorar.html` autocontido na pasta do bundle: o bundle em galáxias por Caso de Uso / História de
-Usuário (membros por relação direta ou semântica; o resto, "Tudo"), 3D (3d-force-graph/three.js), sem internet.
+Usuário (membros por relação direta ou semântica; o resto, "Tudo"), 3D (3d-force-graph/three.js), sem internet;
+combobox no header alterna o modo das galáxias (UC/HF ou semântico, persistido).
 Sem nada baixado devolvem `nao_encontrado` com `campo: "bundle"`: baixe com `elm_sync` ou pesquise no
 ELM remoto (`elm_buscar_req`/`elm_ler_req`). Detalhes no manual.
 
