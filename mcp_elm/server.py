@@ -259,15 +259,15 @@ def elm_listar_req_local(projeto: Projeto, pasta: Pasta = None, tipo: TipoReq = 
 @tool
 def elm_indexar_local(projeto: Projeto, forcar: Annotated[bool, Field(description="reindexa tudo")] = False,
                       pa: Pa = None) -> str:
-    """Indexa o bundle baixado em segundo plano e responde na hora; chame de novo para ver o progresso.
-    → dados: {documentos, restantes, indexando, erro_indice?}"""
+    """Indexa o bundle em segundo plano; chame de novo para o progresso.
+    → dados: {documentos, restantes, indexando, falhas?, erro_indice?}"""
     return local.indexar(prj.carregar(projeto, pa), forcar)
 
 
 @tool
 def elm_explorar_local(projeto: Projeto, pa: Pa = None) -> str:
-    """Gera o explorar.html (visualizador offline 3D do bundle) na pasta do bundle. → dados: {path,
-    documentos, chunks, galaxias, links, gerado_em}"""
+    """Gera <bundle>/explorar.html (grafo 3D). → dados: {path, documentos, chunks, links, semanticos,
+    gerado_em}"""
     return visualizar.gerar(prj.carregar(projeto, pa))
 
 

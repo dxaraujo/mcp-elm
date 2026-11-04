@@ -94,7 +94,7 @@ Um único TextContent, sem `structuredContent`:
 | `elm_ler_req_local` | lê documento do bundle (id ou path) com links | `path, markdown, links` |
 | `elm_listar_req_local` | inventário do bundle | `itens[]` |
 | `elm_indexar_local` | indexa o bundle em segundo plano; responde na hora com o progresso | `documentos, restantes, indexando` |
-| `elm_explorar_local` | gera o `explorar.html` (visualizador offline 3D do bundle) na pasta do bundle | `path, documentos, chunks, galaxias, links, gerado_em` |
+| `elm_explorar_local` | gera o `explorar.html` (grafo 3D do bundle) na pasta do bundle | `path, documentos, chunks, links, semanticos, gerado_em` |
 | `elm_setup_descobrir` | dados para montar o pa | `ccm, rm?, qm?, valores_de?` |
 
 **Estrutura padrão no EWM.** Cada sprint é uma iteração com o seu plano; o backlog é uma iteração irmã dos pais:
@@ -118,10 +118,9 @@ As `_local` leem o bundle em `<projeto>/<rm.download>` (índice em `<bundle>/sql
 (`provider_url` + `provider_api_key` obrigatórios para a busca; rerank opcional em `provider_rerank_model`). Trocar
 as chaves do provider exige reiniciar o servidor MCP (a config fica em cache) e reindexar o bundle
 (`elm_indexar_local`): vetores de outro modelo não coexistem no índice. `elm_explorar_local`
-gera um `explorar.html` autocontido na pasta do bundle: o bundle em galáxias por Caso de Uso / História de
-Usuário (membros por relação direta ou semântica; o resto, "Tudo"), 3D (3d-force-graph/three.js), sem internet;
-seletor no header isola uma galáxia (ou "Todas as galáxias" solta; o clique no core 3D sincroniza) e o
-combobox ao lado alterna o modo das galáxias (UC/HF, semântico ou grafo convencional na base semântica, persistido).
+gera um `explorar.html` autocontido na pasta do bundle: grafo 3D simples (3d-force-graph/three.js,
+nó = documento, cor por tipo; libs do CDN jsDelivr); o combobox do header alterna as arestas entre os links dos
+artefatos e as semânticas (vizinhos por cosseno dos embeddings do índice).
 Sem nada baixado devolvem `nao_encontrado` com `campo: "bundle"`: baixe com `elm_sync` ou pesquise no
 ELM remoto (`elm_buscar_req`/`elm_ler_req`). Detalhes no manual.
 

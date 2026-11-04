@@ -109,3 +109,9 @@ def test_schema_igual_ao_publicado():
     if not publicado.exists():
         pytest.skip("repositório mcps não clonado ao lado")
     assert (Path(prj.__file__).with_name("pa.schema.json")).read_bytes() == publicado.read_bytes()
+
+
+def test_mensagem_le_o_erro_da_api_openai():
+    from mcp_elm.http import mensagem
+    corpo = '{"error":{"message":"This model\'s maximum context length is 8192 tokens.","type":"invalid_request_error"}}'
+    assert mensagem(corpo) == "This model's maximum context length is 8192 tokens."

@@ -28,6 +28,8 @@ def mensagem(body: str) -> str:
     """Texto curto de uma resposta de erro, sem HTML/XML do servidor."""
     try:
         data = json.loads(body)
+        if isinstance(data, dict) and isinstance(data.get("error"), dict):  # API OpenAI-compatível: {"error": {"message"}}
+            data = data["error"]
         if isinstance(data, dict) and (m := data.get("errorMessage") or data.get("message")):
             body = str(m)
     except ValueError:
