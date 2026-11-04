@@ -262,7 +262,7 @@ def elm_indexar_local(projeto: Projeto, forcar: Annotated[bool, Field(descriptio
 
 @tool
 def elm_explorar_local(projeto: Projeto, pa: Pa = None) -> str:
-    """Gera o explorar.html (visualizador offline 3D/2D do bundle) na pasta do bundle. → dados: {path,
+    """Gera o explorar.html (visualizador offline 3D do bundle) na pasta do bundle. → dados: {path,
     documentos, chunks, galaxias, links, gerado_em}"""
     return visualizar.gerar(prj.carregar(projeto, pa))
 

@@ -94,7 +94,7 @@ Um único TextContent, sem `structuredContent`:
 | `elm_ler_req_local` | lê documento do bundle (id ou path) com links | `path, markdown, links` |
 | `elm_listar_req_local` | inventário do bundle | `itens[]` |
 | `elm_indexar_local` | indexa o bundle em segundo plano; responde na hora com o progresso | `documentos, restantes, indexando` |
-| `elm_explorar_local` | gera o `explorar.html` (visualizador offline 3D/2D do bundle) na pasta do bundle | `path, documentos, chunks, galaxias, links, gerado_em` |
+| `elm_explorar_local` | gera o `explorar.html` (visualizador offline 3D do bundle) na pasta do bundle | `path, documentos, chunks, galaxias, links, gerado_em` |
 | `elm_setup_descobrir` | dados para montar o pa | `ccm, rm?, qm?, valores_de?` |
 
 **Estrutura padrão no EWM.** Cada sprint é uma iteração com o seu plano; o backlog é uma iteração irmã dos pais:
