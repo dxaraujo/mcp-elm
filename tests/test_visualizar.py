@@ -371,6 +371,15 @@ def test_explorar_petalas_em_volume(projeto, raiz):
     assert "epd = ex * ex0 + ey * ey0 + ez * ez0" in html
 
 
+def test_explorar_sol_no_centro_da_esfera(projeto, raiz):
+    call("elm_indexar_local", projeto)
+    d = call("elm_explorar_local", projeto)
+    html = open(d["path"], encoding="utf-8").read()
+    # o kapsule cria forceCenter(0,0,0) por padrão: ele translada tudo a cada tick e, com a mola em
+    # alvos absolutos, sobrava um desvio constante sol↔esfera (~125 u medidos no Chrome real — "peteca")
+    assert 'g3d.d3Force("center", null);' in html
+
+
 def test_explorar_raios_sem_particulas_e_luas_no_teto(projeto, raiz):
     call("elm_indexar_local", projeto)
     d = call("elm_explorar_local", projeto)

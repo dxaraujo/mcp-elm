@@ -567,6 +567,10 @@ function setDados3D() {
   N3D = g.nodes; L3D = g.links;
   G.porGal = G.list.map(() => []);  // recria a lista de nós da rotação (os nós internos trocaram)
   for (const n of N3D) if (n.g !== undefined) G.porGal[n.g].push(n);
+  // o kapsule cria forceCenter(0,0,0) por padrão: ele translada TODOS os nós a cada tick e, como a mola
+  // da casca usa alvos absolutos, sobra um desvio constante entre o sol e a esfera (medido: ~125 u; o sol
+  // saía do balão). A grade de Fibonacci já centra o grafo — a força de centro só atrapalha.
+  g3d.d3Force("center", null);
   g3d.d3Force("galaxia", forcaGalaxia);
   g3d.d3ReheatSimulation();
 }
