@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import SERVER, chamar
+from conftest import ASSINATURA_FAKE, SERVER, chamar
 from elm_fake import Elm
 from mcp_elm import embedder
 
@@ -26,10 +26,22 @@ def falha(r):
     return r["erro"]
 
 
-def test_status(elm, projeto):
+def test_status(elm, projeto, monkeypatch, tmp_path):
     assert ok(chamar("elm_status", projeto=projeto)) == {
         "login": "joao", "servidor": SERVER, "pas": ["alfa"], "valido": True, "faltando": [],
-        "embedder": f"local:{embedder.LOCAL_MODEL}"}
+        "embedder": ASSINATURA_FAKE, "rerank": None}  # as chaves saem sempre; rerank inativo = null
+    props = tmp_path / "elm.properties"
+    props.write_text(f"[DEFAULT]\nserver = {SERVER}\nuser = u\npassword = p\n"
+                     "provider_url = https://api.test/v1\nprovider_api_key = k\n"
+                     "provider_rerank_model = rerank-1\n", encoding="utf-8")
+    monkeypatch.setenv("MCP_ELM_CONFIG", str(props))
+    embedder.clear_cache()
+    d = ok(chamar("elm_status", projeto=projeto))
+    assert d["rerank"] == "api:rerank-1@https://api.test/v1"  # mesma base e key do embedding
+    props.write_text(f"[DEFAULT]\nserver = {SERVER}\nuser = u\npassword = p\n", encoding="utf-8")
+    embedder.clear_cache()
+    d = ok(chamar("elm_status", projeto=projeto))
+    assert d["embedder"] is None and d["rerank"] is None  # sem provider: null, sem quebrar o status
     os.remove(os.path.join(projeto, ".kiro/config/elm/pa_alfa.json"))
     d = ok(chamar("elm_status", projeto=projeto))
     assert d["valido"] is False and d["faltando"] == ["pa"]

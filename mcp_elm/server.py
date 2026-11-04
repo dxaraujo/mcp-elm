@@ -48,16 +48,20 @@ def tool(fn):
 
 @tool
 def elm_status(projeto: Projeto, pa: Pa = None) -> str:
-    """Confere a conexão e o pa. → dados: {login, servidor, pas[], valido, faltando[], embedder, rerank?}"""
+    """Confere a conexão e o pa. → dados: {login, servidor, pas[], valido, faltando[], embedder, rerank}"""
     try:
         faltando = prj.faltando(prj.ler(prj.arquivo(projeto, pa)))
     except Erro as e:
         if e.codigo == "entrada" and e.campo == "projeto":
             raise
         faltando = [e.campo or "pa"]
+    try:
+        embedder_atual = embedder.assinatura()  # sem provider no elm.properties: null, sem quebrar o status
+    except Erro:
+        embedder_atual = None
     return {"login": ewm.whoami(), "servidor": get_session().cfg.server, "pas": prj.nomes(projeto),
-            "valido": not faltando, "faltando": faltando, "embedder": embedder.assinatura(),
-            **({"rerank": embedder.rerank_modelo()} if embedder.tem_rerank() else {})}
+            "valido": not faltando, "faltando": faltando, "embedder": embedder_atual,
+            "rerank": embedder.rerank_assinatura()}
 
 
 @tool
@@ -232,9 +236,9 @@ TipoReq = Annotated[str | None, Field(description="type do frontmatter")]
 @tool
 def elm_buscar_req_local(projeto: Projeto, texto: str, limite: int = 8, pasta: Pasta = None, tipo: TipoReq = None,
                          pa: Pa = None) -> str:
-    """Busca híbrida (sentido + palavra, com rerank se configurado; falhou, segue a ordem RRF) no bundle
-    baixado; score ajustado por type-boost (Caso de Uso ×1,03 > História ×1,02 > Regra ×1,01); o que mudou
-    indexa em segundo plano. → dados: {itens[{path, id, titulo, tipo, pasta, score, trechos[{secao, texto}]}],
+    """Busca híbrida (sentido + palavra, com rerank se configurado; falhou, segue o RRF) no bundle baixado;
+    score ajustado por type-boost (Caso de Uso ×1,03 > História ×1,02 > Regra ×1,01), piso de título; o que
+    mudou indexa em 2º plano. → dados: {itens[{path, id, titulo, tipo, pasta, score, trechos[{secao, texto}]}],
     indexando?, restantes?, erro_rerank?}"""
     return local.buscar(prj.carregar(projeto, pa), texto, limite, pasta, tipo)
 

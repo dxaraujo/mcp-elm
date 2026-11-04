@@ -38,12 +38,12 @@ CA próprio: `export REQUESTS_CA_BUNDLE=/caminho/ca.pem`. Login pelo form Jazz, 
 server = https://elm.SEU-SERVIDOR
 user = SEU_USUARIO
 password = SUA_SENHA
-# opcionais: busca semântica do bundle local por API OpenAI-compatível (a mesma base e key para os dois;
-# sem provider_url/provider_api_key o índice usa o modelo local embutido)
+# busca semântica do bundle local por API OpenAI-compatível (a mesma base e key para os dois);
+# provider_url/provider_api_key são obrigatórios para a busca semântica e a indexação do bundle local (não há modelo local)
 # provider_url = https://sua-api/v1
 # provider_api_key = SUA_KEY
-# provider_embed_model = text-embedding-3-small
-# provider_rerank_model = SEU_MODELO_RERANK
+# provider_embed_model = text-embedding-3-small   # trocar exige reindexar (elm_indexar_local)
+# provider_rerank_model = SEU_MODELO_RERANK       # opcional: rerank (cross-encoder) na busca
 ```
 
 ## Configuração do projeto
@@ -71,7 +71,7 @@ Um único TextContent, sem `structuredContent`:
 
 | Tool | Faz | `dados` |
 |---|---|---|
-| `elm_status` | confere conexão e pa | `login, servidor, pas[], valido, faltando[], embedder, rerank?` |
+| `elm_status` | confere conexão e pa | `login, servidor, pas[], valido, faltando[], embedder?, rerank?` |
 | `elm_ler_wi` | lê um work item | Markdown |
 | `elm_listar_wi` | lista por iteração, dono, tipo, pai, prefixo, estado | `itens[], truncado, total` |
 | `elm_criar_wi` | cria com padrões do pa | `id, url, valores_usados` |
@@ -90,7 +90,7 @@ Um único TextContent, sem `structuredContent`:
 | `elm_iteracao` | acha ou cria a iteração da sprint e o plano dela (`plano`, só ao criar; padrão: o nome da sprint; caminho `<pai>/<sprint>` relativo à linha de base; o pai nasce se faltar) | `id, pai, planos, criados[]` |
 | `elm_backlog` | lista, usa ou cria o backlog do produto (padrão: iteração `<linha de base>/Backlog` com o plano `Backlog`) e grava no pa | `atual, candidatos[]` ou `nome, id, plano, criados[]` |
 | `elm_sync` | bundle do DOORS Next (plano, baixar, enviar) | `baixar[], enviar[], conflitos[]` · `feitos[], conflitos[]` |
-| `elm_buscar_req_local` | busca no bundle baixado (sentido + palavra, rerank opcional, type-boost no ranking) | `itens[], indexando?, restantes?, erro_rerank?` |
+| `elm_buscar_req_local` | busca no bundle baixado (sentido + palavra, rerank opcional, type-boost e piso de título no ranking) | `itens[], indexando?, restantes?, erro_rerank?` |
 | `elm_ler_req_local` | lê documento do bundle (id ou path) com links | `path, markdown, links` |
 | `elm_listar_req_local` | inventário do bundle | `itens[]` |
 | `elm_indexar_local` | indexa o bundle em segundo plano; responde na hora com o progresso | `documentos, restantes, indexando` |
@@ -115,11 +115,13 @@ erro). Duas iterações com o mesmo nome no mesmo pai são erro `entrada`: o MCP
 
 As `_local` leem o bundle em `<projeto>/<rm.download>` (índice em `<bundle>/sqlite3/okf.db`); depois do
 `elm_sync baixar`, indexe com `elm_indexar_local`. O vetor vem da API OpenAI-compatível do `elm.properties`
-(`provider_url` + `provider_api_key`, com rerank opcional em `provider_rerank_model`) ou do modelo local embutido. `elm_explorar_local`
+(`provider_url` + `provider_api_key` obrigatórios para a busca; rerank opcional em `provider_rerank_model`). Trocar
+as chaves do provider exige reiniciar o servidor MCP (a config fica em cache) e reindexar o bundle
+(`elm_indexar_local`): vetores de outro modelo não coexistem no índice. `elm_explorar_local`
 gera um `explorar.html` autocontido na pasta do bundle: o bundle em galáxias por Caso de Uso / História de
 Usuário (membros por relação direta ou semântica; o resto, "Tudo"), 3D (3d-force-graph/three.js), sem internet;
 seletor no header isola uma galáxia (ou "Todas as galáxias" solta; o clique no core 3D sincroniza) e o
-combobox ao lado alterna o modo das galáxias (UC/HF ou semântico, persistido).
+combobox ao lado alterna o modo das galáxias (UC/HF, semântico ou grafo convencional na base semântica, persistido).
 Sem nada baixado devolvem `nao_encontrado` com `campo: "bundle"`: baixe com `elm_sync` ou pesquise no
 ELM remoto (`elm_buscar_req`/`elm_ler_req`). Detalhes no manual.
 
