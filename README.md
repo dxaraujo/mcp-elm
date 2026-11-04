@@ -116,9 +116,11 @@ erro). Duas iterações com o mesmo nome no mesmo pai são erro `entrada`: o MCP
 As `_local` leem o bundle em `<projeto>/<rm.download>` (índice em `<bundle>/sqlite3/okf.db`); depois do
 `elm_sync baixar`, indexe com `elm_indexar_local`. O vetor vem da API OpenAI-compatível do `elm.properties`
 (`provider_url` + `provider_api_key`, com rerank opcional em `provider_rerank_model`) ou do modelo local embutido. `elm_explorar_local`
-gera um `explorar.html` autocontido na pasta do bundle: o bundle em galáxias, 3D (3d-force-graph/three.js) ou
-2D (Cytoscape.js), sem internet. Sem nada
-baixado devolvem `nao_encontrado` com `campo: "bundle"`: baixe com `elm_sync` ou pesquise no
+gera um `explorar.html` autocontido na pasta do bundle: o bundle em galáxias por Caso de Uso / História de
+Usuário (membros por relação direta ou semântica; o resto, "Tudo"), 3D (3d-force-graph/three.js), sem internet;
+seletor no header isola uma galáxia (ou "Todas as galáxias" solta; o clique no core 3D sincroniza) e o
+combobox ao lado alterna o modo das galáxias (UC/HF ou semântico, persistido).
+Sem nada baixado devolvem `nao_encontrado` com `campo: "bundle"`: baixe com `elm_sync` ou pesquise no
 ELM remoto (`elm_buscar_req`/`elm_ler_req`). Detalhes no manual.
 
 ## Testes
