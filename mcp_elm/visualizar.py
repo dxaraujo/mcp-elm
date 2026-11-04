@@ -303,8 +303,9 @@ main.sem-detalhe #graph { border-right:0; }
 aside, section { overflow:auto; border-right:1px solid var(--line); background:var(--panel); }
 #filters { padding:10px 12px; display:grid; gap:8px; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--panel); z-index:1; }
 input, select { width:100%; padding:6px 8px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); font:inherit; }
-#gal { width:auto; max-width:min(300px, 32vw); margin-left:auto; }  # sem max-width, o select estica para a opção mais larga
-#modo { width:auto; }
+header .sels { display:flex; gap:10px; align-items:center; margin-left:auto; }
+#gal { width:auto; max-width:min(300px, 32vw); }  /* sem max-width, o select estica para a opção mais larga */
+#modo { width:auto; flex:none; }
 #conta { color:var(--muted); font-size:12px; }
 #list { list-style:none; margin:0; padding:0; }
 #list li { padding:8px 12px; border-bottom:1px solid var(--line); cursor:pointer; }
@@ -360,11 +361,13 @@ pre.raw { white-space:pre-wrap; font:13px/1.5 ui-monospace, monospace; }
 <header>
   <h1 id="name"></h1>
   <span class="stat" id="stats"></span>
-  <select id="gal" aria-label="Galáxia isolada"></select>
-  <select id="modo" aria-label="Modo de galáxias">
-    <option value="uc">Galáxias UC/HF</option>
-    <option value="sem">Galáxias semânticas</option>
-  </select>
+  <span class="sels">
+    <select id="gal" aria-label="Galáxia isolada"></select>
+    <select id="modo" aria-label="Modo de galáxias">
+      <option value="uc">Galáxias UC/HF</option>
+      <option value="sem">Galáxias semânticas</option>
+    </select>
+  </span>
 </header>
 <main id="layout" class="sem-detalhe">
   <aside>

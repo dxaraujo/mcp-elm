@@ -277,3 +277,22 @@ def test_explorar_gera_html_com_guard_e_dados_coerentes(projeto, raiz):
     docs_s = [g["docs"] for g in data["semantica"]]
     assert docs_s == sorted(docs_s, reverse=True)  # maior cluster primeiro
     assert 'id="modo"' in html and "Galáxias semânticas" in html  # combobox de modo no header
+
+
+def test_explorar_header_sels_do_lado(projeto, raiz):
+    call("elm_indexar_local", projeto)
+    d = call("elm_explorar_local", projeto)
+    html = open(d["path"], encoding="utf-8").read()
+    cab = html[html.index("<header>"):html.index("</header>")]
+    # os dois <select> do header ficam envoltos num .sels (flex): antes, o CSS inválido em '#'
+    # derrubava a regra do #modo, que herdava width:100% e ocupava a linha inteira do header
+    assert cab.index('class="sels"') < cab.index('id="gal"') < cab.index('id="modo"')
+    assert cab.index("</select>", cab.index('id="modo"')) < cab.index("</span>", cab.index('id="modo"'))
+    estilo = html[html.index("<style>"):html.index("</style>")]
+    # o margin-left:auto foi para o .sels; #modo não estica (flex:none) e não divide linha
+    assert "header .sels { display:flex; gap:10px; align-items:center; margin-left:auto; }" in estilo
+    assert "#gal { width:auto; max-width:min(300px, 32vw); }" in estilo
+    assert "#modo { width:auto; flex:none; }" in estilo
+    # anotação com '#' não é comentário de CSS (sintaxe inválida derruba a regra seguinte): só /* */
+    assert "# sem max-width" not in estilo
+    assert "/* sem max-width, o select estica para a opção mais larga */" in estilo
