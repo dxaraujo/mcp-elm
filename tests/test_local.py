@@ -254,6 +254,54 @@ def test_rerank_trunca_chunks_acima_do_limite(projeto, raiz, monkeypatch):
     assert d["itens"] and vistos and all(len(t) <= local.RERANK_MAX for t in vistos)
 
 
+def test_piso_de_titulo_salva_doc_rebaixado_pelo_rerank(projeto, raiz, monkeypatch):
+    """4º estágio (pós-rerank e boost): o documento cujo título tem todos os termos do query ocupa um dos
+    TITULO_SLOTS, mesmo com o rerank rebaixando o chunk dele (o recall do 'correção monetária' do PAB)."""
+    call("elm_indexar_local", projeto)
+
+    def derruba(texto, hits):  # o rerank rebaixa a UC (seu chunk é mediano) e a joga para trás
+        for h in hits:
+            h["score"] = 0.9 if h["path"] == UC else 0.95
+        return sorted(hits, key=lambda h: -h["score"]), None
+    monkeypatch.setattr(local, "rerank", derruba)
+    d = call("elm_buscar_req_local", projeto, texto="cadastrar cliente")
+    assert d["itens"][0]["path"] == UC  # o título "UC - Cadastrar cliente" tem a frase inteira
+    assert d["itens"][0]["score"] > d["itens"][1]["score"]
+    assert d["itens"][0]["trechos"][0]["secao"] == "Fluxo Básico"
+    monkeypatch.setattr(local, "TITULO_SLOTS", 0)  # sem o piso, vale a rebaixada do rerank
+    assert call("elm_buscar_req_local", projeto, texto="cadastrar cliente")["itens"][0]["path"] != UC
+
+
+def test_piso_empata_por_frase_cobertura_e_tipo(projeto, raiz):
+    """Três candidatos com o query inteiro no título: os TITULO_SLOTS saem por frase, cobertura,
+    type (Caso de Uso > História de Usuário > Regra) e path; o quarto fica fora dos slots."""
+    for rel, tipo, titulo in (("01-Requisitos/2004-uc-alfa-beta.md", "Caso de Uso", "UC - Alfa beta"),
+                              ("01-Requisitos/2005-hf-alfa-beta.md", "História de Usuário", "HF - Alfa beta"),
+                              ("03-Regras/2006-rn-alfa-beta.md", "Regra", "RN - Alfa beta")):
+        with open(os.path.join(raiz, rel), "w", encoding="utf-8") as f:
+            f.write(f'---\ntype: {tipo}\ntitle: {titulo}\nid: {rel.split("/")[1][:4]}\n'
+                    "---\nCorpo neutro, sem alfa nem beta.\n")
+    call("elm_indexar_local", projeto)
+    d = call("elm_buscar_req_local", projeto, texto="alfa beta")
+    assert [i["path"] for i in d["itens"][:2]] == [
+        "01-Requisitos/2004-uc-alfa-beta.md", "01-Requisitos/2005-hf-alfa-beta.md"]
+    assert d["itens"][0]["score"] > d["itens"][1]["score"]  # o slot 0 recebe o acréscimo maior
+
+
+def test_piso_respeita_os_filtros(projeto, raiz):
+    """A where da busca vale para os candidatos: com tipo='Regra de Negócio' a UC nem entra no piso."""
+    call("elm_indexar_local", projeto)
+    d = call("elm_buscar_req_local", projeto, texto="cadastrar cliente", tipo="Regra de Negócio")
+    assert all(i["path"] != UC for i in d["itens"])
+    assert call("elm_buscar_req_local", projeto, texto="cadastrar cliente",
+                tipo="Caso de Uso")["itens"][0]["path"] == UC
+
+
+def test_busca_pelo_id_do_documento_vai_ao_top(projeto, raiz):
+    call("elm_indexar_local", projeto)
+    assert call("elm_buscar_req_local", projeto, texto="2001")["itens"][0]["path"] == RN
+
+
 def test_indexacao_em_segundo_plano_responde_na_hora(projeto, raiz, monkeypatch):
     """O 1º uso percorre o bundle pela API (minutos): a chamada não espera; busca o que já há e avisa o que falta."""
     import threading

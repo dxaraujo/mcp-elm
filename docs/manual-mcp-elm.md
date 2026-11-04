@@ -111,6 +111,14 @@ slicing: cada chunk multiplica a score pelo fator do `type` exato do frontmatter
 História de Usuário ×1,02 > Regra ×1,01 > demais ×1,00 ("Regra de Negócio" não é "Regra"). Tipos de negócio
 ficam acima de chunks de relevância equivalente, e `itens[].score` é o valor ajustado.
 
+Depois do type-boost, o piso de título fecha o ranking para o recall por título: o documento cujo título contém
+todos os termos do query — ou cujo id é o query inteiro — ocupa um dos dois slots do top, mesmo com todos os
+chunks dele fora do pool do RRF (o caso do título exato com o corpo pouco relevante). O score do slot é o máximo
+do pool + um acréscimo por slot (o 1º slot é o maior); entre vários candidatos, a ordem é: frase inteira no
+título, cobertura dos termos no título, `type` (Caso de Uso > História de Usuário > Regra), melhor score no pool
+e path. Sem chunk do documento no pool, entra o melhor chunk dele por score densa. Os filtros `pasta` e `tipo`
+da busca cortam os candidatos do piso como cortam os do pool.
+
 A indexação roda numa thread do servidor (o 1º uso percorre o bundle pela API de embedding, que leva minutos):
 nenhuma chamada espera. `elm_buscar_req_local` com arquivos alterados dispara a indexação e busca no que já está
 no índice, devolvendo `indexando: true, restantes: n`. Com o provider, cada documento indexado vai numa chamada

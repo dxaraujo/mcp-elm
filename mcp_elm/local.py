@@ -2,8 +2,9 @@
 
 Índice em <bundle>/sqlite3/okf.db (WAL: vários processos podem abrir o mesmo): documentos e chunks com vetor denso
 (float32 normalizado) + FTS5 (BM25); busca híbrida cosseno + FTS5 com fusão RRF, e rerank opcional no fim (falhou,
-a busca segue na ordem RRF e devolve `erro_rerank`), e type-boost no pool inteiro antes do slicing (Caso de Uso
-> História de Usuário > Regra). O vetor vem da API configurada no elm.properties (embedder, sem
+a busca segue na ordem RRF e devolve `erro_rerank`), type-boost no pool inteiro antes do slicing (Caso de Uso
+> História de Usuário > Regra) e piso de título (o query inteiro no título — ou id == query — garante slot no
+top, mesmo com chunks fora do pool do RRF). O vetor vem da API configurada no elm.properties (embedder, sem
 fallback local); a assinatura do embedder e a versão do chunking ficam na meta do índice — sem proveniência
 (meta sem o embedder), com outro modelo ou com formato de chunk antigo, o índice é limpo e refeito; e a busca
 em índice de outro embedder falha com erro claro (cossinos de espaço diferente são inválidos — o reindex
@@ -18,6 +19,7 @@ import posixpath
 import re
 import sqlite3
 import threading
+import unicodedata
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -34,6 +36,11 @@ RERANK_MAX = 8000  # chars por chunk no rerank: margem de segurança no contexto
 # type-boost: multiplicativo pós-rerank, no pool inteiro antes do slicing; a chave é o `type` exato do
 # frontmatter ("Regra de Negócio" não é "Regra"); o score devolvido é o ajustado
 TYPE_BOOST = {"Caso de Uso": 1.03, "História de Usuário": 1.02, "Regra": 1.01}
+# 4º estágio (piso de título): o documento cujo título contém todos os termos do query (ou id == query)
+# ocupa um dos slots do top, mesmo com os chunks fora do pool do RRF (o corpo pode desenvolver pouco o que
+# o título anuncia — o recall de "correção monetária" no PAB); a precedência de type é a do TYPE_BOOST
+TITULO_SLOTS = 2
+_TIPO_RANK = {"Caso de Uso": 3, "História de Usuário": 2, "Regra": 1}
 # testes: True indexa na própria chamada; no servidor, sempre numa thread (o 1º uso percorre o bundle pela API)
 SINCRONO = False
 _jobs: dict[str, threading.Thread] = {}
@@ -292,11 +299,74 @@ def _indexar(root: str, docs: dict, forcar: bool = False) -> dict:
     return {"documentos": len(docs), "indexados": done, "removidos": len(removed), "restantes": len(pending) - done}
 
 
+def _palavras(texto: str) -> list[str]:
+    """Palavras minúsculas sem diacríticos (título e query comparados no mesmo formato)."""
+    s = "".join(c for c in unicodedata.normalize("NFD", texto) if not unicodedata.combining(c)).lower()
+    return re.findall(r"\w+", s)
+
+
+def _casam(a: str, b: str) -> bool:
+    """Igualdade com tolerância de prefixo nos dois lados ("correcao" casa "correcoes"); o prefixo só
+    conta a partir de 3 letras."""
+    return a == b or (len(a) >= 3 and b.startswith(a)) or (len(b) >= 3 and a.startswith(b))
+
+
+def _piso_titulo(con: sqlite3.Connection, query: str, hits: list[dict], rows: list,
+                 scores: np.ndarray | None, where: str, args: list) -> None:
+    """4º estágio (pós-rerank e type-boost): o documento cujo título contém todos os termos do query —
+    ou cujo id é o query inteiro — ocupa um dos TITULO_SLOTS do top, mesmo com os chunks fora do pool do
+    RRF. Score = o máximo do pool + acréscimo por slot (o slot 0 é o maior; o top fica estável); sem
+    chunk do documento no pool, entra o melhor chunk dele por score densa. A where do _search vale aqui
+    também: os filtros `pasta`/`tipo` cortam os candidatos."""
+    if not TITULO_SLOTS or scores is None:
+        return
+    qnorm = " ".join(_palavras(query))
+    termos = [t for t in _palavras(query) if len(t) >= 3 or (t.isdigit() and len(t) >= 2)]
+    if not termos:
+        return
+    por_path: dict[str, list[dict]] = {}
+    for h in hits:
+        por_path.setdefault(h["path"], []).append(h)
+    cands = []
+    for path, doc_id, title, tipo, folder in con.execute(
+            f"select d.path, d.id, d.title, d.type, d.folder from docs d where {where}", args):
+        if qnorm.isdigit() and doc_id == query.strip():
+            frase, cov = 1, 1.0  # busca pelo id do documento: direto ao top
+        else:
+            palavras = list(dict.fromkeys(_palavras(title or "")))
+            if not palavras or not all(any(_casam(t, p) for p in palavras) for t in termos):
+                continue
+            frase = 1 if qnorm in " ".join(palavras) else 0
+            cov = sum(1 for p in palavras if any(_casam(t, p) for t in termos)) / len(palavras)
+        cands.append({"path": path, "id": doc_id, "title": title, "type": tipo, "folder": folder,
+                      "frase": frase, "cov": cov, "tipo": _TIPO_RANK.get(tipo or "", 0),
+                      "melhor": max((h["score"] for h in por_path.get(path, ())), default=0.0)})
+    if not cands:
+        return
+    cands.sort(key=lambda c: (-c["frase"], -c["cov"], -c["tipo"], -c["melhor"], c["path"]))
+    escolhidos = cands[:TITULO_SLOTS]
+    n, base = len(escolhidos), max((h["score"] for h in hits), default=0.0)
+    pos = {cid: i for i, (cid, _) in enumerate(rows)}
+    for i, c in enumerate(escolhidos):
+        score = base + (n - i) * 2e-4  # absoluto: slots vizinhos seguem distintos arredondados a 4 casas
+        em_pool = por_path.get(c["path"])
+        if em_pool:
+            max(em_pool, key=lambda h: h["score"])["score"] = score
+        else:
+            do_doc = con.execute("select cid, section, text from chunks where path = ?", (c["path"],)).fetchall()
+            if not do_doc:
+                continue
+            cid, section, texto = max(do_doc, key=lambda t: scores[pos[t[0]]])
+            hits.append({"path": c["path"], "section": section, "text": texto, "id": c["id"],
+                         "title": c["title"], "type": c["type"], "folder": c["folder"], "score": score})
+    hits.sort(key=lambda h: h["score"], reverse=True)
+
+
 def _search(con: sqlite3.Connection, query: str, wide: int, folder: str | None, type_: str | None) \
         -> tuple[list[dict], str | None]:
     """Até `wide` chunks, do mais relevante: [{path, section, text, id, title, type, folder, score}], com o
-    erro do rerank (None se ele reordenou ou não está configurado); o score sai ajustado pelo type-boost.
-    Índice de outro embedder: erro claro (cossinos de espaço
+    erro do rerank (None se ele reordenou ou não está configurado); o score sai ajustado pelo type-boost
+    e pelo piso de título (4º estágio). Índice de outro embedder: erro claro (cossinos de espaço
     diferente são inválidos — o reindex resolve)."""
     where, args = "1 = 1", []
     for col, value in (("folder", folder), ("type", type_)):
@@ -346,6 +416,8 @@ def _search(con: sqlite3.Connection, query: str, wide: int, folder: str | None, 
     for h in hits:
         h["score"] *= TYPE_BOOST.get(h["type"] or "", 1.0)
     hits.sort(key=lambda h: h["score"], reverse=True)
+    # 4º estágio: piso de título — o query inteiro no título (ou id == query) garante slot no top
+    _piso_titulo(con, query, hits, rows, scores, where, args)
     return hits, erro_rerank
 
 
