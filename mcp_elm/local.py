@@ -45,6 +45,9 @@ _TIPO_RANK = {"Caso de Uso": 3, "História de Usuário": 2, "Regra": 1}
 SINCRONO = False
 _jobs: dict[str, threading.Thread] = {}
 _falhas: dict[str, str] = {}
+# documentos que o provider recusou (erro de entrada, ex.: contexto estourado), por bundle: path -> (hash, erro).
+# Não voltam ao lote enquanto o arquivo não mudar (ou até o forcar); em memória: reiniciar o MCP tenta de novo
+_rejeitados: dict[str, dict[str, tuple[str, str]]] = {}
 _lock = threading.Lock()
 SNIPPET_MAX = 800
 CHUNK_MAX = 1500
@@ -159,7 +162,10 @@ def _partes_linha(para: str) -> list[str]:
     if len(linhas) >= 2 and linhas[0].lstrip().startswith("|") and _SEP.match(linhas[1].strip()):
         header = f"{linhas[0]}\n{linhas[1]}"
     parts, cur, tam = [], [], 0
-    for linha in linhas:
+    # linha maior que CHUNK_MAX (tabela larga, XML, base64) vai em fatias: nenhum chunk passa do teto e o
+    # input nunca estoura o contexto do modelo. ponytail: sem bump do CHUNK_VER — os chunks já gravados
+    # cabem no modelo; o documento com linha gigante pega as fatias quando mudar (ou no forcar)
+    for linha in (f for ln in linhas for f in ([ln[i:i + CHUNK_MAX] for i in range(0, len(ln), CHUNK_MAX)] or [ln])):
         if cur and tam + len(linha) + 1 > CHUNK_MAX:
             parts.append("\n".join(cur))
             cur, tam = [], 0
@@ -276,7 +282,9 @@ def _indexar(root: str, docs: dict, forcar: bool = False) -> dict:
     inteiro, que renasce do bundle + API. Sem provider configurado, erro claro — antes de apagar nada."""
     sig = embedder.assinatura()  # antes de abrir o índice: sem provider, o índice antigo continua inteiro
     with connect(root) as con:
+        rej = _rejeitados.setdefault(root, {})
         if _mudou(dict(con.execute("select k, v from meta"))):
+            rej.clear()  # outro modelo/formato: o que foi recusado ganha nova chance
             con.execute("delete from chunks_fts")
             con.execute("delete from chunks")
             con.execute("delete from docs")
@@ -290,13 +298,22 @@ def _indexar(root: str, docs: dict, forcar: bool = False) -> dict:
         for p in removed:
             _delete(con, p)
         con.commit()
-        pending = [p for p, d in docs.items() if indexed.get(p) != d["hash"]]
-        done = 0
+        pending = [p for p, d in docs.items() if indexed.get(p) != d["hash"] and rej.get(p, ("",))[0] != d["hash"]]
+        done = recusados = 0
         for p in pending:
-            _write(con, docs[p])
+            try:
+                _write(con, docs[p])
+            except Erro as exc:
+                if exc.codigo != "entrada":  # credencial, config, indisponível: valem para todos, o lote para
+                    raise
+                rej[p] = (docs[p]["hash"], exc.detalhe)  # o provider recusou ESTE documento: registra e segue
+                recusados += 1
+                continue
+            rej.pop(p, None)
             con.commit()  # por documento: reinício do MCP no meio do lote não perde o progresso
             done += 1
-    return {"documentos": len(docs), "indexados": done, "removidos": len(removed), "restantes": len(pending) - done}
+    return {"documentos": len(docs), "indexados": done, "removidos": len(removed), "recusados": recusados,
+            "restantes": len(pending) - done - recusados}
 
 
 def _palavras(texto: str) -> list[str]:
@@ -438,10 +455,12 @@ def _progresso(root: str, docs: dict) -> dict:
         meta = dict(con.execute("select k, v from meta"))
         indexed = dict(con.execute("select path, hash from docs"))
     mudou = _mudou(meta)  # vetores de outro modelo ou chunks do formato antigo: tudo renasce
+    rej = {p: e for p, (h, e) in _rejeitados.get(root, {}).items() if p in docs and docs[p]["hash"] == h}
     restantes = sum(p not in docs for p in indexed) + \
-        (len(docs) if mudou else sum(indexed.get(p) != d["hash"] for p, d in docs.items()))
+        (len(docs) if mudou else sum(indexed.get(p) != d["hash"] and p not in rej for p, d in docs.items()))
     job = _jobs.get(root)
     return {"documentos": len(docs), "restantes": restantes, "indexando": bool(job and job.is_alive()),
+            **({"falhas": [{"path": p, "erro": e} for p, e in sorted(rej.items())]} if rej and not mudou else {}),
             **({"erro_indice": _falhas[root]} if root in _falhas else {})}
 
 
@@ -456,10 +475,12 @@ def _trabalho(root: str) -> None:
 def disparar(root: str, docs: dict, forcar: bool = False) -> dict:
     """Indexa em segundo plano e devolve o progresso na hora: nenhuma chamada espera o modelo nem o lote."""
     if forcar:
+        _rejeitados.pop(root, None)  # o forcar tenta de novo também o que o provider recusou
         with connect(root) as con:
             con.execute("update docs set hash = ''")  # continua buscável enquanto reindexa
     elif not _progresso(root, docs)["restantes"]:
-        return _progresso(root, docs)  # nada mudou: sem thread
+        return _progresso(root, docs)  # nada mudou (ou só recusados): sem thread
+    _falhas.pop(root, None)  # o erro da rodada anterior não aparece junto com a rodada nova
     if SINCRONO:
         _trabalho(root)
     else:

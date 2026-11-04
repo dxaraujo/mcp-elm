@@ -92,6 +92,52 @@ def test_chunks_de_tabela_repetem_o_header(raiz):
     assert all(p["text"].split("\n", 1)[1].startswith("| Coluna A | Coluna B |\n| --- | --- |\n") for p in parts)
 
 
+def test_chunks_fatiam_linha_maior_que_o_teto(raiz):
+    # uma linha só (tabela larga/XML/base64) maior que o teto: vira fatias, nenhuma passa de CHUNK_MAX
+    linha = "| " + "x" * (local.CHUNK_MAX * 3 + 7) + " |"
+    parts = local.chunks(_doc(f"Antes.\n{linha}\nDepois."))
+    corpos = [p["text"].split("\n", 1)[1] for p in parts]
+    assert len(parts) >= 4 and max(map(len, corpos)) <= local.CHUNK_MAX
+    assert "".join(c.replace("\n", "") for c in corpos) == f"Antes.{linha}Depois."  # nada se perdeu
+
+
+def test_documento_recusado_nao_trava_o_lote(projeto, raiz, monkeypatch):
+    """O provider recusa UM documento (ex.: contexto estourado): os outros indexam, a falha sai com o path
+    e o recusado não volta à API enquanto o arquivo não mudar (antes: o lote parava nele para sempre)."""
+    from conftest import fake_embed
+    from mcp_elm.contrato import Erro
+    enviados = []
+
+    def recusa_rn(textos):
+        enviados.append(textos[0])
+        if any("módulo 11" in t for t in textos):
+            raise Erro("entrada", "api do provider: This model's maximum context length is 8192 tokens")
+        return fake_embed(textos)
+    monkeypatch.setattr(local, "embed", recusa_rn)
+    d = call("elm_indexar_local", projeto)
+    assert (d["restantes"], d["indexando"]) == (0, False) and "erro_indice" not in d
+    assert d["falhas"] == [{"path": RN, "erro": "api do provider: This model's maximum context length is 8192 tokens"}]
+    with local.connect(raiz) as con:
+        assert {p for (p,) in con.execute("select path from docs")} == {UC, LOGIN}
+    n = len(enviados)
+    assert call("elm_indexar_local", projeto)["falhas"] and len(enviados) == n  # não reenvia o recusado
+    assert call("elm_buscar_req_local", projeto, texto="cliente")["itens"] and len(enviados) == n + 1  # só a query
+    with open(os.path.join(raiz, RN), "a", encoding="utf-8") as f:  # o arquivo mudou: nova chance
+        f.write("\nCorrigido.\n")
+    monkeypatch.setattr(local, "embed", fake_embed)
+    assert call("elm_indexar_local", projeto) == {"documentos": 3, "restantes": 0, "indexando": False}
+
+
+def test_erro_de_credencial_ainda_para_o_lote(projeto, raiz, monkeypatch):
+    from mcp_elm.contrato import Erro
+
+    def sem_credencial(textos):
+        raise Erro("credencial", "api do provider: chave inválida", "provider_api_key")
+    monkeypatch.setattr(local, "embed", sem_credencial)
+    d = call("elm_indexar_local", projeto)
+    assert d["restantes"] == 3 and "falhas" not in d and "chave inválida" in d["erro_indice"]
+
+
 def test_indexacao_incremental(projeto, raiz, monkeypatch):
     assert call("elm_indexar_local", projeto) == {"documentos": 3, "restantes": 0, "indexando": False}
     assert call("elm_indexar_local", projeto)["restantes"] == 0

@@ -80,8 +80,8 @@ Cinco tools leem o bundle baixado, sem ir ao ELM — mesmo nome da operação re
 | `elm_buscar_req_local` | busca híbrida (sentido + palavra), filtros `pasta` (1ª pasta do path) e `tipo` (`type` do frontmatter) | `itens[{path, id, titulo, tipo, pasta, score, trechos[{secao, texto}]}], indexando?, restantes?, erro_rerank?` |
 | `elm_ler_req_local` | documento por id ou path relativo, com links de saída e de entrada | `path, markdown, links{saida[], entrada[]}` |
 | `elm_listar_req_local` | inventário (sem corpo), mesmos filtros | `itens[{path, id, titulo, tipo, pasta, descricao, indexado}]` |
-| `elm_indexar_local` | indexa o que mudou (sha256) numa thread e responde na hora; chamar de novo mostra o progresso; `forcar` reindexa tudo | `documentos, restantes, indexando, erro_indice?` |
-| `elm_explorar_local` | gera o `explorar.html` (visualizador offline do bundle em galáxias) na pasta do bundle | `path, documentos, chunks, galaxias, links, gerado_em` |
+| `elm_indexar_local` | indexa o que mudou (sha256) numa thread e responde na hora; chamar de novo mostra o progresso; `forcar` reindexa tudo | `documentos, restantes, indexando, falhas?, erro_indice?` |
+| `elm_explorar_local` | gera o `explorar.html` (grafo 3D do bundle) na pasta do bundle | `path, documentos, chunks, links, semanticos, gerado_em` |
 
 O índice fica em `<bundle>/sqlite3/okf.db` (com `.gitignore`): chunks por heading e parágrafo — parágrafo maior
 que ~1.500 chars quebra por linha (lista longa não vira um único vetor diluído), e tabela markdown repete
@@ -104,7 +104,9 @@ e o rerank é refinamento opcional: se a API dele falhar, a busca segue na ordem
 `dados` (no lugar de a busca inteira falhar). `elm_status` mostra `embedder` e `rerank` sempre (`null` sem
 provider / sem rerank configurado); falhas da
 API de embedding/rerank viram o erro do contrato correspondente (`credencial` 401/403, `config` 404,
-`indisponivel` 429/5xx/falha de rede transitória, com 3 tentativas) — na indexação, `erro_indice` em `dados`.
+`indisponivel` 429/5xx/falha de rede transitória, com 3 tentativas) — na indexação, `erro_indice` em `dados`. Documento recusado pelo provider (erro de entrada,
+ex.: contexto do modelo estourado) não trava o lote: sai em `falhas` (`[{path, erro}]`), os outros seguem e ele
+só volta à API quando o arquivo mudar (ou no `forcar`). Linha maior que o teto do chunk vai em fatias.
 
 Depois do 2º estágio (ou do RRF, sem rerank ou na falha dele), o type-boost ajusta o pool inteiro antes do
 slicing: cada chunk multiplica a score pelo fator do `type` exato do frontmatter — Caso de Uso ×1,03 >
@@ -126,30 +128,17 @@ no índice, devolvendo `indexando: true, restantes: n`. Com o provider, cada doc
 retomada incremental: falhou no meio, o `elm_indexar_local` de novo embute só o que diverge (hash + meta).
 
 **Visualizador** (`elm_explorar_local`): gera `<bundle>/explorar.html` — HTML único que abre o bundle no
-navegador sem internet (intranet): galáxias de documentos (planeta = documento, lua = chunk do planeta
-selecionado) na vista 3D (3d-force-graph/three.js) — a única vista: sem WebGL, uma mensagem de
-indisponível (sem fallback 2D) —, com busca, filtro por tipo, seletor de galáxia no header (isolar uma;
-"Todas as galáxias" solta; o clique no core 3D sincroniza) e combobox no header que alterna o modo
-(UC/HF — padrão —, semântico ou grafo convencional; persistido em `localStorage`) e
-Markdown (marked + DOMPurify).
-O grafo convencional (3º modo) usa só os documentos: as arestas são os links de citação mais as arestas
-semânticas do índice (3 vizinhos mais próximos por cosseno dos vetores dos chunks, ≥ 0,5), sem sol, casca,
-raios ou luas.
-As três libs ficam em `assets/` e vão embutidas no HTML no gerar. Documentos, vetores e chunks saem do
-índice em modo somente leitura (nada de reindexação aqui): sem índice, `precondicao` com `campo: "indice"`
-apontando o `elm_indexar_local`. As galáxias são por Caso de Uso / História de Usuário: cada documento com
-`type` "Caso de Uso" ou "História de Usuário" é centro de uma (nomeada pelo título dele), e membro é
-documento com RELAÇÃO DIRETA (link de entrada ou de saída, qualquer rel) OU relação semântica (distância de
-cosseno ≤ 0.30 entre a média normalizada dos vetores dos chunks do documento e a do centro —
-artefato-a-artefato, nunca chunk a chunk); a direta manda, cada documento vai a UMA galáxia (os centros, por
-menor path) e o resto fica na galáxia catch-all "Tudo" (omitida se vazia; bundle sem UC/HF, só "Tudo").
-O modo semântico (aglomerativo, linkage média, cosseno ≤ 0.30) faz uma galáxia por cluster: todo documento
-pertence a exatamente um (singleton vira galáxia de 1), o centro é o documento do cluster com a maior média
-de cosseno com os demais (empate: menor path) e o nome, o título do centro.
-Nota: o asset do 3d-force-graph é o 1.73.4 e, no embutir, recebe o backport do fix oficial upstream
-(vasturiano/three-forcegraph@`f89a2000ee`, "Prevent layoutTick from running before layout is assigned") —
-sem ele, o 1º `graphData` faz `state.layout.tick()` num layout ainda não atribuído e a vista 3D nasce em
-branco (o `RuntimeError` do `_ler_asset` trava o gerar se o asset trocar de versão).
+navegador: grafo 3D no molde do exemplo `large-graph` do 3d-force-graph (nó =
+documento, cor automática por `type`, rótulo no hover, clique abre o documento; a entrada em "big bang" é a
+simulação padrão partindo da origem). Sem acesso ao CDN ou sem WebGL, uma mensagem de indisponível. O combobox do header alterna
+o conjunto de arestas: **Links dos artefatos** (links lidos do `.md`, mesma lógica do `elm_ler_req_local`)
+ou **Semântico** (para cada documento, os 3 vizinhos mais próximos por cosseno da média normalizada dos
+vetores dos chunks, cosseno ≥ 0,5, par sem duplicar). Lista à esquerda (busca e filtro por tipo) e documento
+à direita (Markdown com marked + DOMPurify, chunks do índice recolhíveis, links de entrada e saída).
+As três libs vêm do CDN jsDelivr com versão fixa (3d-force-graph 1.80.1, marked 18.1.1, DOMPurify 3.4.17):
+abrir o HTML exige acesso a `cdn.jsdelivr.net`. Documentos e links saem do disco; vetores e contagem de
+chunks saem do índice (com o índice incompleto, o modo semântico fica só com os indexados) em modo somente leitura (nada de reindexação aqui): sem índice, `precondicao` com `campo: "indice"`
+apontando o `elm_indexar_local`.
 
 **Nada baixado** (pasta de `rm.download` ausente ou sem `.md`): buscar, ler, listar, indexar e explorar devolvem
 `nao_encontrado` com `campo: "bundle"` e o detalhe indica baixar com `elm_sync` (`direcao: "baixar"`) ou pesquisar no
