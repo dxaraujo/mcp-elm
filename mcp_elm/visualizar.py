@@ -404,9 +404,10 @@ let G = null;
 function montarGalo() {
   const gl = (modo === "sem" ? D.semantica : D.galaxias);
   const KGAL = gl.length;
-  // raio da casca ∝ sqrt dos membros: área da esfera (4πR²) ∝ nº de membros → cada nó recebe a mesma
-  // área de superfície (na PAB a maior galáxia fica ~4× o raio do singleton, ~16× a área)
-  const RAIO = gl.map(g => 12 + 3 * Math.sqrt(g.docs - 1));
+  // raio EXTERNO do volume ∝ nº de membros: cada pétala recebe o mesmo volume de espaço (4/3·π·ΔR³ ≈
+  // 1400 u³ ≈ (11 u)³ → vizinhos a ~1,2× o diâmetro máximo de pétala), entre o raio interno 14 u (logo
+  // fora do sol 6,6 u + pétala 5,5 u) e RAIO — pétalas em profundidades diferentes, em volume (dente-de-leão)
+  const RAIO = gl.map(g => Math.cbrt(14 ** 3 + g.docs * 1400 / (4 / 3 * Math.PI)));
   const R_MAX = KGAL ? Math.max(...RAIO) : 0;
   // rotação lenta da casca em torno do core: eixo unitário e período (20–60 s) derivados do índice da
   // galáxia (determinístico, estável entre gerações); a direção alterna entre galáxias vizinhas
@@ -505,13 +506,17 @@ function luas3D() {
   });
 }
 function buildNodes3D() {
+  // k = índice do doc na galáxia (ordem determinística do payload): direção pela espiral de Fibonacci
+  // (uniforme na esfera — antes o hash por caminho concentrava direções) e profundidade uniforme no
+  // volume (14 u até RAIO, semente por caminho) — pétalas em raios diferentes, presas por um fio ao miolo
+  const kGal = G.list.map(() => 0);
   const nodes = docs.map(d => {
-    const i = idxDoc(d);
-    // começa na casca da galáxia (direção determinística por caminho)
-    const vx = semente(d.path, 3), vy = semente(d.path, 4), vz = semente(d.path, 5);
-    const r = Math.hypot(vx, vy, vz) || 1;
-    return { id: d.path, g: i, val: valDoc(d),
-             x: G.CENTRO[i][0] + vx / r * G.RAIO[i], y: G.CENTRO[i][1] + vy / r * G.RAIO[i], z: G.CENTRO[i][2] + vz / r * G.RAIO[i] };
+    const i = idxDoc(d), k = kGal[i]++, N = G.list[i].docs;
+    const phi = Math.acos(1 - 2 * (k + 0.5) / N), th = Math.PI * (1 + Math.sqrt(5)) * (k + 0.5);
+    const sp = Math.sin(phi), u = (semente(d.path, 6) + 1) / 2;
+    const rAlvo = Math.cbrt(14 ** 3 + (G.RAIO[i] ** 3 - 14 ** 3) * u);
+    return { id: d.path, g: i, val: valDoc(d), rAlvo,
+             x: G.CENTRO[i][0] + sp * Math.cos(th) * rAlvo, y: G.CENTRO[i][1] + sp * Math.sin(th) * rAlvo, z: G.CENTRO[i][2] + Math.cos(phi) * rAlvo };
   });
   nodes.push(...G.list.map((g, i) => ({ id: "core:" + i, core: i, val: valCore(), x: G.CENTRO[i][0], y: G.CENTRO[i][1], z: G.CENTRO[i][2] })));
   nodes.push(...luas3D());
@@ -544,9 +549,9 @@ const forcaGalaxia = () => {
     const c = G.CENTRO[i];
     if (n.core !== undefined) { n.x = c[0]; n.y = c[1]; n.z = c[2]; n.vx = n.vy = n.vz = 0; }
     else if (n.lua === undefined) {
-      // esfera limpa: mola radial forte devolve a distância do centro para R_gal a cada tick
+      // pétala em volume: mola radial forte devolve a distância do centro para o rAlvo do nó a cada tick
       const dx = n.x - c[0], dy = n.y - c[1], dz = n.z - c[2];
-      const r = Math.hypot(dx, dy, dz) || 1e-6, f = (G.RAIO[i] - r) / r * 0.5;
+      const r = Math.hypot(dx, dy, dz) || 1e-6, f = (n.rAlvo - r) / r * 0.5;
       n.vx += dx * f; n.vy += dy * f; n.vz += dz * f;
     }
   }
