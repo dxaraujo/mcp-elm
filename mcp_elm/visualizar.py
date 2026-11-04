@@ -496,7 +496,7 @@ const valLua = () => Math.pow(0.6 / TAM, 3);
 function luas3D() {
   if (!selecionado) return [];
   const d = byPath[selecionado], n = Math.min(d.n_chunks, LUA_MAX);
-  const r = 2 + 0.55 * Math.sqrt(d.n_links + d.n_chunks);
+  const r = Math.min(5.5, 2 + 0.55 * Math.sqrt(d.n_links + d.n_chunks));  // mesmo teto do planeta: a órbita cola na superfície
   const base = N3D.find(x => x.id === selecionado);
   const c = base ? [base.x, base.y, base.z] : G.CENTRO[idxDoc(d)];
   return Array.from({ length: n }, (_, i) => {
@@ -671,7 +671,7 @@ function init3D() {
     .linkOpacity(0.22)  // a web de "cita" (centenas de linhas longas) visível sem costurar os núcleos numa massa
     .linkWidth(0.4)
     .linkDirectionalArrowLength(0.8).linkDirectionalArrowRelPos(1)
-    .linkDirectionalParticles(l => l.lua ? 0 : 1)
+    .linkDirectionalParticles(l => (l.lua || l.raio) ? 0 : 1)
     .linkDirectionalParticleWidth(0.8).linkDirectionalParticleSpeed(0.15)
     .linkDirectionalParticleColor(l => l.lua ? "#94a3b8" : (l.rel.includes("cita") ? "#64748b" : "#60a5fa"))
     .cooldownTime(Infinity)  // o motor não para: as luas orbitam e as cascas giram (1.73.4 não tem d3AlphaTarget)

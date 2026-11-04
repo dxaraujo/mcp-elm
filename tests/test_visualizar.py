@@ -366,6 +366,16 @@ def test_explorar_petalas_em_volume(projeto, raiz):
     assert "f = (n.rAlvo - r) / r * 0.5" in html
 
 
+def test_explorar_raios_sem_particulas_e_luas_no_teto(projeto, raiz):
+    call("elm_indexar_local", projeto)
+    d = call("elm_explorar_local", projeto)
+    html = open(d["path"], encoding="utf-8").read()
+    # os fios do dente-de-leão ficam limpos: sem partícula azul animada nos raios (citações mantêm)
+    assert "l => (l.lua || l.raio) ? 0 : 1" in html
+    # as luas orbitam na superfície do planeta: mesmo teto de 5,5u (antes 9,3u no maior planeta)
+    assert "const r = Math.min(5.5, 2 + 0.55 * Math.sqrt(d.n_links + d.n_chunks));" in html
+
+
 def test_explorar_cameras_seguem_isolacao(projeto, raiz):
     call("elm_indexar_local", projeto)
     d = call("elm_explorar_local", projeto)
