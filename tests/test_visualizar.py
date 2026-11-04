@@ -250,6 +250,8 @@ def test_explorar_gera_html_com_guard_e_dados_coerentes(projeto, raiz):
     assert 'id="gals"' not in html and "arrastarCaixa" not in html
     # largura limitada: sem max-width o <select> dimensiona para a opção mais larga e estica o header
     assert "max-width:min(300px, 32vw)" in html
+    # carimbo de build na hint do 3D (o valor muda a cada geração: só o formato é asertado)
+    assert re.search(r"build \d{2}/\d{2} \d{2}:\d{2}", html)
 
     m = re.search(r'<script id="data" type="application/json">(.*?)</script>', html, re.S)
     data = json.loads(m.group(1))  # "</" sai escapado (<\/): o JSON é válido

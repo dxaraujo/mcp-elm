@@ -192,13 +192,13 @@ def galaxias_semanticas(paths: list[str], titulos: dict[str, str], X: np.ndarray
     return nomes, grupos_l, centros_l
 
 
-def _pagina(dados: dict) -> str:
+def _pagina(dados: dict, build: str) -> str:
     js = json.dumps(dados, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
     html = PAGINA
     for nome, arquivo in (("FORCA3D", "3d-force-graph.min.js"),
                           ("MARKED", "marked.min.js"), ("PURIFY", "purify.min.js")):
         html = html.replace(f"__{nome}__", _ler_asset(arquivo))
-    return html.replace("__DATA__", js)
+    return html.replace("__DATA__", js).replace("__BUILD__", build)  # build = carimbo na hint do 3D
 
 
 def gerar(cfg: dict) -> dict:
@@ -271,10 +271,10 @@ def gerar(cfg: dict) -> dict:
              "semantica": [{"id": k, "nome": nomes_s[k], "docs": len(m), "centro": centros_s[k]}
                             for k, m in enumerate(grupos_s)]}
     out = Path(root) / "explorar.html"
-    out.write_text(_pagina(dados), encoding="utf-8")
+    agora = datetime.now(timezone.utc).astimezone()
+    out.write_text(_pagina(dados, agora.strftime("%d/%m %H:%M")), encoding="utf-8")  # carimbo da geração na hint
     return {"path": str(out), "documentos": len(docs_json), "chunks": len(chunk_rows),
-            "galaxias": len(grupos), "links": len(links),
-            "gerado_em": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")}
+            "galaxias": len(grupos), "links": len(links), "gerado_em": agora.isoformat(timespec="seconds")}
 
 
 PAGINA = r"""<!doctype html>
@@ -404,11 +404,11 @@ function montarGalo() {
   // área de superfície (na PAB a maior galáxia fica ~4× o raio do singleton, ~16× a área)
   const RAIO = gl.map(g => 12 + 3 * Math.sqrt(g.docs - 1));
   const R_MAX = KGAL ? Math.max(...RAIO) : 0;
-  // rotação lenta da casca em torno do core: eixo unitário e período (60–150 s) derivados do índice da
+  // rotação lenta da casca em torno do core: eixo unitário e período (20–60 s) derivados do índice da
   // galáxia (determinístico, estável entre gerações); a direção alterna entre galáxias vizinhas
   const ROT = gl.map((g, i) => {
     let ex = semente("rot" + i, 11), ey = semente("rot" + i, 12), ez = semente("rot" + i, 13);
-    const m = Math.hypot(ex, ey, ez) || 1, periodo = 60 + 90 * (semente("rot" + i, 14) + 1) / 2;
+    const m = Math.hypot(ex, ey, ez) || 1, periodo = 20 + 40 * (semente("rot" + i, 14) + 1) / 2;
     return { i, ex: ex / m, ey: ey / m, ez: ez / m, om: (i % 2 ? -1 : 1) * 2 * Math.PI / periodo };
   });
   // grade de Fibonacci dos centros: o termo base é o piso; se as maiores esferas não couberem entre
@@ -620,7 +620,7 @@ function init3D() {
   g3d.onEngineTick(() => { rotacionarGalo(); orbitarLuas(); });  // rotação antes das luas: elas seguem o planeta
   g3d.cameraPosition({ x: 0, y: 0, z: 2.2 * Math.max(G.R_GAL + 90, 140) });
   new ResizeObserver(() => g3d && g3d.width(box.clientWidth).height(box.clientHeight)).observe(box);
-  box.append(el("div", "arraste para girar · roda para zoom · clique no planeta abre o documento", "hint"));
+  box.append(el("div", "arraste para girar · roda para zoom · clique no planeta abre o documento · build __BUILD__", "hint"));
 }
 
 // ---------- seleção / câmera
