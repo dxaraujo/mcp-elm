@@ -515,8 +515,11 @@ function buildNodes3D() {
     const phi = Math.acos(1 - 2 * (k + 0.5) / N), th = Math.PI * (1 + Math.sqrt(5)) * (k + 0.5);
     const sp = Math.sin(phi), u = (semente(d.path, 6) + 1) / 2;
     const rAlvo = Math.cbrt(14 ** 3 + (G.RAIO[i] ** 3 - 14 ** 3) * u);
-    return { id: d.path, g: i, val: valDoc(d), rAlvo,
-             x: G.CENTRO[i][0] + sp * Math.cos(th) * rAlvo, y: G.CENTRO[i][1] + sp * Math.sin(th) * rAlvo, z: G.CENTRO[i][2] + Math.cos(phi) * rAlvo };
+    // direção-alvo guardada no nó: a mola prende direção E raio; sem ela, os links puxam todas as
+    // pétalas para a mesma direção (espinha) — o raio sozinho não segurava a angulação
+    const dx = sp * Math.cos(th), dy = sp * Math.sin(th), dz = Math.cos(phi);
+    return { id: d.path, g: i, val: valDoc(d), rAlvo, dx, dy, dz,
+             x: G.CENTRO[i][0] + dx * rAlvo, y: G.CENTRO[i][1] + dy * rAlvo, z: G.CENTRO[i][2] + dz * rAlvo };
   });
   nodes.push(...G.list.map((g, i) => ({ id: "core:" + i, core: i, val: valCore(), x: G.CENTRO[i][0], y: G.CENTRO[i][1], z: G.CENTRO[i][2] })));
   nodes.push(...luas3D());
@@ -549,10 +552,12 @@ const forcaGalaxia = () => {
     const c = G.CENTRO[i];
     if (n.core !== undefined) { n.x = c[0]; n.y = c[1]; n.z = c[2]; n.vx = n.vy = n.vz = 0; }
     else if (n.lua === undefined) {
-      // pétala em volume: mola radial forte devolve a distância do centro para o rAlvo do nó a cada tick
-      const dx = n.x - c[0], dy = n.y - c[1], dz = n.z - c[2];
-      const r = Math.hypot(dx, dy, dz) || 1e-6, f = (n.rAlvo - r) / r * 0.5;
-      n.vx += dx * f; n.vy += dy * f; n.vz += dz * f;
+      // pétala: mola POSICIONAL no alvo (direção Fibonacci × rAlvo) — prende o raio e a angulação.
+      // Mola só radial segurava o raio, mas deixava o links arrastar todas as pétalas para uma
+      // mesma direção (espinha/dente-de-leão achatado) — simulado com d3-force-3d real: Rbar 0,84
+      n.vx += (c[0] + n.dx * n.rAlvo - n.x) * 0.35;
+      n.vy += (c[1] + n.dy * n.rAlvo - n.y) * 0.35;
+      n.vz += (c[2] + n.dz * n.rAlvo - n.z) * 0.35;
     }
   }
 };
@@ -583,6 +588,14 @@ function rotacionarGalo() {
       n.x = c[0] + x * cos + (ey * z - ez * y) * sen + ex * ep * ocm;
       n.y = c[1] + y * cos + (ez * x - ex * z) * sen + ey * ep * ocm;
       n.z = c[2] + z * cos + (ex * y - ey * x) * sen + ez * ep * ocm;
+      // a direção-alvo gira junto (mesma rotação, sem translação): senão a mola posicional puxa a
+      // pétala de volta ao alvo antigo e a rotação da galáxia fica travada
+      if (n.dx !== undefined) {
+        const ex0 = n.dx, ey0 = n.dy, ez0 = n.dz, epd = ex * ex0 + ey * ey0 + ez * ez0;
+        n.dx = ex0 * cos + (ey * ez0 - ez * ey0) * sen + ex * epd * ocm;
+        n.dy = ey0 * cos + (ez * ex0 - ex * ez0) * sen + ey * epd * ocm;
+        n.dz = ez0 * cos + (ex * ey0 - ey * ex0) * sen + ez * epd * ocm;
+      }
     }
   }
 }

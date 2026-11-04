@@ -362,8 +362,13 @@ def test_explorar_petalas_em_volume(projeto, raiz):
     assert "const rAlvo = Math.cbrt(14 ** 3 + (G.RAIO[i] ** 3 - 14 ** 3) * u);" in html
     # direção pela espiral de Fibonacci (uniforme na esfera), não pelo hash por caminho (concentrava)
     assert "Math.acos(1 - 2 * (k + 0.5) / N)" in html
-    # a mola radial persegue o raio-alvo do nó, não um raio único da galáxia
-    assert "f = (n.rAlvo - r) / r * 0.5" in html
+    # a mola é POSICIONAL: persegue direção × raio-alvo do nó. Mola só radial segurava o raio mas
+    # deixava os links arrastarem todas as pétalas para a mesma direção (espinha); simulado com a
+    # d3-force-3d real: 82% das pétalas num cone de 30° (Rbar 0,84)
+    assert "n.vx += (c[0] + n.dx * n.rAlvo - n.x) * 0.35" in html
+    assert "const dx = sp * Math.cos(th), dy = sp * Math.sin(th), dz = Math.cos(phi);" in html
+    # a rotação gira a direção-alvo junto com a posição (senão a mola posicional trava a rotação)
+    assert "epd = ex * ex0 + ey * ey0 + ez * ez0" in html
 
 
 def test_explorar_raios_sem_particulas_e_luas_no_teto(projeto, raiz):
