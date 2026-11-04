@@ -7,7 +7,7 @@ do centro); a relação direta manda e cada documento entra em no máximo uma ga
 resto vai para a galáxia catch-all "Tudo" (bundle sem UC/HF: uma única "Tudo" com tudo). Planeta = documento
 (tamanho proporcional a links + chunks); lua = chunk (orbita o planeta selecionado). No 3D, cada galáxia é
 uma esfera: o centro fixo e os demais numa casca de raio ∝ sqrt dos membros (área da esfera ∝ nº de
-membros). O header tem o
+membros), girando devagar em torno do core (eixo e período determinísticos por galáxia). O header tem o
 seletor de galáxia (isolar uma; "Todas as galáxias" solta — o clique no core 3D sincroniza) e o combobox
 do modo das galáxias: UC/HF (acima, padrão) ou semântico (aglomerativo, linkage média, cosseno ≤ LIMITE:
 uma galáxia por cluster, centro = o documento com a maior média de cosseno com os demais membros). Os
@@ -394,6 +394,8 @@ const byId = Object.fromEntries(docs.filter(d => d.id).map(d => [d.id, d]));
 let modo = "uc";
 try { const m0 = localStorage.getItem("explorar-modo"); if (m0 === "uc" || m0 === "sem") modo = m0; } catch {}
 const idxDoc = d => (modo === "sem" ? d.gsem : d.galaxia);
+// semente determinística (direção inicial dos planetas na casca e eixo/velocidade da rotação; em [-1, 1])
+const semente = (s, k) => { let h = 2166136261 ^ s.length; for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619); h = Math.imul(h ^ (h >>> (5 * k + 3)), 16777619); return ((h >>> 0) % 1000) / 500 - 1; };
 let G = null;
 function montarGalo() {
   const gl = (modo === "sem" ? D.semantica : D.galaxias);
@@ -402,6 +404,13 @@ function montarGalo() {
   // área de superfície (na PAB a maior galáxia fica ~4× o raio do singleton, ~16× a área)
   const RAIO = gl.map(g => 12 + 3 * Math.sqrt(g.docs - 1));
   const R_MAX = KGAL ? Math.max(...RAIO) : 0;
+  // rotação lenta da casca em torno do core: eixo unitário e período (60–150 s) derivados do índice da
+  // galáxia (determinístico, estável entre gerações); a direção alterna entre galáxias vizinhas
+  const ROT = gl.map((g, i) => {
+    let ex = semente("rot" + i, 11), ey = semente("rot" + i, 12), ez = semente("rot" + i, 13);
+    const m = Math.hypot(ex, ey, ez) || 1, periodo = 60 + 90 * (semente("rot" + i, 14) + 1) / 2;
+    return { i, ex: ex / m, ey: ey / m, ez: ez / m, om: (i % 2 ? -1 : 1) * 2 * Math.PI / periodo };
+  });
   // grade de Fibonacci dos centros: o termo base é o piso; se as maiores esferas não couberem entre
   // vizinhos, escala R_GAL por f (menor distância entre pares no layout de Fibonacci de raio 1,
   // medida abaixo) para distância entre centros ≥ 2·R_MAX + 10 → nenhuma galáxia sobrepõe a vizinha
@@ -426,6 +435,8 @@ function montarGalo() {
     KGAL, R_GAL,
     CENTRO,
     RAIO,
+    ROT,
+    porGal: gl.map(() => []),  // nós membros por galáxia, preenchido em setDados3D (a rotação usa)
     // cor fixa por galáxia (ângulo dourado); a catch-all "Tudo" (sem centro UC/HF) fica discreta
     corGal: new Map(gl.map((g, i) => [i, g.centro == null ? "hsl(215, 14%, 52%)" : `hsl(${Math.round(i * 137.508) % 360}, 62%, 58%)`]))
   };
@@ -448,8 +459,6 @@ const el = (tag, text, cls) => { const e = document.createElement(tag); if (text
 const esc = s => { const e = document.createElement("span"); e.textContent = s ?? ""; return e.innerHTML; };
 const rotulo = d => (d.id ? d.id + " — " : "") + d.titulo;
 const docHash = p => "#doc=" + encodeURIComponent(p);
-// semente determinística por caminho (direção inicial dos planetas na casca, em [-1, 1])
-const semente = (s, k) => { let h = 2166136261 ^ s.length; for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619); h = Math.imul(h ^ (h >>> (5 * k + 3)), 16777619); return ((h >>> 0) % 1000) / 500 - 1; };
 const matchBusca = d => !busca || [d.id, d.titulo, d.descricao, d.pasta, d.path, G.gal[idxDoc(d)].nome].some(x => x && String(x).toLowerCase().includes(busca));
 const matchGal = i => !busca || String(G.gal[i].nome).toLowerCase().includes(busca);
 const matchTipo = d => !tipoF || (d.tipo || "(sem tipo)") === tipoF;
@@ -533,8 +542,31 @@ function setDados3D() {
   g3d.graphData({ nodes: buildNodes3D(), links: buildLinks3D() });
   const g = g3d.graphData();  // os nós internos (com as posições): é neles que a física trabalha
   N3D = g.nodes; L3D = g.links;
+  G.porGal = G.list.map(() => []);  // recria a lista de nós da rotação (os nós internos trocaram)
+  for (const n of N3D) if (n.g !== undefined) G.porGal[n.g].push(n);
   g3d.d3Force("galaxia", forcaGalaxia);
   g3d.d3ReheatSimulation();
+}
+// rotação lenta da casca de cada galáxia em torno do core: Rodrigues por tick — rotação pura, preserva a
+// distância ao centro (a mola da casca não sente; só a orientação muda). Trig uma vez por galáxia/tick.
+let tAnt = null;
+function rotacionarGalo() {
+  const t = performance.now() / 1000, dt = tAnt === null ? 0 : Math.min(t - tAnt, 0.1);
+  tAnt = t;
+  if (!dt) return;
+  for (const r of G.ROT) {
+    const ns = G.porGal[r.i];
+    if (!ns.length) continue;
+    const a = r.om * dt, cos = Math.cos(a), sen = Math.sin(a), ocm = 1 - cos;
+    const c = G.CENTRO[r.i], ex = r.ex, ey = r.ey, ez = r.ez;
+    for (const n of ns) {
+      const x = n.x - c[0], y = n.y - c[1], z = n.z - c[2];
+      const ep = ex * x + ey * y + ez * z;  // e·p, com p relativo ao centro
+      n.x = c[0] + x * cos + (ey * z - ez * y) * sen + ex * ep * ocm;
+      n.y = c[1] + y * cos + (ez * x - ex * z) * sen + ey * ep * ocm;
+      n.z = c[2] + z * cos + (ex * y - ey * x) * sen + ez * ep * ocm;
+    }
+  }
 }
 function orbitarLuas() {
   const t = (performance.now() - t0) / 1000;
@@ -573,7 +605,7 @@ function init3D() {
     .linkDirectionalParticles(l => l.lua ? 0 : 1)
     .linkDirectionalParticleWidth(0.8).linkDirectionalParticleSpeed(0.15)
     .linkDirectionalParticleColor(l => l.lua ? "#94a3b8" : (l.rel.includes("cita") ? "#64748b" : "#60a5fa"))
-    .cooldownTime(Infinity)  // o motor não para: as luas seguem orbitando e a casca se mantém (1.73.4 não tem d3AlphaTarget)
+    .cooldownTime(Infinity)  // o motor não para: as luas orbitam e as cascas giram (1.73.4 não tem d3AlphaTarget)
     .onNodeClick(n => {
       if (n.core !== undefined) setIsolado(isolado === n.core ? null : n.core);
       else if (n.lua !== undefined) { const bar = n.id.lastIndexOf("|"); selecionarLua(n.id.slice(4, bar), +n.id.slice(bar + 1)); }
@@ -585,7 +617,7 @@ function init3D() {
   g3d.d3Force("charge").strength(-6);  // fraco: a casca esférica manda, o charge só espalha
   g3d.d3Force("link").distance(26).strength(0.2);
   g3d.warmupTicks(50);  // reaquecimento das seleções (a entrada anima na tela)
-  g3d.onEngineTick(orbitarLuas);
+  g3d.onEngineTick(() => { rotacionarGalo(); orbitarLuas(); });  // rotação antes das luas: elas seguem o planeta
   g3d.cameraPosition({ x: 0, y: 0, z: 2.2 * Math.max(G.R_GAL + 90, 140) });
   new ResizeObserver(() => g3d && g3d.width(box.clientWidth).height(box.clientHeight)).observe(box);
   box.append(el("div", "arraste para girar · roda para zoom · clique no planeta abre o documento", "hint"));
