@@ -3,10 +3,11 @@
 Índice em <bundle>/sqlite3/okf.db (WAL: vários processos podem abrir o mesmo): documentos e chunks com vetor denso
 (float32 normalizado) + FTS5 (BM25); busca híbrida cosseno + FTS5 com fusão RRF, e rerank opcional no fim (falhou,
 a busca segue na ordem RRF e devolve `erro_rerank`), e type-boost no pool inteiro antes do slicing (Caso de Uso
-> História de Usuário > Regra). O vetor vem da API configurada no elm.properties ou do modelo
-local (embedder); a assinatura do embedder e a versão do chunking ficam na meta do índice — mudou (troca de modelo
-ou formato de chunk) e o índice é limpo e refeito. Os links entre documentos saem do disco a cada leitura, não do
-índice.
+> História de Usuário > Regra). O vetor vem da API configurada no elm.properties (embedder, sem
+fallback local); a assinatura do embedder e a versão do chunking ficam na meta do índice — sem proveniência
+(meta sem o embedder), com outro modelo ou com formato de chunk antigo, o índice é limpo e refeito; e a busca
+em índice de outro embedder falha com erro claro (cossinos de espaço diferente são inválidos — o reindex
+resolve). Os links entre documentos saem do disco a cada leitura, não do índice.
 """
 from __future__ import annotations
 
@@ -33,7 +34,7 @@ RERANK_MAX = 8000  # chars por chunk no rerank: margem de segurança no contexto
 # type-boost: multiplicativo pós-rerank, no pool inteiro antes do slicing; a chave é o `type` exato do
 # frontmatter ("Regra de Negócio" não é "Regra"); o score devolvido é o ajustado
 TYPE_BOOST = {"Caso de Uso": 1.03, "História de Usuário": 1.02, "Regra": 1.01}
-# testes: True indexa na própria chamada; no servidor, sempre numa thread (o 1º uso baixa o modelo: minutos)
+# testes: True indexa na própria chamada; no servidor, sempre numa thread (o 1º uso percorre o bundle pela API)
 SINCRONO = False
 _jobs: dict[str, threading.Thread] = {}
 _falhas: dict[str, str] = {}
@@ -215,7 +216,7 @@ def connect(root: str):
 
 
 def embed(texts: list[str]) -> np.ndarray:
-    """(n, dim) float32 com norma 1: produto escalar = cosseno (API ou modelo local, veja embedder)."""
+    """(n, dim) float32 com norma 1: produto escalar = cosseno (via API, veja embedder)."""
     return embedder.embed(texts)
 
 
@@ -256,22 +257,24 @@ def _write(con: sqlite3.Connection, doc: dict) -> None:
 
 
 def _mudou(meta: dict) -> bool:
-    """O índice renasce: vetores de outro modelo (dimensão muda) ou chunks do formato anterior."""
-    return meta.get("embedder") not in (None, embedder.assinatura()) or \
+    """O índice renasce: sem proveniência (meta sem o embedder — índice de versão anterior), vetores de
+    outro modelo (dimensão muda) ou chunks do formato anterior."""
+    return meta.get("embedder") != embedder.assinatura() or \
         meta.get("chunking") not in (None, str(CHUNK_VER))
 
 
 def _indexar(root: str, docs: dict, forcar: bool = False) -> dict:
-    """Remove do índice os apagados e (re)indexa os novos ou alterados (sha256). Assinatura do embedder
-    (troca de modelo) ou versão de chunking diferente da meta limpa o índice inteiro, que renasce do
-    bundle + API."""
+    """Remove do índice os apagados e (re)indexa os novos ou alterados (sha256). Meta sem proveniência,
+    assinatura do embedder (troca de modelo) ou versão de chunking diferente da meta limpa o índice
+    inteiro, que renasce do bundle + API. Sem provider configurado, erro claro — antes de apagar nada."""
+    sig = embedder.assinatura()  # antes de abrir o índice: sem provider, o índice antigo continua inteiro
     with connect(root) as con:
         if _mudou(dict(con.execute("select k, v from meta"))):
             con.execute("delete from chunks_fts")
             con.execute("delete from chunks")
             con.execute("delete from docs")
             con.commit()
-        for k, v in (("embedder", embedder.assinatura()), ("chunking", str(CHUNK_VER))):
+        for k, v in (("embedder", sig), ("chunking", str(CHUNK_VER))):
             con.execute("insert into meta(k, v) values (?, ?) on conflict(k) do update set v = excluded.v", (k, v))
         if forcar:
             con.execute("update docs set hash = ''")  # continua buscável enquanto reindexa
@@ -292,19 +295,32 @@ def _indexar(root: str, docs: dict, forcar: bool = False) -> dict:
 def _search(con: sqlite3.Connection, query: str, wide: int, folder: str | None, type_: str | None) \
         -> tuple[list[dict], str | None]:
     """Até `wide` chunks, do mais relevante: [{path, section, text, id, title, type, folder, score}], com o
-    erro do rerank (None se ele reordenou ou não está configurado); o score sai ajustado pelo type-boost."""
+    erro do rerank (None se ele reordenou ou não está configurado); o score sai ajustado pelo type-boost.
+    Índice de outro embedder: erro claro (cossinos de espaço
+    diferente são inválidos — o reindex resolve)."""
     where, args = "1 = 1", []
     for col, value in (("folder", folder), ("type", type_)):
         if value is not None:
             where += f" and d.{col} = ?"
             args.append(value)
+    # guarda de espaço: assinatura do índice (meta) diferente da atual -> erro antes de gastar a API
+    # da query; meta sem proveniência deixa passar (a dimensão incompatível vira o mesmo erro abaixo)
+    if (dita := dict(con.execute("select k, v from meta")).get("embedder")) and \
+            (atual := embedder.assinatura()) != dita:
+        raise Erro("config", f"índice do bundle feito com outro embedder (índice: {dita}; atual: {atual}): "
+                             "rode elm_indexar_local", "provider_embed_model")
     # shortcut: vetores lidos a cada consulta; cachear a matriz se o bundle passar de ~50k chunks
     rows = con.execute(f"select c.cid, c.vec from chunks c join docs d on d.path = c.path where {where}",
                        args).fetchall()
     dense = []
+    scores = None
     if rows:
-        scores = np.frombuffer(b"".join(r[1] for r in rows), dtype=np.float32).reshape(len(rows), -1) \
-            @ embed([query])[0]
+        try:
+            matriz = np.frombuffer(b"".join(r[1] for r in rows), dtype=np.float32).reshape(len(rows), -1)
+            scores = matriz @ embed([query])[0]
+        except ValueError:
+            raise Erro("config", "índice do bundle incompatível com o embedder atual (dimensões de vetor "
+                                 "diferentes): rode elm_indexar_local", "provider_embed_model")
         dense = [rows[i][0] for i in np.argsort(-scores)[:wide]]
     # shortcut: FTS5 sem stemming PT (prefixo * cobre plurais); tokenizer próprio se o recall lexical cair
     terms = re.findall(r"\w+", query)

@@ -1,12 +1,15 @@
-"""Embedding e rerank do índice local: API OpenAI-compatível ou o modelo local (fastembed, sem key).
+"""Embedding e rerank do índice local, via API OpenAI-compatível do elm.properties.
 
-A API vem do elm.properties (a mesma base e key servem para os dois; só o modelo muda):
-`provider_url` + `provider_api_key` ligam o embedding por API (modelo em `provider_embed_model`, padrão
-text-embedding-3-small) e `provider_rerank_model` opcional liga o rerank (mesma base/key). Sem `provider_url`
-ou `provider_api_key`, o embedding cai no modelo local — o comportamento antigo.
+`provider_url` + `provider_api_key` são obrigatórios para a busca semântica, e o mesmo par serve
+para os dois serviços (só o modelo muda): `provider_embed_model` (padrão text-embedding-3-small)
+é o embedding e `provider_rerank_model` opcional liga o rerank na busca. Sem as duas chaves,
+indexar e buscar falham com erro de config apontando o elm.properties — não existe fallback local.
 
 A `assinatura()` identifica o espaço de vetores do índice (base + modelo): se ela mudar, o índice
-é limpo e refeito, porque vetores de dimensão/modelo diferentes não podem coexistir na matriz.
+é limpo e refeito, porque vetores de dimensão/modelo diferentes não podem coexistir na matriz —
+e a busca em índice com assinatura diferente da atual falha com erro claro (o reindex resolve).
+O rerank não entra na assinatura (não reindexa): é refinamento na busca, e por isso funciona em
+qualquer índice (reordena os candidatos a texto, não os vetores).
 """
 from __future__ import annotations
 
@@ -20,7 +23,6 @@ from .config import CredencialError, load_config
 from .contrato import Erro
 from .http import mensagem
 
-LOCAL_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 MODELO_PADRAO = "text-embedding-3-small"
 TEMPO = 60
 # status que valem nova tentativa (rate limit / instabilidade do gateway)
@@ -36,7 +38,7 @@ def clear_cache() -> None:
 
 @functools.lru_cache
 def _cfg():
-    """Credenciais do usuário; sem o arquivo (ou inválido): None -> tudo cai no local."""
+    """Credenciais do usuário; sem o arquivo (ou inválido): None."""
     try:
         return load_config()
     except CredencialError:
@@ -52,62 +54,77 @@ def _api():
     return None
 
 
-def _embed_modelo() -> str:
-    if _api() is None:
-        return LOCAL_MODEL
+def _api_ou_erro() -> tuple[str, str]:
+    api = _api()
+    if api is None:
+        raise Erro("config", "busca semântica requer provider_url e provider_api_key no elm.properties",
+                   "provider_url")
+    return api
+
+
+def _modelo_embed() -> str:
     return _cfg().provider_embed_model or MODELO_PADRAO
 
 
 def assinatura() -> str:
-    """Identificador estável do espaço de vetores (vai na meta do índice)."""
-    api = _api()
-    return f"api:{_embed_modelo()}@{api[0]}" if api else f"local:{LOCAL_MODEL}"
+    """Identificador estável do espaço de vetores (vai na meta do índice); erro claro sem provider."""
+    base, _ = _api_ou_erro()
+    return f"api:{_modelo_embed()}@{base}"
 
 
 def rerank_modelo() -> str | None:
+    """Modelo do rerank ativo (opcional, por API): `provider_rerank_model` + o provider configurado."""
     c = _cfg()
-    return c.provider_rerank_model if (c and _api() and c.provider_rerank_model) else None
+    m = c.provider_rerank_model if c else None
+    return m if (m and _api()) else None
 
 
 def tem_rerank() -> bool:
     return rerank_modelo() is not None
 
 
-def _post(url: str, key: str, payload: dict) -> dict:
-    """POST JSON autenticado com até 3 tentativas (backoff) nos status _REPETIR; erros viram Erro do contrato."""
+def rerank_assinatura() -> str | None:
+    """Identificador do rerank ativo (sai no elm_status): `api:<modelo>@<base>` ou None (inativo)."""
+    m = rerank_modelo()
+    return f"api:{m}@{_api()[0]}" if m else None
+
+
+def _post(url: str, key: str, payload: dict, campo_modelo: str = "provider_embed_model") -> dict:
+    """POST JSON autenticado com até 3 tentativas (backoff) nos status _REPETIR e em falha de rede
+    transitória (timeout/conexão); erros viram Erro do contrato, nunca traceback de rede."""
+    rede = None
+    resp = None
     for espera in (0.0, 0.5, 1.5):
         if espera:
             time.sleep(espera)
-        resp = requests.post(url, headers={"Authorization": f"Bearer {key}"}, json=payload, timeout=TEMPO)
+        rede = None
+        try:
+            resp = requests.post(url, headers={"Authorization": f"Bearer {key}"}, json=payload, timeout=TEMPO)
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
+            rede = f"{type(exc).__name__}: {exc}"
+            continue
         if resp.status_code not in _REPETIR:
             break
+    if rede:
+        raise Erro("indisponivel", f"api do provider: {rede}")
     if resp.status_code >= 400:
         msg = mensagem(resp.text) or f"HTTP {resp.status_code}"
         if resp.status_code in (401, 403):
-            raise Erro("credencial", f"api de embeddings: {msg}", "provider_api_key")
+            raise Erro("credencial", f"api do provider: {msg}", "provider_api_key")
         if resp.status_code == 404:
-            raise Erro("config", f"api de embeddings: {msg}", "provider_embed_model")
+            raise Erro("config", f"api do provider: {msg}", campo_modelo)
         if resp.status_code in _REPETIR:
-            raise Erro("indisponivel", f"api de embeddings: {msg}")
-        raise Erro("entrada", f"api de embeddings: {msg}")
+            raise Erro("indisponivel", f"api do provider: {msg}")
+        raise Erro("entrada", f"api do provider: {msg}")
     return resp.json()
-
-
-@functools.cache
-def _local_model():
-    from fastembed import TextEmbedding  # preguiçoso: o servidor sobe sem carregar o modelo
-    return TextEmbedding(LOCAL_MODEL)
 
 
 def embed(texts: list[str]) -> np.ndarray:
     """(n, dim) float32 com norma 1: produto escalar = cosseno. A query e o índice usam a mesma
     função (e o mesmo modelo): trocar a assinatura do embedder reindexa tudo."""
-    api = _api()
-    if api:
-        data = _post(f"{api[0]}/embeddings", api[1], {"model": _embed_modelo(), "input": texts})["data"]
-        v = np.array([item["embedding"] for item in sorted(data, key=lambda d: d["index"])], dtype=np.float32)
-    else:
-        v = np.array(list(_local_model().embed(texts)), dtype=np.float32)
+    base, key = _api_ou_erro()
+    data = _post(f"{base}/embeddings", key, {"model": _modelo_embed(), "input": texts})["data"]
+    v = np.array([item["embedding"] for item in sorted(data, key=lambda d: d["index"])], dtype=np.float32)
     return v / np.linalg.norm(v, axis=1, keepdims=True).clip(1e-9)
 
 
@@ -120,13 +137,16 @@ def _rerank_fn():
     def rerank(query: str, docs: list[str]) -> list[float]:
         """[relevance_score] na ordem de `docs` (contrato Jina/Cohere: results[].index/relevance_score)."""
         data = _post(f"{api[0]}/rerank", api[1], {"model": modelo, "query": query, "documents": docs,
-                                                  "top_n": len(docs)})["results"]
+                                                  "top_n": len(docs)}, campo_modelo="provider_rerank_model")["results"]
         return [item["relevance_score"] for item in sorted(data, key=lambda d: d["index"])]
 
     return rerank
 
 
 def rerank(query: str, docs: list[str]) -> list[float] | None:
-    """Scores na ordem de `docs`; None sem provider_rerank_model configurado (ou com < 2 documentos)."""
+    """[relevance_score] 0..1 na ordem de `docs` (contrato Jina/Cohere); None sem rerank ativo
+    (ou com < 2 documentos)."""
+    if len(docs) < 2 or rerank_modelo() is None:
+        return None
     fn = _rerank_fn()
-    return None if fn is None or len(docs) < 2 else fn(query, docs)
+    return None if fn is None else fn(query, docs)

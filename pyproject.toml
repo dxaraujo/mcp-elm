@@ -13,7 +13,7 @@ dependencies = [
     "requests>=2.31",
     "rdflib>=7.0",
     "jsonschema>=4",
-    "fastembed>=0.4",
+    "numpy>=1.26",
     "pyyaml>=6",
 ]
 

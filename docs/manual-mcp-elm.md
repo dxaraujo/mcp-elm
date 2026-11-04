@@ -86,31 +86,36 @@ Cinco tools leem o bundle baixado, sem ir ao ELM — mesmo nome da operação re
 O índice fica em `<bundle>/sqlite3/okf.db` (com `.gitignore`): chunks por heading e parágrafo — parágrafo maior
 que ~1.500 chars quebra por linha (lista longa não vira um único vetor diluído), e tabela markdown repete
 header + separador em cada parte — com vetor denso normalizado + FTS5, fundidos por RRF (cosseno + BM25). O vetor
-vem da API OpenAI-compatível do `elm.properties` (`provider_url` + `provider_api_key`; modelo em
-`provider_embed_model`, padrão `text-embedding-3-small`) ou, sem elas, do modelo local
-`paraphrase-multilingual-MiniLM-L12-v2` (fastembed, carregado só na 1ª busca/indexação) — o comportamento
-antigo. A assinatura do embedder (base + modelo) e a versão do chunking (meta `chunking`) ficam na meta do
-índice: mudou (troca de modelo: a dimensão dos vetores muda, ou o formato do chunk), o índice é limpo e refeito,
-porque vetores de modelos diferentes não podem coexistir na matriz e o texto dos chunks antigos não reflete o
-formato novo.
+vem da API OpenAI-compatível do `elm.properties`: `provider_url` + `provider_api_key` são obrigatórios para a
+busca semântica (sem eles, indexar e buscar falham com erro `config` apontando as chaves — não existe modelo
+local) e o modelo fica em `provider_embed_model` (padrão `text-embedding-3-small`). A assinatura do embedder
+(base + modelo) e a versão do chunking (meta `chunking`) ficam na meta do índice: mudou o embedder (a dimensão
+dos vetores muda), o formato do chunk, ou o índice nasceu sem proveniência (meta sem o embedder — o caso das
+versões anteriores), o índice é limpo e refeito, porque vetores de modelos diferentes não podem coexistir na
+matriz e o texto dos chunks antigos não reflete o formato novo. E a busca num índice de outro embedder falha com
+erro `config` apontando o `elm_indexar_local` antes de gastar a API da query: cossinos de espaços diferentes
+são inválidos, e a dimensão mista (o matmul) vira o mesmo erro, nunca traceback. Trocar as chaves do provider
+exige reiniciar o servidor MCP (a config fica em cache) e reindexar o bundle.
 
 Com `provider_rerank_model` no `elm.properties` (mesma base e key), a busca é em dois estágios: o RRF larga um top largo
 de candidatos e o rerank (cross-encoder por API) reordena — a score do rerank substitui a do RRF em
 `itens[].score`. Cada chunk vai truncado (~8k chars: margem de segurança no contexto de 8192 tokens do modelo),
 e o rerank é refinamento opcional: se a API dele falhar, a busca segue na ordem RRF e devolve `erro_rerank` em
-`dados` (no lugar de a busca inteira falhar). `elm_status` mostra o embedder em uso (`embedder`, e `rerank`
-quando configurado); falhas da
+`dados` (no lugar de a busca inteira falhar). `elm_status` mostra `embedder` e `rerank` sempre (`null` sem
+provider / sem rerank configurado); falhas da
 API de embedding/rerank viram o erro do contrato correspondente (`credencial` 401/403, `config` 404,
-`indisponivel` 429/5xx, com 3 tentativas no rate limit) — na indexação, `erro_indice` em `dados`.
+`indisponivel` 429/5xx/falha de rede transitória, com 3 tentativas) — na indexação, `erro_indice` em `dados`.
 
 Depois do 2º estágio (ou do RRF, sem rerank ou na falha dele), o type-boost ajusta o pool inteiro antes do
 slicing: cada chunk multiplica a score pelo fator do `type` exato do frontmatter — Caso de Uso ×1,03 >
 História de Usuário ×1,02 > Regra ×1,01 > demais ×1,00 ("Regra de Negócio" não é "Regra"). Tipos de negócio
 ficam acima de chunks de relevância equivalente, e `itens[].score` é o valor ajustado.
 
-A indexação roda numa thread do servidor (o 1º uso baixa o modelo, que leva minutos): nenhuma chamada espera.
-`elm_buscar_req_local` com arquivos alterados dispara a indexação e busca no que já está no índice, devolvendo
-`indexando: true, restantes: n`. Medido: 1.291 documentos em ~1 min com o modelo já baixado.
+A indexação roda numa thread do servidor (o 1º uso percorre o bundle pela API de embedding, que leva minutos):
+nenhuma chamada espera. `elm_buscar_req_local` com arquivos alterados dispara a indexação e busca no que já está
+no índice, devolvendo `indexando: true, restantes: n`. Com o provider, cada documento indexado vai numa chamada
+única (todas as partes dele no mesmo lote) — o reindex do bundle inteiro é uma chamada por documento, com
+retomada incremental: falhou no meio, o `elm_indexar_local` de novo embute só o que diverge (hash + meta).
 
 **Visualizador** (`elm_explorar_local`): gera `<bundle>/explorar.html` — HTML único que abre o bundle no
 navegador sem internet (intranet): galáxias de documentos (planeta = documento, lua = chunk do planeta

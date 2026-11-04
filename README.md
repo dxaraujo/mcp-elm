@@ -38,12 +38,12 @@ CA próprio: `export REQUESTS_CA_BUNDLE=/caminho/ca.pem`. Login pelo form Jazz, 
 server = https://elm.SEU-SERVIDOR
 user = SEU_USUARIO
 password = SUA_SENHA
-# opcionais: busca semântica do bundle local por API OpenAI-compatível (a mesma base e key para os dois;
-# sem provider_url/provider_api_key o índice usa o modelo local embutido)
+# busca semântica do bundle local por API OpenAI-compatível (a mesma base e key para os dois);
+# provider_url/provider_api_key são obrigatórios para a busca semântica e a indexação do bundle local (não há modelo local)
 # provider_url = https://sua-api/v1
 # provider_api_key = SUA_KEY
-# provider_embed_model = text-embedding-3-small
-# provider_rerank_model = SEU_MODELO_RERANK
+# provider_embed_model = text-embedding-3-small   # trocar exige reindexar (elm_indexar_local)
+# provider_rerank_model = SEU_MODELO_RERANK       # opcional: rerank (cross-encoder) na busca
 ```
 
 ## Configuração do projeto
@@ -71,7 +71,7 @@ Um único TextContent, sem `structuredContent`:
 
 | Tool | Faz | `dados` |
 |---|---|---|
-| `elm_status` | confere conexão e pa | `login, servidor, pas[], valido, faltando[], embedder, rerank?` |
+| `elm_status` | confere conexão e pa | `login, servidor, pas[], valido, faltando[], embedder?, rerank?` |
 | `elm_ler_wi` | lê um work item | Markdown |
 | `elm_listar_wi` | lista por iteração, dono, tipo, pai, prefixo, estado | `itens[], truncado, total` |
 | `elm_criar_wi` | cria com padrões do pa | `id, url, valores_usados` |
@@ -115,7 +115,9 @@ erro). Duas iterações com o mesmo nome no mesmo pai são erro `entrada`: o MCP
 
 As `_local` leem o bundle em `<projeto>/<rm.download>` (índice em `<bundle>/sqlite3/okf.db`); depois do
 `elm_sync baixar`, indexe com `elm_indexar_local`. O vetor vem da API OpenAI-compatível do `elm.properties`
-(`provider_url` + `provider_api_key`, com rerank opcional em `provider_rerank_model`) ou do modelo local embutido. `elm_explorar_local`
+(`provider_url` + `provider_api_key` obrigatórios para a busca; rerank opcional em `provider_rerank_model`). Trocar
+as chaves do provider exige reiniciar o servidor MCP (a config fica em cache) e reindexar o bundle
+(`elm_indexar_local`): vetores de outro modelo não coexistem no índice. `elm_explorar_local`
 gera um `explorar.html` autocontido na pasta do bundle: o bundle em galáxias, 3D (3d-force-graph/three.js) ou
 2D (Cytoscape.js), sem internet. Sem nada
 baixado devolvem `nao_encontrado` com `campo: "bundle"`: baixe com `elm_sync` ou pesquise no

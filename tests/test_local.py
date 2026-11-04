@@ -3,7 +3,7 @@ import os
 
 import pytest
 
-from conftest import chamar
+from conftest import ASSINATURA_FAKE, chamar
 from mcp_elm import embedder, local
 
 UC = "03-Casos de Uso/2010-uc-cadastrar-cliente.md"
@@ -123,17 +123,55 @@ def test_busca_indexa_antes_e_filtra(projeto, raiz):
 def test_troca_de_embedder_limpa_e_refaz_o_indice(projeto, raiz, monkeypatch):
     call("elm_indexar_local", projeto)
     with local.connect(raiz) as con:
-        assert con.execute("select v from meta where k = 'embedder'").fetchone()[0] == f"local:{embedder.LOCAL_MODEL}"
+        assert con.execute("select v from meta where k = 'embedder'").fetchone()[0] == ASSINATURA_FAKE
         cid_max = con.execute("select max(cid) from chunks").fetchone()[0]
     # assinatura mudou (troca de modelo: dimensão dos vetores muda) -> índice inteiro renasce
-    monkeypatch.setattr(embedder, "assinatura", lambda: "api:text-embedding-3-small@https://api.test/v1")
+    monkeypatch.setattr(embedder, "assinatura", lambda: "api:bge-m3@https://api.test/v1")
     assert call("elm_indexar_local", projeto) == {"documentos": 3, "restantes": 0, "indexando": False}
     with local.connect(raiz) as con:
-        assert con.execute("select v from meta where k = 'embedder'").fetchone()[0] == \
-            "api:text-embedding-3-small@https://api.test/v1"
+        assert con.execute("select v from meta where k = 'embedder'").fetchone()[0] == "api:bge-m3@https://api.test/v1"
         assert con.execute("select min(cid) from chunks").fetchone()[0] > cid_max  # nada do índice antigo
         assert {p for (p,) in con.execute("select path from docs")} == {UC, RN, LOGIN}
     assert call("elm_buscar_req_local", projeto, texto="CPF")["itens"]  # e a busca segue funcionando
+
+
+def test_indexar_sem_proveniencia_refaz_o_indice(projeto, raiz):
+    """Meta sem o embedder (índice de versão anterior — o caso do PAB): o índice renasce do bundle."""
+    call("elm_indexar_local", projeto)
+    with local.connect(raiz) as con:
+        con.execute("delete from meta")
+        cid_max = con.execute("select max(cid) from chunks").fetchone()[0]
+    assert call("elm_indexar_local", projeto) == {"documentos": 3, "restantes": 0, "indexando": False}
+    with local.connect(raiz) as con:
+        assert con.execute("select v from meta where k = 'embedder'").fetchone()[0] == ASSINATURA_FAKE
+        assert con.execute("select min(cid) from chunks").fetchone()[0] > cid_max  # nada do índice antigo
+
+
+def test_busca_em_indice_de_outro_embedder_erro_claro(projeto, raiz, monkeypatch):
+    """Guarda de espaço: cossinos de espaços diferentes são inválidos — o erro aponta o reindex."""
+    from mcp_elm.contrato import Erro
+    call("elm_indexar_local", projeto)
+    monkeypatch.setattr(embedder, "assinatura", lambda: "api:bge-m3@https://api.test/v1")
+    with local.connect(raiz) as con:
+        with pytest.raises(Erro) as e:
+            local._search(con, "CPF", 40, None, None)
+    assert e.value.codigo == "config" and "elm_indexar_local" in e.value.detalhe
+
+
+def test_busca_sem_proveniencia_e_dims_incompativeis_erro_claro(projeto, raiz, monkeypatch):
+    """Meta sem proveniência deixa a busca passar; a incompatibilidade de dimensão (o matmul) vira
+    erro claro, nunca traceback (o índice antigo do PAB é exatamente este caso)."""
+    import numpy as np
+    from mcp_elm.contrato import Erro
+    call("elm_indexar_local", projeto)
+    with local.connect(raiz) as con:
+        con.execute("delete from meta")  # índice sem proveniência
+    assert local._progresso(raiz, local.scan(raiz))["restantes"] == 3  # sem proveniência: tudo renasce
+    monkeypatch.setattr(local, "embed", lambda t: np.ones((len(t), 32), dtype=np.float32) * 0.1)
+    with local.connect(raiz) as con:
+        with pytest.raises(Erro) as e:
+            local._search(con, "CPF", 40, None, None)
+    assert e.value.codigo == "config" and "elm_indexar_local" in e.value.detalhe
 
 
 def test_mudanca_de_chunking_limpa_e_refaz_o_indice(projeto, raiz, monkeypatch):
@@ -194,7 +232,7 @@ def test_busca_sobrevive_a_falha_do_rerank(projeto, raiz, monkeypatch):
     call("elm_indexar_local", projeto)
 
     def explode(texto, docs):
-        raise Erro("indisponivel", "api de embeddings: boom")
+        raise Erro("indisponivel", "api do provider: boom")
     monkeypatch.setattr(embedder, "rerank", explode)
     d = call("elm_buscar_req_local", projeto, texto="módulo 11 dígitos verificadores")
     assert d["itens"] and d["itens"][0]["path"] == RN  # ordem RRF preservada
@@ -217,7 +255,7 @@ def test_rerank_trunca_chunks_acima_do_limite(projeto, raiz, monkeypatch):
 
 
 def test_indexacao_em_segundo_plano_responde_na_hora(projeto, raiz, monkeypatch):
-    """O 1º uso baixa o modelo (minutos): a chamada não espera; busca o que já há e avisa o que falta."""
+    """O 1º uso percorre o bundle pela API (minutos): a chamada não espera; busca o que já há e avisa o que falta."""
     import threading
     from conftest import fake_embed
     solta = threading.Event()

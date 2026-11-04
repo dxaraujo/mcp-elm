@@ -48,16 +48,20 @@ def tool(fn):
 
 @tool
 def elm_status(projeto: Projeto, pa: Pa = None) -> str:
-    """Confere a conexão e o pa. → dados: {login, servidor, pas[], valido, faltando[], embedder, rerank?}"""
+    """Confere a conexão e o pa. → dados: {login, servidor, pas[], valido, faltando[], embedder, rerank}"""
     try:
         faltando = prj.faltando(prj.ler(prj.arquivo(projeto, pa)))
     except Erro as e:
         if e.codigo == "entrada" and e.campo == "projeto":
             raise
         faltando = [e.campo or "pa"]
+    try:
+        embedder_atual = embedder.assinatura()  # sem provider no elm.properties: null, sem quebrar o status
+    except Erro:
+        embedder_atual = None
     return {"login": ewm.whoami(), "servidor": get_session().cfg.server, "pas": prj.nomes(projeto),
-            "valido": not faltando, "faltando": faltando, "embedder": embedder.assinatura(),
-            **({"rerank": embedder.rerank_modelo()} if embedder.tem_rerank() else {})}
+            "valido": not faltando, "faltando": faltando, "embedder": embedder_atual,
+            "rerank": embedder.rerank_assinatura()}
 
 
 @tool

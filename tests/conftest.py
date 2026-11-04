@@ -16,6 +16,8 @@ from mcp_elm.http import ElmSession, set_session
 
 FIXTURES = Path(__file__).parent / "fixtures"
 SERVER = "https://elm.test"
+# provider fake: assinatura estável da busca semântica nos testes (o embed é o fake_embed, sem rede)
+ASSINATURA_FAKE = "api:text-embedding-3-small@https://api.test/v1"
 NS = " ".join(f'xmlns:{p}="{u}"' for p, u in {
     "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#", "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
     "dcterms": "http://purl.org/dc/terms/", "oslc": "http://open-services.net/ns/core#",
@@ -85,8 +87,12 @@ def fake_embed(texts):
 def _sem_modelo(monkeypatch, tmp_path):
     monkeypatch.setattr(local, "embed", fake_embed)
     monkeypatch.setattr(local, "SINCRONO", True)  # indexa na própria chamada; o teste do segundo plano desliga
-    # sem elm.properties: embedder no modo local, sem key (nada de API real nos testes)
-    monkeypatch.setenv("MCP_ELM_CONFIG", str(tmp_path / "elm.properties"))
+    # provider fake no elm.properties (assinatura ASSINATURA_FAKE): o embed real é o fake_embed acima,
+    # então nada de API real nos testes (nem key, nem rede)
+    props = tmp_path / "elm.properties"
+    props.write_text(f"[DEFAULT]\nserver = {SERVER}\nuser = u\npassword = p\n"
+                     "provider_url = https://api.test/v1\nprovider_api_key = k\n", encoding="utf-8")
+    monkeypatch.setenv("MCP_ELM_CONFIG", str(props))
     embedder.clear_cache()
 
 
