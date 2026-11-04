@@ -656,7 +656,7 @@ function init3D() {
       : n.lua !== undefined ? "chunk do planeta — clique abre o documento"
       : labelDoc(byPath[n.id]))
     .linkColor(linkColor3)
-    .linkOpacity(0.5)
+    .linkOpacity(0.22)  // a web de "cita" (centenas de linhas longas) visível sem costurar os núcleos numa massa
     .linkWidth(0.4)
     .linkDirectionalArrowLength(0.8).linkDirectionalArrowRelPos(1)
     .linkDirectionalParticles(l => l.lua ? 0 : 1)

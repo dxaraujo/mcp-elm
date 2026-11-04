@@ -308,6 +308,15 @@ def test_explorar_folga_entre_galaxias(projeto, raiz):
     assert "2·R_MAX + 10" not in html
 
 
+def test_explorar_opacidade_da_web_de_links(projeto, raiz):
+    call("elm_indexar_local", projeto)
+    d = call("elm_explorar_local", projeto)
+    html = open(d["path"], encoding="utf-8").read()
+    # a web de "cita" atravessa a cena toda: perceptível, mas sem dominar (cores e largura intactas)
+    assert ".linkOpacity(0.22)" in html
+    assert ".linkOpacity(0.5)" not in html
+
+
 def test_explorar_cameras_seguem_isolacao(projeto, raiz):
     call("elm_indexar_local", projeto)
     d = call("elm_explorar_local", projeto)
