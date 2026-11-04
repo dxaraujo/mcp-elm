@@ -132,6 +132,24 @@ def test_timeout_de_rede_recupera_na_segunda_tentativa(monkeypatch):
     assert len(posts) == 2 and data["data"][0]["embedding"] == [1.0]
 
 
+def test_conexao_resetada_na_leitura_recupera_na_segunda_tentativa(monkeypatch):
+    """A gateway segura a conexão por minutos e corta no meio do corpo (ChunkedEncodingError, que não é
+    ConnectionError): mesma falha transitória, mesma recuperação."""
+    posts = []
+
+    def _post(url, headers=None, json=None, timeout=None):
+        posts.append(url)
+        if len(posts) == 1:
+            raise requests.exceptions.ChunkedEncodingError(
+                "Connection broken: ConnectionResetError(54, 'Connection reset by peer')")
+        return _resp(200, {"data": [{"embedding": [1.0], "index": 0}]})
+
+    monkeypatch.setattr(embedder.requests, "post", _post)
+    monkeypatch.setattr(embedder.time, "sleep", lambda s: None)
+    data = embedder._post("https://api.test/v1/embeddings", "k", {})
+    assert len(posts) == 2 and data["data"][0]["embedding"] == [1.0]
+
+
 def test_falhas_de_rede_sem_recuperar_viram_indisponivel(monkeypatch):
     posts = []
 

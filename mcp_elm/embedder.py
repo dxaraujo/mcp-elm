@@ -91,7 +91,8 @@ def rerank_assinatura() -> str | None:
 
 def _post(url: str, key: str, payload: dict, campo_modelo: str = "provider_embed_model") -> dict:
     """POST JSON autenticado com até 3 tentativas (backoff) nos status _REPETIR e em falha de rede
-    transitória (timeout/conexão); erros viram Erro do contrato, nunca traceback de rede."""
+    transitória (timeout/conexão/conexão resetada no meio da leitura da resposta — a gateway segura a
+    conexão por minutos e corta com reset); erros viram Erro do contrato, nunca traceback de rede."""
     rede = None
     resp = None
     for espera in (0.0, 0.5, 1.5):
@@ -100,7 +101,8 @@ def _post(url: str, key: str, payload: dict, campo_modelo: str = "provider_embed
         rede = None
         try:
             resp = requests.post(url, headers={"Authorization": f"Bearer {key}"}, json=payload, timeout=TEMPO)
-        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError,
+                requests.exceptions.ChunkedEncodingError) as exc:
             rede = f"{type(exc).__name__}: {exc}"
             continue
         if resp.status_code not in _REPETIR:
