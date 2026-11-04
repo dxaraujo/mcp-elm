@@ -255,6 +255,25 @@ def gerar(cfg: dict) -> dict:
     for k, membros in enumerate(grupos_s):
         for p in membros:
             gsem_de[p] = k
+    # arestas semânticas do grafo convencional: k vizinhos mais próximos pelo cosseno dos vetores dos
+    # documentos (média normalizada dos chunks — a MESMA base da galáxia semântica), sem duplicar pares.
+    # Ficam à parte dos `links` de citação: não entram em n_links nem no agrupamento das galáxias.
+    sem: list[dict] = []
+    if len(paths) > 1:
+        S = X @ X.T
+        np.fill_diagonal(S, -np.inf)
+        k = min(3, len(paths) - 1)
+        top = np.argpartition(-S, k, axis=1)[:, :k]
+        vals = np.take_along_axis(S, top, axis=1)
+        pares: dict[tuple[int, int], float] = {}
+        for i in range(len(paths)):
+            for j, v in zip(top[i], vals[i]):
+                if v < 0.5:  # vizinho fraco: fora do grafo (evita aresta só para completar k)
+                    continue
+                a, b = (i, int(j)) if i < int(j) else (int(j), i)
+                pares[(a, b)] = float(S[a, b])
+        sem = [{"de": paths[a], "para": paths[b], "rel": "sem", "cos": round(v, 3)}
+               for (a, b), v in sorted(pares.items())]
 
     docs_json = []
     for p, doc_id, doc_titulo, tipo, pasta, desc in linhas:
@@ -266,6 +285,7 @@ def gerar(cfg: dict) -> dict:
     dados = {"bundle": os.path.basename(root),
              "docs": docs_json,
              "links": links,
+             "sem": sem,
              "chunks": [{"path": p, "secao": s, "texto": t} for p, s, t in chunk_rows],
              "galaxias": [{"id": gid, "nome": nomes[gid], "docs": len(m), "centro": centros[gid]}
                            for gid, m in enumerate(grupos)],
@@ -365,6 +385,7 @@ pre.raw { white-space:pre-wrap; font:13px/1.5 ui-monospace, monospace; }
   <span class="sels">
     <select id="gal" aria-label="Galáxia isolada"></select>
     <select id="modo" aria-label="Modo de galáxias">
+      <option value="grafo">Grafo (convencional)</option>
       <option value="uc">Galáxias UC/HF</option>
       <option value="sem">Galáxias semânticas</option>
     </select>
@@ -396,7 +417,7 @@ const byPath = Object.fromEntries(docs.map(d => [d.path, d]));
 const byId = Object.fromEntries(docs.filter(d => d.id).map(d => [d.id, d]));
 // ---------- modo de galáxias: "uc" (UC/HF, padrão) ou "sem" (semântico); combobox no header, persiste
 let modo = "uc";
-try { const m0 = localStorage.getItem("explorar-modo"); if (m0 === "uc" || m0 === "sem") modo = m0; } catch {}
+try { const m0 = localStorage.getItem("explorar-modo"); if (m0 === "uc" || m0 === "sem" || m0 === "grafo") modo = m0; } catch {}
 const idxDoc = d => (modo === "sem" ? d.gsem : d.galaxia);
 // semente determinística (direção inicial dos planetas na casca e eixo/velocidade da rotação; em [-1, 1])
 const semente = (s, k) => { let h = 2166136261 ^ s.length; for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619); h = Math.imul(h ^ (h >>> (5 * k + 3)), 16777619); return ((h >>> 0) % 1000) / 500 - 1; };
@@ -512,6 +533,17 @@ function luas3D() {
   });
 }
 function buildNodes3D() {
+  // grafo convencional: só documentos, sem sol/casca/luas — a simulação padrão (link+charge) posiciona.
+  // Semente em esfera de Fibonacci só para o start; daí em diante a física manda.
+  if (modo === "grafo") {
+    const N = docs.length, R = 13 * Math.sqrt(N);
+    return docs.map((d, k) => {
+      const phi = Math.acos(1 - 2 * (k + 0.5) / N), th = Math.PI * (1 + Math.sqrt(5)) * (k + 0.5);
+      const r = R * (0.35 + 0.65 * (semente(d.path, 7) + 1) / 2), sp = Math.sin(phi);
+      return { id: d.path, val: valDoc(d),
+               x: r * sp * Math.cos(th), y: r * sp * Math.sin(th), z: r * Math.cos(phi) };
+    });
+  }
   // k = índice do doc na galáxia (ordem determinística do payload): direção pela espiral de Fibonacci
   // (uniforme na esfera — antes o hash por caminho concentrava direções) e profundidade uniforme no
   // volume (20 u até RAIO, semente por caminho) — pétalas em raios diferentes, presas por um fio ao miolo
@@ -532,6 +564,12 @@ function buildNodes3D() {
   return nodes;
 }
 function buildLinks3D() {
+  // grafo convencional: citações + arestas SEMÂNTICAS do índice (k vizinhos mais próximos pelo cosseno
+  // dos vetores dos chunks); sem raios core→doc e sem luas
+  if (modo === "grafo") return [
+    ...D.links.map(l => ({ source: l.de, target: l.para, rel: l.rel })),
+    ...(D.sem || []).map(l => ({ source: l.de, target: l.para, rel: "sem", cos: l.cos })),
+  ];
   const links = D.links.map(l => ({ source: l.de, target: l.para, rel: l.rel }));
   // raios core→documento (starburst): um por documento; sem força (distance/strength 0) — só estética
   for (const d of docs) links.push({ source: d.path, target: "core:" + idxDoc(d), raio: true, rel: "raio" });
@@ -542,6 +580,7 @@ const nodeColor3 = n => n.core !== undefined ? (dimCore(n.core) ? "#0d1424" : G.
   : n.lua !== undefined ? "#94a3b8" : (dimDoc(byPath[n.id]) ? "#0d1424" : G.corGal.get(idxDoc(byPath[n.id])));
 const linkColor3 = l => {
   const s = l.source, t = l.target;
+  if (typeof s !== "object" || typeof t !== "object") return "#94a3b8";  // no digest as pontas ainda são paths
   const dim = (s.core !== undefined ? dimCore(s.core) : dimDoc(byPath[s.id])) ||
               (t.core !== undefined ? dimCore(t.core) : (t.lua !== undefined ? dimDoc(byPath[s.id]) : dimDoc(byPath[t.id])));
   if (dim) return "#0d1424";
@@ -567,6 +606,15 @@ const forcaGalaxia = () => {
     }
   }
 };
+// grafo convencional: a força de link do d3 é assimétrica entre graus diferentes e a nuvem desliza;
+// esta força de centro (equivalente ao forceCenter que o kapsule criava) mantém o grafo onde a câmera olha
+const forcaCentroGrafo = () => {
+  if (!N3D.length) return;
+  let sx = 0, sy = 0, sz = 0;
+  for (const n of N3D) { sx += n.x; sy += n.y; sz += n.z; }
+  sx /= N3D.length; sy /= N3D.length; sz /= N3D.length;
+  for (const n of N3D) { n.x -= sx; n.y -= sy; n.z -= sz; }
+};
 function setDados3D() {
   g3d.graphData({ nodes: buildNodes3D(), links: buildLinks3D() });
   const g = g3d.graphData();  // os nós internos (com as posições): é neles que a física trabalha
@@ -577,7 +625,10 @@ function setDados3D() {
   // da casca usa alvos absolutos, sobra um desvio constante entre o sol e a esfera (medido: ~125 u; o sol
   // saía do balão). A grade de Fibonacci já centra o grafo — a força de centro só atrapalha.
   g3d.d3Force("center", null);
-  g3d.d3Force("galaxia", forcaGalaxia);
+  g3d.d3Force("galaxia", modo === "grafo" ? null : forcaGalaxia);
+  g3d.d3Force("centroGrafo", modo === "grafo" ? forcaCentroGrafo : null);
+  // no grafo convencional o charge padrão do d3 espalha os nós; na casca esférica ele só ajuda a soltar
+  g3d.d3Force("charge").strength(modo === "grafo" ? -30 : -6);
   g3d.d3ReheatSimulation();
 }
 // rotação lenta da casca de cada galáxia em torno do core: Rodrigues por tick — rotação pura, preserva a
@@ -622,7 +673,15 @@ function orbitarLuas() {
   }
 }
 // ---------- câmera: voo por rAF (sem libs, ease in-out); o usuário assume o controle no meio do voo
-const distGlobal = () => 2.2 * Math.max(G.R_GAL + 90, 140);  // distância global: init3D e cameraGlobal compartilham (não divergem)
+// distância global: no dente-de-leão cobre a grade de galáxias; no grafo, a extensão atual da física
+function distGlobal() {
+  if (modo === "grafo") {
+    let r = 0;
+    for (const n of N3D) r = Math.max(r, Math.hypot(n.x, n.y, n.z));
+    return 2.2 * Math.max(r + 60, 140);
+  }
+  return 2.2 * Math.max(G.R_GAL + 90, 140);  // init3D e cameraGlobal compartilham (não divergem)
+}
 let vooCam = null;
 const cancelarVooCam = () => { if (vooCam) { cancelAnimationFrame(vooCam.raf); vooCam = null; } };
 function voarCam(para, paraAlvo, ms = 800) {
@@ -648,14 +707,27 @@ function voarCam(para, paraAlvo, ms = 800) {
 }
 $("g3d").addEventListener("pointerdown", cancelarVooCam);
 $("g3d").addEventListener("wheel", cancelarVooCam, { passive: true });
+// centro/raio efetivos da galáxia i: no dente-de-leão é o centro fixo; no grafo convencional, o
+// centroide dos nós dela (a física espalha as galáxias — não há centro geométrico)
+function centroGal(i) {
+  if (modo !== "grafo") return { c: G.CENTRO[i], raio: G.RAIO[i] };
+  const ns = N3D.filter(n => n.id && byPath[n.id] && idxDoc(byPath[n.id]) === i);
+  if (!ns.length) return { c: G.CENTRO[i], raio: G.RAIO[i] };
+  const c = [0, 0, 0];
+  for (const n of ns) { c[0] += n.x; c[1] += n.y; c[2] += n.z; }
+  c[0] /= ns.length; c[1] /= ns.length; c[2] /= ns.length;
+  let raio = 40;
+  for (const n of ns) raio = Math.max(raio, Math.hypot(n.x - c[0], n.y - c[1], n.z - c[2]));
+  return { c, raio };
+}
 function cameraNaGalaxia(i, ms = 800) {
   if (!g3d) return;  // setIsolado(null) roda no load, antes do init3D
-  const c = G.CENTRO[i];
+  const { c, raio } = centroGal(i);
   const p = g3d.cameraPosition();
   let dx = p.x - c[0], dy = p.y - c[1], dz = p.z - c[2];
   const L = Math.hypot(dx, dy, dz);  // mantém a direção de olhar atual: voa "em frente"
   if (L < 1e-6) { dx = 0; dy = 0; dz = 1; } else { dx /= L; dy /= L; dz /= L; }
-  const dist = Math.max(3.5 * G.RAIO[i], 80);
+  const dist = Math.max(3.5 * raio, 80);
   voarCam({ x: c[0] + dx * dist, y: c[1] + dy * dist, z: c[2] + dz * dist },
           { x: c[0], y: c[1], z: c[2] }, ms);
 }
@@ -665,9 +737,9 @@ function cameraGlobal(ms = 800) {
 }
 function cameraNoPlaneta(n, ms) {
   if (isolado !== null) {  // isolado: base no centro/raio da galáxia (sem ping-pong com a distância global)
-    const c = G.CENTRO[isolado];
+    const { c, raio } = centroGal(isolado);
     const dx = n.x - c[0], dy = n.y - c[1], dz = n.z - c[2];
-    const r = Math.hypot(dx, dy, dz), dist = Math.max(2.4 * G.RAIO[isolado], 100);
+    const r = Math.hypot(dx, dy, dz), dist = Math.max(2.4 * raio, 100);
     const cam = r > 1e-6 ? { x: c[0] + dx / r * dist, y: c[1] + dy / r * dist, z: c[2] + dz / r * dist }
                          : { x: c[0], y: c[1], z: c[2] + dist };
     g3d.cameraPosition(cam, n, ms);
@@ -694,7 +766,7 @@ function init3D() {
     .linkOpacity(0.22)  // a web de "cita" (centenas de linhas longas) visível sem costurar os núcleos numa massa
     .linkWidth(0.4)
     .linkDirectionalArrowLength(0.8).linkDirectionalArrowRelPos(1)
-    .linkDirectionalParticles(l => (l.lua || l.raio) ? 0 : 1)
+    .linkDirectionalParticles(l => (l.lua || l.raio || l.rel === "sem") ? 0 : 1)
     .linkDirectionalParticleWidth(0.8).linkDirectionalParticleSpeed(0.15)
     .linkDirectionalParticleColor(l => l.lua ? "#94a3b8" : (l.rel.includes("cita") ? "#64748b" : "#60a5fa"))
     .cooldownTime(Infinity)  // o motor não para: as luas orbitam e as cascas giram (1.73.4 não tem d3AlphaTarget)
@@ -706,14 +778,13 @@ function init3D() {
     .onNodeHover(n => box.style.cursor = n ? "pointer" : "default")
     .onBackgroundClick(() => { setIsolado(null); selecionar(null); });
   setDados3D();
-  g3d.d3Force("charge").strength(-6);  // fraco: a casca esférica manda, o charge só espalha
   // por-link: os raios core→documento não podem puxar a simulação (a casca esférica já fixa tudo)
-  g3d.d3Force("link").distance(l => l.raio ? 0 : 26).strength(l => l.raio ? 0 : 0.2);
+  g3d.d3Force("link").distance(l => l.raio ? 0 : (l.rel === "sem" ? 18 : 26)).strength(l => l.raio ? 0 : 0.2);
   g3d.warmupTicks(50);  // reaquecimento das seleções (a entrada anima na tela)
   g3d.onEngineTick(() => { rotacionarGalo(); orbitarLuas(); });  // rotação antes das luas: elas seguem o planeta
   g3d.cameraPosition({ x: 0, y: 0, z: distGlobal() });
   new ResizeObserver(() => g3d && g3d.width(box.clientWidth).height(box.clientHeight)).observe(box);
-  box.append(el("div", "arraste para girar · roda para zoom · clique no planeta abre o documento · build __BUILD__", "hint"));
+  box.append(el("div", dica(), "hint"));
 }
 
 // ---------- seleção / câmera
@@ -726,7 +797,7 @@ function selecionar(path) {
   selecionado = path && byPath[path] ? path : null;
   showDoc(selecionado);
   if (g3d) {
-    setDados3D();
+    if (modo !== "grafo") setDados3D();  // no grafo não há luas: reconstruir perderia o layout da física
     if (selecionado) { const n = N3D.find(n => n.id === selecionado); if (n) cameraNoPlaneta(n, 700); }
   }
   renderLista();
@@ -877,7 +948,12 @@ for (const [prop, chave, min, max] of [["--w-esq", "explorar-w-esq", 160, 480], 
 
 // ---------- start
 document.getElementById("name").textContent = D.bundle + " — galáxias do bundle";
-const textStats = () => `${docs.length} documentos · ${D.chunks.length} chunks · ${D.links.length} links · ${G.KGAL} galáxias`;
+const textStats = () => modo === "grafo"
+  ? `${docs.length} documentos · ${D.chunks.length} chunks · ${D.links.length} links · grafo`
+  : `${docs.length} documentos · ${D.chunks.length} chunks · ${D.links.length} links · ${G.KGAL} galáxias`;
+const dica = () => modo === "grafo"
+  ? "arraste para girar · roda para zoom · clique no nó abre o documento · build __BUILD__"
+  : "arraste para girar · roda para zoom · clique no planeta abre o documento · build __BUILD__";
 // seletor de galáxia no header (isolar/soltar; o clique no core 3D sincroniza pelo mesmo setIsolado)
 $("gal").onchange = e => setIsolado(e.target.value === "" ? null : +e.target.value);
 // combobox do modo de galáxias (persiste em localStorage; ao trocar: reconstrói as opções e volta a "Todas")
@@ -887,6 +963,8 @@ $("modo").onchange = e => {
   montarGalo();
   setIsolado(null);
   $("stats").textContent = textStats();
+  const h = document.querySelector("#g3d .hint");
+  if (h) h.textContent = dica();
   if (g3d) setDados3D();
   renderLista(); repintar();
   if (selecionado) showDoc(selecionado);

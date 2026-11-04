@@ -348,7 +348,7 @@ def test_explorar_raios_core_documento(projeto, raiz):
     assert "raioGal: new Map" in html
     assert "l.raio ? G.raioGal.get(c0)" in html
     # o raio não influencia a simulação: distância/força zero por-link (o d3 re-lê o accessor a cada graphData)
-    assert "distance(l => l.raio ? 0 : 26).strength(l => l.raio ? 0 : 0.2)" in html
+    assert "distance(l => l.raio ? 0 : (l.rel === \"sem\" ? 18 : 26)).strength(l => l.raio ? 0 : 0.2)" in html
 
 
 def test_explorar_petalas_em_volume(projeto, raiz):
@@ -384,12 +384,33 @@ def test_explorar_sol_no_centro_da_esfera(projeto, raiz):
     assert 'g3d.d3Force("center", null);' in html
 
 
+def test_explorar_modo_grafo(projeto, raiz):
+    call("elm_indexar_local", projeto)
+    d = call("elm_explorar_local", projeto)
+    html = open(d["path"], encoding="utf-8").read()
+    # terceiro modo: grafo convencional — só documentos + citações (sem sol, casca, raios ou luas);
+    # a simulação padrão (link + charge) posiciona e a mola da casca nem é registrada
+    assert '<option value="grafo">Grafo (convencional)</option>' in html
+    assert '...D.links.map(l => ({ source: l.de, target: l.para, rel: l.rel })),' in html
+    assert '...(D.sem || []).map(l => ({ source: l.de, target: l.para, rel: "sem", cos: l.cos })),' in html
+    # as linhas ficam no padrão anterior (finas e discretas, 0,22 — como no dente-de-leão); só o guard
+    # do digest fica: durante a troca de modo as pontas ainda são paths, não nós
+    assert 'if (typeof s !== "object" || typeof t !== "object") return "#94a3b8";' in html
+    assert 'g3d.linkOpacity(modo === "grafo" ? 0.55 : 0.22);' not in html
+    # o payload leva as arestas semânticas calculadas do índice (k vizinhos por cosseno dos chunks)
+    assert '"sem":[' in html
+    assert 'g3d.d3Force("galaxia", modo === "grafo" ? null : forcaGalaxia);' in html
+    assert 'g3d.d3Force("charge").strength(modo === "grafo" ? -30 : -6);' in html
+    # selecionar no grafo não reconstrói o layout (não há luas) — a física não recomeça a cada clique
+    assert 'if (modo !== "grafo") setDados3D();' in html
+
+
 def test_explorar_raios_sem_particulas_e_luas_no_teto(projeto, raiz):
     call("elm_indexar_local", projeto)
     d = call("elm_explorar_local", projeto)
     html = open(d["path"], encoding="utf-8").read()
     # os fios do dente-de-leão ficam limpos: sem partícula azul animada nos raios (citações mantêm)
-    assert "l => (l.lua || l.raio) ? 0 : 1" in html
+    assert 'l => (l.lua || l.raio || l.rel === "sem") ? 0 : 1' in html
     # as luas orbitam na superfície do planeta: mesmo teto de 5,5u (antes 9,3u no maior planeta)
     assert "const r = Math.min(5.5, 2 + 0.55 * Math.sqrt(d.n_links + d.n_chunks));" in html
 
@@ -410,8 +431,9 @@ def test_explorar_cameras_seguem_isolacao(projeto, raiz):
     corpo = html[html.index("function setIsolado"):html.index("function repintar")]
     assert "cameraNaGalaxia(isolado)" in corpo and "cameraGlobal()" in corpo
     # sem ping-pong: planeta clicado com galáxia isolada usa centro/raio dela, não a distância global
+    # (centroGal: centro fixo no dente-de-leão, centroide dos nós no grafo convencional)
     corpo = html[html.index("function cameraNoPlaneta"):html.index("function init3D")]
-    assert "G.CENTRO[isolado]" in corpo and "G.RAIO[isolado]" in corpo
-    # distância global única: init3D e cameraGlobal usam a mesma expressão (não divergem no modo sem)
-    assert "const distGlobal = () => 2.2 * Math.max(G.R_GAL + 90, 140);" in html
+    assert "const { c, raio } = centroGal(isolado);" in corpo
+    # distância global única: init3D e cameraGlobal usam a mesma função (não divergem no modo sem)
+    assert "function distGlobal()" in html and "return 2.2 * Math.max(G.R_GAL + 90, 140);" in html
     assert html.count("z: distGlobal()") == 2
