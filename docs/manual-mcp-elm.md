@@ -115,7 +115,8 @@ A indexação roda numa thread do servidor (o 1º uso baixa o modelo, que leva m
 **Visualizador** (`elm_explorar_local`): gera `<bundle>/explorar.html` — HTML único que abre o bundle no
 navegador sem internet (intranet): galáxias de documentos (planeta = documento, lua = chunk do planeta
 selecionado) na vista 3D (3d-force-graph/three.js) — a única vista: sem WebGL, uma mensagem de
-indisponível (sem fallback 2D) —, com busca, filtro por tipo, isolamento por galáxia, combobox no header que
+indisponível (sem fallback 2D) —, com busca, filtro por tipo, seletor de galáxia no header (isolar uma;
+"Todas as galáxias" solta; o clique no core 3D sincroniza) e combobox no header que
 alterna o modo das galáxias (UC/HF — padrão — ou semântico, persistido em `localStorage`) e
 Markdown (marked + DOMPurify).
 As três libs ficam em `assets/` e vão embutidas no HTML no gerar. Documentos, vetores e chunks saem do

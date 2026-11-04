@@ -6,10 +6,11 @@ vetor do documento — média normalizada dos vetores dos chunks, artefato-a-art
 do centro); a relação direta manda e cada documento entra em no máximo uma galáxia (centro de menor path); o
 resto vai para a galáxia catch-all "Tudo" (bundle sem UC/HF: uma única "Tudo" com tudo). Planeta = documento
 (tamanho proporcional a links + chunks); lua = chunk (orbita o planeta selecionado). No 3D, cada galáxia é
-uma esfera: o centro fixo e os demais numa casca de raio que cresce com o nº de membros. O combobox do
-header alterna o modo das galáxias: UC/HF (acima, padrão) ou semântico (aglomerativo, linkage média,
-cosseno ≤ LIMITE: uma galáxia por cluster, centro = o documento com a maior média de cosseno com os
-demais membros). Os documentos e
+uma esfera: o centro fixo e os demais numa casca de raio que cresce com o nº de membros. O header tem o
+seletor de galáxia (isolar uma; "Todas as galáxias" solta — o clique no core 3D sincroniza) e o combobox
+do modo das galáxias: UC/HF (acima, padrão) ou semântico (aglomerativo, linkage média, cosseno ≤ LIMITE:
+uma galáxia por cluster, centro = o documento com a maior média de cosseno com os demais membros). Os
+documentos e
 vetores saem do índice local em modo somente leitura (nada de reindexação aqui) e os links saem do disco com
 a mesma lógica do elm_ler_req_local. As bibliotecas (3d-force-graph/three.js no grafo 3D — a 3D é só do
 3d-force-graph, sem fallback 2D —, marked + DOMPurify no Markdown) ficam em assets/ e vão embutidas no HTML:
@@ -301,7 +302,8 @@ main.sem-detalhe #graph { border-right:0; }
 aside, section { overflow:auto; border-right:1px solid var(--line); background:var(--panel); }
 #filters { padding:10px 12px; display:grid; gap:8px; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--panel); z-index:1; }
 input, select { width:100%; padding:6px 8px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); font:inherit; }
-#modo { width:auto; margin-left:auto; }
+#gal { width:auto; margin-left:auto; }
+#modo { width:auto; }
 #conta { color:var(--muted); font-size:12px; }
 #list { list-style:none; margin:0; padding:0; }
 #list li { padding:8px 12px; border-bottom:1px solid var(--line); cursor:pointer; }
@@ -315,20 +317,6 @@ input, select { width:100%; padding:6px 8px; border:1px solid var(--line); borde
 .arr.on { background:rgba(96,165,250,.35); }
 #graph .off { position:absolute; inset:0; display:grid; place-items:center; color:var(--muted); padding:16px; text-align:center; }
 #graph .hint { position:absolute; right:10px; bottom:8px; color:#94a3b8; font-size:12px; pointer-events:none; }
-#gals { position:fixed; left:10px; bottom:10px; width:232px; max-height:56vh; display:flex; flex-direction:column;
-  background:var(--panel); border:1px solid var(--line); border-radius:8px; z-index:10; box-shadow:0 2px 10px rgba(0,0,0,.25); }
-#gals-h { display:flex; gap:6px; align-items:center; padding:6px 8px; border-bottom:1px solid var(--line);
-  cursor:grab; user-select:none; touch-action:none; font-size:12px; color:var(--muted); }
-#gals-h:active { cursor:grabbing; }
-#gals-min { margin-left:auto; border:0; background:var(--chip); color:var(--fg); border-radius:4px; width:18px; height:18px;
-  line-height:1; cursor:pointer; font:12px/1 system-ui; flex:none; }
-#gals-l { overflow:auto; padding:4px; }
-.galitem { display:flex; gap:8px; align-items:center; padding:3px 6px; border-radius:5px; cursor:pointer; font-size:12px; }
-.galitem:hover { background:var(--chip); }
-.galitem.on { background:var(--chip); outline:1px solid var(--accent); }
-.galitem .sw { width:11px; height:11px; border-radius:3px; flex:none; }
-.galitem .nm { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.galitem .ct { color:var(--muted); flex:none; }
 #detail { padding:16px 20px; border-right:0; }
 #detail .topo { display:flex; gap:8px; align-items:flex-start; justify-content:space-between; }
 #detail h2.title { font-size:18px; margin:0 0 4px; }
@@ -371,6 +359,7 @@ pre.raw { white-space:pre-wrap; font:13px/1.5 ui-monospace, monospace; }
 <header>
   <h1 id="name"></h1>
   <span class="stat" id="stats"></span>
+  <select id="gal" aria-label="Galáxia isolada"></select>
   <select id="modo" aria-label="Modo de galáxias">
     <option value="uc">Galáxias UC/HF</option>
     <option value="sem">Galáxias semânticas</option>
@@ -389,10 +378,6 @@ pre.raw { white-space:pre-wrap; font:13px/1.5 ui-monospace, monospace; }
     <div id="g3d"></div>
     <div id="arr-esq" class="arr esq" title="Arraste para mudar a largura da lista" aria-hidden="true"></div>
     <div id="arr-dir" class="arr dir" title="Arraste para mudar a largura do painel" aria-hidden="true"></div>
-    <div id="gals">
-      <div id="gals-h" title="Arraste para mover"><span id="gals-t">Galáxias</span><button id="gals-min" aria-label="Minimizar">–</button></div>
-      <div id="gals-l"></div>
-    </div>
   </section>
   <section id="detail"><p class="m">Selecione um documento na lista, no grafo ou numa lua.</p></section>
 </main>
@@ -454,22 +439,17 @@ const matchTipo = d => !tipoF || (d.tipo || "(sem tipo)") === tipoF;
 const dimDoc = d => (!matchTipo(d) || !matchBusca(d)) || (isolado !== null && idxDoc(d) !== isolado);
 const dimCore = i => !matchGal(i) || (isolado !== null && isolado !== i);
 
-// ---------- painel flutuante de galáxias (arrasta no header, clique no item isola)
-function renderGals() {
-  $("gals-t").textContent = `Galáxias (${G.KGAL})` + (isolado !== null ? ` · isola: ${G.gal[isolado].nome}` : " · clique isola");
-  const box = $("gals-l"); box.replaceChildren();
-  for (const g of G.list) {
-    const item = el("div", null, "galitem" + (isolado === g.id ? " on" : ""));
-    const sw = el("span", null, "sw"); sw.style.background = G.corGal.get(g.id);
-    item.append(sw, el("span", g.nome, "nm"), el("span", `(${g.docs})`, "ct"));
-    item.title = g.nome;
-    item.onclick = () => { isolado = isolado === g.id ? null : g.id; repintar(); };
-    box.append(item);
-  }
+// ---------- isolamento por galáxia: seletor no header ⇄ clique no core 3D (estado único em `isolado`)
+function setIsolado(i) {  // i = id da galáxia (ou null = "Todas as galáxias"); reconstrói as opções do modo ativo
+  isolado = i;
+  const sel = $("gal"), todas = el("option", "Todas as galáxias");
+  todas.value = ""; sel.replaceChildren(todas);
+  for (const g of G.list) { const o = el("option", `${g.nome} (${g.docs} doc${g.docs === 1 ? "" : "s"})`); o.value = g.id; sel.append(o); }
+  sel.value = isolado === null ? "" : isolado;
+  repintar();
 }
 function repintar() {
   if (g3d) { g3d.nodeColor(nodeColor3); g3d.linkColor(linkColor3); }
-  renderGals();
 }
 
 // ---------- vista 3D (3d-force-graph, three.js)
@@ -578,12 +558,12 @@ function init3D() {
     .linkDirectionalParticleColor(l => l.lua ? "#94a3b8" : (l.rel.includes("cita") ? "#64748b" : "#60a5fa"))
     .cooldownTime(Infinity)  // o motor não para: as luas seguem orbitando e a casca se mantém (1.73.4 não tem d3AlphaTarget)
     .onNodeClick(n => {
-      if (n.core !== undefined) { isolado = isolado === n.core ? null : n.core; repintar(); }
+      if (n.core !== undefined) setIsolado(isolado === n.core ? null : n.core);
       else if (n.lua !== undefined) { const bar = n.id.lastIndexOf("|"); selecionarLua(n.id.slice(4, bar), +n.id.slice(bar + 1)); }
       else selecionar(selecionado === n.id ? null : n.id);
     })
     .onNodeHover(n => box.style.cursor = n ? "pointer" : "default")
-    .onBackgroundClick(() => { isolado = null; selecionar(null); });
+    .onBackgroundClick(() => { setIsolado(null); selecionar(null); });
   setDados3D();
   g3d.d3Force("charge").strength(-6);  // fraco: a casca esférica manda, o charge só espalha
   g3d.d3Force("link").distance(26).strength(0.2);
@@ -697,7 +677,7 @@ function showDoc(path) {
   const topo = el("div", null, "topo");
   topo.append(el("h2", rotulo(d), "title"));
   const f = el("button", "×"); f.className = "fechar"; f.setAttribute("aria-label", "Fechar painel");
-  f.onclick = () => { isolado = null; selecionar(null); };  // mesmo efeito do clique no fundo do 3D
+  f.onclick = () => { setIsolado(null); selecionar(null); };  // mesmo efeito do clique no fundo do 3D
   topo.append(f);
   box.append(topo);
   const meta = el("div", null, "meta");
@@ -753,50 +733,24 @@ for (const [prop, chave, min, max] of [["--w-esq", "explorar-w-esq", 160, 480], 
   if (w && w >= min && w <= max) layout.style.setProperty(prop, w + "px");
 }
 
-// ---------- arrastar o painel de galáxias (só no header; o clique no item isola)
-function arrastarCaixa(handle, caixa) {
-  handle.addEventListener("pointerdown", e => {
-    if (e.target.closest("button")) return;
-    e.preventDefault();
-    const r = caixa.getBoundingClientRect(), x0 = e.clientX, y0 = e.clientY;
-    handle.setPointerCapture(e.pointerId);
-    const mover = ev => {
-      const x = Math.max(0, Math.min(innerWidth - r.width, r.left + (ev.clientX - x0)));
-      const y = Math.max(0, Math.min(innerHeight - r.height, r.top + (ev.clientY - y0)));
-      caixa.style.left = x + "px"; caixa.style.top = y + "px"; caixa.style.bottom = "auto";
-    };
-    const fim = () => {
-      handle.removeEventListener("pointermove", mover);
-      handle.removeEventListener("pointerup", fim);
-      handle.removeEventListener("pointercancel", fim);
-    };
-    handle.addEventListener("pointermove", mover);
-    handle.addEventListener("pointerup", fim);
-    handle.addEventListener("pointercancel", fim);
-  });
-}
-arrastarCaixa($("gals-h"), $("gals"));
-$("gals-min").onclick = () => {
-  const l = $("gals-l"), min = l.style.display === "none";
-  l.style.display = min ? "" : "none";
-  $("gals-min").textContent = min ? "–" : "+";
-};
-
 // ---------- start
 document.getElementById("name").textContent = D.bundle + " — galáxias do bundle";
 const textStats = () => `${docs.length} documentos · ${D.chunks.length} chunks · ${D.links.length} links · ${G.KGAL} galáxias`;
-// combobox do modo de galáxias (persiste em localStorage; ao trocar: solta o isolamento, mantém a seleção)
+// seletor de galáxia no header (isolar/soltar; o clique no core 3D sincroniza pelo mesmo setIsolado)
+$("gal").onchange = e => setIsolado(e.target.value === "" ? null : +e.target.value);
+// combobox do modo de galáxias (persiste em localStorage; ao trocar: reconstrói as opções e volta a "Todas")
 $("modo").value = modo;
 $("modo").onchange = e => {
   modo = e.target.value;
   montarGalo();
-  isolado = null;
+  setIsolado(null);
   $("stats").textContent = textStats();
   if (g3d) setDados3D();
   renderLista(); repintar();
   if (selecionado) showDoc(selecionado);
   try { localStorage.setItem("explorar-modo", modo); } catch {}
 };
+setIsolado(null);  // popula o seletor no start
 $("stats").textContent = textStats();
 // dropdown por tipo (quantidade desc, nome asc)
 const contTipo = {};

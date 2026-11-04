@@ -244,7 +244,10 @@ def test_explorar_gera_html_com_guard_e_dados_coerentes(projeto, raiz):
     assert html.count(visualizar._FORCA3D_NEW) == 1  # o guard vai embutido, não o asset cru
     assert visualizar._FORCA3D_OLD not in html
     assert "cytoscape" not in html.lower()  # 2D foi removido em 3.6.5
-    assert 'id="arr-esq"' in html and 'id="arr-dir"' in html and 'id="gals"' in html
+    assert 'id="arr-esq"' in html and 'id="arr-dir"' in html
+    # seletor de galáxia no header, à esquerda do combobox de modo; o painel flutuante saiu
+    assert 'Todas as galáxias' in html and html.index('id="gal"') < html.index('id="modo"')
+    assert 'id="gals"' not in html and "arrastarCaixa" not in html
 
     m = re.search(r'<script id="data" type="application/json">(.*?)</script>', html, re.S)
     data = json.loads(m.group(1))  # "</" sai escapado (<\/): o JSON é válido
