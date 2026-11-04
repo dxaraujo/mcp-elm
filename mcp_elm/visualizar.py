@@ -303,7 +303,7 @@ main.sem-detalhe #graph { border-right:0; }
 aside, section { overflow:auto; border-right:1px solid var(--line); background:var(--panel); }
 #filters { padding:10px 12px; display:grid; gap:8px; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--panel); z-index:1; }
 input, select { width:100%; padding:6px 8px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); font:inherit; }
-#gal { width:auto; margin-left:auto; }
+#gal { width:auto; max-width:min(300px, 32vw); margin-left:auto; }  # sem max-width, o select estica para a opção mais larga
 #modo { width:auto; }
 #conta { color:var(--muted); font-size:12px; }
 #list { list-style:none; margin:0; padding:0; }

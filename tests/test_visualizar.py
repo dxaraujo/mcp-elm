@@ -248,6 +248,8 @@ def test_explorar_gera_html_com_guard_e_dados_coerentes(projeto, raiz):
     # seletor de galáxia no header, à esquerda do combobox de modo; o painel flutuante saiu
     assert 'Todas as galáxias' in html and html.index('id="gal"') < html.index('id="modo"')
     assert 'id="gals"' not in html and "arrastarCaixa" not in html
+    # largura limitada: sem max-width o <select> dimensiona para a opção mais larga e estica o header
+    assert "max-width:min(300px, 32vw)" in html
 
     m = re.search(r'<script id="data" type="application/json">(.*?)</script>', html, re.S)
     data = json.loads(m.group(1))  # "</" sai escapado (<\/): o JSON é válido
