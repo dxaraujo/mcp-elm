@@ -296,3 +296,26 @@ def test_explorar_header_sels_do_lado(projeto, raiz):
     # anotação com '#' não é comentário de CSS (sintaxe inválida derruba a regra seguinte): só /* */
     assert "# sem max-width" not in estilo
     assert "/* sem max-width, o select estica para a opção mais larga */" in estilo
+
+
+def test_explorar_cameras_seguem_isolacao(projeto, raiz):
+    call("elm_indexar_local", projeto)
+    d = call("elm_explorar_local", projeto)
+    html = open(d["path"], encoding="utf-8").read()
+    # voo por rAF (sem libs): a câmera entra na galáxia ao isolar e volta à visão global ao soltar
+    assert "function cameraNaGalaxia(i, ms = 800)" in html
+    assert "function cameraGlobal(ms = 800)" in html
+    assert "cancelAnimationFrame" in html and "requestAnimationFrame(passo)" in html
+    na = html[html.index("function cameraNaGalaxia"):html.index("function cameraGlobal")]
+    gl = html[html.index("function cameraGlobal"):html.index("function cameraNoPlaneta")]
+    # no load, setIsolado(null) roda antes do init3D: o guard no-op é o que impede o crash
+    assert "if (!g3d) return;" in na and "if (!g3d) return;" in gl
+    # setIsolado move a câmera nos dois sentidos
+    corpo = html[html.index("function setIsolado"):html.index("function repintar")]
+    assert "cameraNaGalaxia(isolado)" in corpo and "cameraGlobal()" in corpo
+    # sem ping-pong: planeta clicado com galáxia isolada usa centro/raio dela, não a distância global
+    corpo = html[html.index("function cameraNoPlaneta"):html.index("function init3D")]
+    assert "G.CENTRO[isolado]" in corpo and "G.RAIO[isolado]" in corpo
+    # distância global única: init3D e cameraGlobal usam a mesma expressão (não divergem no modo sem)
+    assert "const distGlobal = () => 2.2 * Math.max(G.R_GAL + 90, 140);" in html
+    assert html.count("z: distGlobal()") == 2

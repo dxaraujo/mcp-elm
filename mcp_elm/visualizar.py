@@ -8,7 +8,8 @@ resto vai para a galáxia catch-all "Tudo" (bundle sem UC/HF: uma única "Tudo" 
 (tamanho proporcional a links + chunks); lua = chunk (orbita o planeta selecionado). No 3D, cada galáxia é
 uma esfera: o centro fixo e os demais numa casca de raio ∝ sqrt dos membros (área da esfera ∝ nº de
 membros), girando devagar em torno do core (eixo e período determinísticos por galáxia). O header tem o
-seletor de galáxia (isolar uma; "Todas as galáxias" solta — o clique no core 3D sincroniza) e o combobox
+seletor de galáxia (isolar uma — a câmera voa até ela; "Todas as galáxias" solta e a câmera volta à visão
+global — o clique no core 3D sincroniza) e o combobox
 do modo das galáxias: UC/HF (acima, padrão) ou semântico (aglomerativo, linkage média, cosseno ≤ LIMITE:
 uma galáxia por cluster, centro = o documento com a maior média de cosseno com os demais membros). Os
 documentos e
@@ -475,6 +476,7 @@ function setIsolado(i) {  // i = id da galáxia (ou null = "Todas as galáxias")
   todas.value = ""; sel.replaceChildren(todas);
   for (const g of G.list) { const o = el("option", `${g.nome} (${g.docs} doc${g.docs === 1 ? "" : "s"})`); o.value = g.id; sel.append(o); }
   sel.value = isolado === null ? "" : isolado;
+  if (isolado !== null) cameraNaGalaxia(isolado); else cameraGlobal();  // a câmera acompanha o isolamento (no-op se g3d ainda não existe)
   repintar();
 }
 function repintar() {
@@ -583,7 +585,58 @@ function orbitarLuas() {
     m.y = p.y + m.R * 0.35 * Math.sin(a * 1.7 + m.a0);
   }
 }
+// ---------- câmera: voo por rAF (sem libs, ease in-out); o usuário assume o controle no meio do voo
+const distGlobal = () => 2.2 * Math.max(G.R_GAL + 90, 140);  // distância global: init3D e cameraGlobal compartilham (não divergem)
+let vooCam = null;
+const cancelarVooCam = () => { if (vooCam) { cancelAnimationFrame(vooCam.raf); vooCam = null; } };
+function voarCam(para, paraAlvo, ms = 800) {
+  if (!g3d) return;
+  cancelarVooCam();
+  const p = g3d.cameraPosition();  // {x, y, z, lookAt} — posição atual e ponto da linha de olhar
+  const ctl = g3d.controls ? g3d.controls() : null;
+  const de = { x: p.x, y: p.y, z: p.z };
+  const deAlvo = ctl && ctl.target ? { x: ctl.target.x, y: ctl.target.y, z: ctl.target.z }
+                                   : { x: p.lookAt.x, y: p.lookAt.y, z: p.lookAt.z };
+  const t0 = performance.now();
+  const passo = agora => {
+    if (!vooCam) return;  // cancelado no meio do voo
+    const t = Math.min(1, (agora - t0) / ms);
+    const k = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;  // ease in-out
+    g3d.cameraPosition({ x: de.x + (para.x - de.x) * k, y: de.y + (para.y - de.y) * k, z: de.z + (para.z - de.z) * k },
+                       { x: deAlvo.x + (paraAlvo.x - deAlvo.x) * k, y: deAlvo.y + (paraAlvo.y - deAlvo.y) * k,
+                         z: deAlvo.z + (paraAlvo.z - deAlvo.z) * k });
+    if (t < 1) vooCam.raf = requestAnimationFrame(passo);
+    else vooCam = null;
+  };
+  vooCam = { raf: requestAnimationFrame(passo) };
+}
+$("g3d").addEventListener("pointerdown", cancelarVooCam);
+$("g3d").addEventListener("wheel", cancelarVooCam, { passive: true });
+function cameraNaGalaxia(i, ms = 800) {
+  if (!g3d) return;  // setIsolado(null) roda no load, antes do init3D
+  const c = G.CENTRO[i];
+  const p = g3d.cameraPosition();
+  let dx = p.x - c[0], dy = p.y - c[1], dz = p.z - c[2];
+  const L = Math.hypot(dx, dy, dz);  // mantém a direção de olhar atual: voa "em frente"
+  if (L < 1e-6) { dx = 0; dy = 0; dz = 1; } else { dx /= L; dy /= L; dz /= L; }
+  const dist = Math.max(3.5 * G.RAIO[i], 80);
+  voarCam({ x: c[0] + dx * dist, y: c[1] + dy * dist, z: c[2] + dz * dist },
+          { x: c[0], y: c[1], z: c[2] }, ms);
+}
+function cameraGlobal(ms = 800) {
+  if (!g3d) return;
+  voarCam({ x: 0, y: 0, z: distGlobal() }, { x: 0, y: 0, z: 0 }, ms);
+}
 function cameraNoPlaneta(n, ms) {
+  if (isolado !== null) {  // isolado: base no centro/raio da galáxia (sem ping-pong com a distância global)
+    const c = G.CENTRO[isolado];
+    const dx = n.x - c[0], dy = n.y - c[1], dz = n.z - c[2];
+    const r = Math.hypot(dx, dy, dz), dist = Math.max(2.4 * G.RAIO[isolado], 100);
+    const cam = r > 1e-6 ? { x: c[0] + dx / r * dist, y: c[1] + dy / r * dist, z: c[2] + dz / r * dist }
+                         : { x: c[0], y: c[1], z: c[2] + dist };
+    g3d.cameraPosition(cam, n, ms);
+    return;
+  }
   const r = Math.hypot(n.x, n.y, n.z);
   const cam = r > 1e-6 ? (() => { const f = Math.max(60, r * 2.4) / r; return { x: n.x * f, y: n.y * f, z: n.z * f }; })()
                       : { x: 0, y: 0, z: 60 };
@@ -621,7 +674,7 @@ function init3D() {
   g3d.d3Force("link").distance(26).strength(0.2);
   g3d.warmupTicks(50);  // reaquecimento das seleções (a entrada anima na tela)
   g3d.onEngineTick(() => { rotacionarGalo(); orbitarLuas(); });  // rotação antes das luas: elas seguem o planeta
-  g3d.cameraPosition({ x: 0, y: 0, z: 2.2 * Math.max(G.R_GAL + 90, 140) });
+  g3d.cameraPosition({ x: 0, y: 0, z: distGlobal() });
   new ResizeObserver(() => g3d && g3d.width(box.clientWidth).height(box.clientHeight)).observe(box);
   box.append(el("div", "arraste para girar · roda para zoom · clique no planeta abre o documento · build __BUILD__", "hint"));
 }
