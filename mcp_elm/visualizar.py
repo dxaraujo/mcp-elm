@@ -523,9 +523,6 @@ function buildLinks3D() {
 const nodeColor3 = n => n.core !== undefined ? (dimCore(n.core) ? "#0d1424" : G.solGal.get(n.core))
   : n.lua !== undefined ? "#94a3b8" : (dimDoc(byPath[n.id]) ? "#0d1424" : G.corGal.get(idxDoc(byPath[n.id])));
 const linkColor3 = l => {
-  // visão global: a teia de citações some (era ela que costurava os núcleos em "bola de barbante");
-  // ao isolar, os links intra-galáxia reaparecem e os inter-galáxia seguem apagados pelo dim abaixo
-  if (!l.lua && isolado === null) return "#0d1424";
   const s = l.source, t = l.target;
   const dim = (s.core !== undefined ? dimCore(s.core) : dimDoc(byPath[s.id])) ||
               (t.core !== undefined ? dimCore(t.core) : (t.lua !== undefined ? dimDoc(byPath[s.id]) : dimDoc(byPath[t.id])));
