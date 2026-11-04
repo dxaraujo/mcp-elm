@@ -329,6 +329,19 @@ def test_explorar_sol_maior_e_claro(projeto, raiz):
     assert "G.corGal.get(n.core)" not in html
 
 
+def test_explorar_raios_core_documento(projeto, raiz):
+    call("elm_indexar_local", projeto)
+    d = call("elm_explorar_local", projeto)
+    html = open(d["path"], encoding="utf-8").read()
+    # starburst: um raio core→documento por documento (estética; a casca esférica já posiciona tudo)
+    assert 'target: "core:" + idxDoc(d), raio: true, rel: "raio"' in html
+    # cor do raio: terceiro mapa por galáxia, tom entre o sol (76%) e os planetas (58%)
+    assert "raioGal: new Map" in html
+    assert "l.raio ? G.raioGal.get(c0)" in html
+    # o raio não influencia a simulação: distância/força zero por-link (o d3 re-lê o accessor a cada graphData)
+    assert "distance(l => l.raio ? 0 : 26).strength(l => l.raio ? 0 : 0.2)" in html
+
+
 def test_explorar_cameras_seguem_isolacao(projeto, raiz):
     call("elm_indexar_local", projeto)
     d = call("elm_explorar_local", projeto)

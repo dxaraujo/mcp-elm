@@ -445,7 +445,9 @@ function montarGalo() {
     // cor fixa por galáxia (ângulo dourado); a catch-all "Tudo" (sem centro UC/HF) fica discreta
     corGal: new Map(gl.map((g, i) => [i, g.centro == null ? "hsl(215, 14%, 52%)" : `hsl(${Math.round(i * 137.508) % 360}, 62%, 58%)`])),
     // o sol (core) leva a variante mais clara do mesmo ângulo: identidade própria, à parte dos planetas
-    solGal: new Map(gl.map((g, i) => [i, g.centro == null ? "hsl(215, 14%, 68%)" : `hsl(${Math.round(i * 137.508) % 360}, 62%, 76%)`]))
+    solGal: new Map(gl.map((g, i) => [i, g.centro == null ? "hsl(215, 14%, 68%)" : `hsl(${Math.round(i * 137.508) % 360}, 62%, 76%)`])),
+    // o raio core→documento: tom intermediário entre o sol (76%) e os planetas (58%) da mesma galáxia
+    raioGal: new Map(gl.map((g, i) => [i, g.centro == null ? "hsl(215, 20%, 66%)" : `hsl(${Math.round(i * 137.508) % 360}, 50%, 70%)`]))
   };
 }
 montarGalo();
@@ -517,6 +519,8 @@ function buildNodes3D() {
 }
 function buildLinks3D() {
   const links = D.links.map(l => ({ source: l.de, target: l.para, rel: l.rel }));
+  // raios core→documento (starburst): um por documento; sem força (distance/strength 0) — só estética
+  for (const d of docs) links.push({ source: d.path, target: "core:" + idxDoc(d), raio: true, rel: "raio" });
   if (selecionado) for (const m of luas3D()) links.push({ source: selecionado, target: m.id, lua: true });
   return links;
 }
@@ -527,7 +531,8 @@ const linkColor3 = l => {
   const dim = (s.core !== undefined ? dimCore(s.core) : dimDoc(byPath[s.id])) ||
               (t.core !== undefined ? dimCore(t.core) : (t.lua !== undefined ? dimDoc(byPath[s.id]) : dimDoc(byPath[t.id])));
   if (dim) return "#0d1424";
-  return l.lua ? "#94a3b8" : (l.rel.includes("cita") ? "#475569" : "#3b82f6");
+  const c0 = s.core !== undefined ? s.core : t.core;  // raio: exatamente um dos endpoints é o core
+  return l.raio ? G.raioGal.get(c0) : l.lua ? "#94a3b8" : (l.rel.includes("cita") ? "#475569" : "#3b82f6");
 };
 function labelDoc(d) {
   return `<b>${esc(rotulo(d))}</b><br>${esc([d.tipo, d.pasta, G.gal[idxDoc(d)].nome,
@@ -674,7 +679,8 @@ function init3D() {
     .onBackgroundClick(() => { setIsolado(null); selecionar(null); });
   setDados3D();
   g3d.d3Force("charge").strength(-6);  // fraco: a casca esférica manda, o charge só espalha
-  g3d.d3Force("link").distance(26).strength(0.2);
+  // por-link: os raios core→documento não podem puxar a simulação (a casca esférica já fixa tudo)
+  g3d.d3Force("link").distance(l => l.raio ? 0 : 26).strength(l => l.raio ? 0 : 0.2);
   g3d.warmupTicks(50);  // reaquecimento das seleções (a entrada anima na tela)
   g3d.onEngineTick(() => { rotacionarGalo(); orbitarLuas(); });  // rotação antes das luas: elas seguem o planeta
   g3d.cameraPosition({ x: 0, y: 0, z: distGlobal() });
