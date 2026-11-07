@@ -1,6 +1,6 @@
 """Arquivo do projeto: <projeto>/.sabia/config/elm/pa_<nome>.json, um por project area.
 
-Leitura procura em PASTAS, nesta ordem (vale a primeira que tiver o pa); gravação vai sempre para PASTA.
+Leitura procura em PASTAS, nesta ordem, e para na primeira pasta onde achar (o pa pedido ou, sem nome, algum pa_*.json); gravação vai sempre para PASTA.
 
 Validado pelo pa.schema.json (cópia embutida no pacote). O caminho do projeto vem em cada chamada:
 o Kiro não inicia o MCP de um power no workspace.
@@ -33,12 +33,13 @@ def _raiz(projeto: str) -> Path:
 
 
 def _achados(projeto: str) -> dict[str, Path]:
-    """nome → arquivo; o mesmo nome em mais de uma pasta fica com a primeira de PASTAS."""
-    raiz, out = _raiz(projeto), {}
+    """nome → arquivo da primeira pasta de PASTAS que tem algum pa_*.json; as seguintes não são lidas."""
+    raiz = _raiz(projeto)
     for pasta in PASTAS:
-        for p in (raiz / pasta).glob("pa_*.json"):
-            out.setdefault(p.stem[3:], p)
-    return out
+        achados = {p.stem[3:]: p for p in sorted((raiz / pasta).glob("pa_*.json"))}
+        if achados:
+            return achados
+    return {}
 
 
 def nomes(projeto: str) -> list[str]:
@@ -46,19 +47,21 @@ def nomes(projeto: str) -> list[str]:
 
 
 def arquivo(projeto: str, pa: str | None) -> Path:
+    if pa is not None:
+        # pelo nome: a primeira pasta de PASTAS que tem o arquivo; achou, para
+        raiz = _raiz(projeto)
+        achado = next((raiz / pasta / f"pa_{pa}.json" for pasta in PASTAS if (raiz / pasta / f"pa_{pa}.json").is_file()), None)
+        if achado is None:
+            raise Erro("config", f"{PASTA}/pa_{pa}.json não existe (procurado em: {_ONDE}; há: {', '.join(nomes(projeto)) or 'nenhum'})",
+                       "pa")
+        return achado
     achados = _achados(projeto)
-    todos = sorted(achados)
-    if pa is None:
-        if not todos:
-            raise Erro("config", f"nenhum {PASTA}/pa_<nome>.json no projeto (procurado em: {_ONDE})", "pa")
-        if len(todos) > 1:
-            raise Erro("entrada", f"vários pa no projeto: {', '.join(todos)}; informe pa (o mesmo pa_<nome>.json em "
-                                  f"mais de uma pasta vale o da primeira, na ordem: {_ONDE})", "pa")
-        pa = todos[0]
-    if pa not in achados:
-        raise Erro("config", f"{PASTA}/pa_{pa}.json não existe (procurado em: {_ONDE}; há: {', '.join(todos) or 'nenhum'})",
-                   "pa")
-    return achados[pa]
+    if not achados:
+        raise Erro("config", f"nenhum {PASTA}/pa_<nome>.json no projeto (procurado em: {_ONDE})", "pa")
+    if len(achados) > 1:
+        raise Erro("entrada", f"vários pa em {next(iter(achados.values())).parent.relative_to(_raiz(projeto))}: "
+                              f"{', '.join(sorted(achados))}; informe pa", "pa")
+    return next(iter(achados.values()))
 
 
 def faltando(dados) -> list[str]:

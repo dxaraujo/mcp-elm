@@ -49,8 +49,8 @@ password = SUA_SENHA
 ## Configuração do projeto
 
 `<projeto>/.sabia/config/elm/pa_<nome>.json`, um por project area, gravado pela skill `sa-setup`. Projetos anteriores
-continuam lidos: o MCP procura em `.sabia/config/elm/`, depois `.kiro/config/elm/`, depois `.kiro/config/sdd/`; o mesmo
-arquivo em mais de uma pasta vale o da primeira. Toda gravação (ex.: `elm_iteracao`) vai para `.sabia/config/elm/`. O schema é o do
+continuam lidos: o MCP procura em `.sabia/config/elm/`, depois `.kiro/config/elm/`, depois `.kiro/config/sdd/`, e para na
+primeira pasta onde achar (as seguintes não são lidas). Toda gravação (ex.: `elm_iteracao`) vai para `.sabia/config/elm/`. O schema é o do
 Sabiá ([pa.schema.json](https://dxaraujo.github.io/mcps/elm/pa.schema.json)); o pacote leva uma cópia
 (`mcp_elm/pa.schema.json`) — mantenha as duas iguais.
 

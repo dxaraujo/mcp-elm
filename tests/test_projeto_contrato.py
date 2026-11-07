@@ -58,9 +58,15 @@ def test_pa_em_varias_pastas_vale_a_primeira(tmp_path):
     assert prj.carregar(str(tmp_path))["ccm"]["nome"] == ".sabia/config/elm"
     (tmp_path / ".sabia/config/elm/pa_alfa.json").unlink()
     assert prj.carregar(str(tmp_path))["ccm"]["nome"] == ".kiro/config/elm"
+    # achou na .kiro/config/elm: a .kiro/config/sdd não é lida (o beta de lá não aparece)
     _pa_em(tmp_path, ".kiro/config/sdd", "beta")
+    assert prj.nomes(str(tmp_path)) == ["alfa"]
+    assert prj.carregar(str(tmp_path))["ccm"]["nome"] == ".kiro/config/elm"
+    # pelo nome, procura pasta a pasta até achar o arquivo
+    assert prj.carregar(str(tmp_path), "beta")["ccm"]["nome"] == ".kiro/config/sdd"
+    _pa_em(tmp_path, ".kiro/config/elm", "gama")
     e = _erro(lambda: prj.carregar(str(tmp_path)))
-    assert e["codigo"] == "entrada" and "alfa, beta" in e["detalhe"] and "vale o da primeira" in e["detalhe"]
+    assert e["codigo"] == "entrada" and "alfa, gama" in e["detalhe"] and ".kiro/config/elm" in e["detalhe"]
 
 
 def test_pa_ausente_cita_pasta_nova_e_as_procuradas(tmp_path):
