@@ -29,7 +29,7 @@ def falha(r):
 
 
 def _sem(projeto, secao):
-    arq = os.path.join(projeto, ".kiro/config/elm/pa_alfa.json")
+    arq = os.path.join(projeto, ".sabia/config/elm/pa_alfa.json")
     dados = json.load(open(arq, encoding="utf-8"))
     del dados[secao]
     json.dump(dados, open(arq, "w", encoding="utf-8"))

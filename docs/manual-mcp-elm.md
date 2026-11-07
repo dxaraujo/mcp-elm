@@ -4,8 +4,10 @@ Instalação, credenciais e a lista das tools: [README](../README.md). Aqui, o q
 
 ## O arquivo pa
 
-`<projeto>/.kiro/config/elm/pa_<nome>.json`, validado pelo
-[pa.schema.json](https://github.com/dxaraujo/mcps/blob/main/elm/pa.schema.json) a cada leitura. Campo ausente ou inválido → erro `config` com o caminho
+`<projeto>/.sabia/config/elm/pa_<nome>.json`, validado pelo
+[pa.schema.json](https://github.com/dxaraujo/mcps/blob/main/elm/pa.schema.json) a cada leitura. Leitura procura em
+`.sabia/config/elm/`, `.kiro/config/elm/` e `.kiro/config/sdd/`, nesta ordem (o mesmo arquivo em mais de uma: vale a
+primeira); gravação sempre em `.sabia/config/elm/`. Campo ausente ou inválido → erro `config` com o caminho
 (`ccm.horas.time-code`). Vários arquivos sem `pa` → erro `entrada` com os nomes.
 
 | Seção | Usada em |

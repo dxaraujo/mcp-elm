@@ -28,15 +28,63 @@ def test_carregar_ausente_relativo_e_varios(tmp_path, projeto):
     (tmp_path / "vazio").mkdir()
     assert _erro(lambda: prj.carregar(str(tmp_path / "vazio")))["codigo"] == "config"
     assert _erro(lambda: prj.carregar("relativo/x"))["codigo"] == "entrada"
-    shutil.copy(FIXTURES / "pa_alfa.json", os.path.join(projeto, ".kiro/config/elm/pa_beta.json"))
+    shutil.copy(FIXTURES / "pa_alfa.json", os.path.join(projeto, ".sabia/config/elm/pa_beta.json"))
     e = _erro(lambda: prj.carregar(projeto))
     assert e["codigo"] == "entrada" and e["campo"] == "pa" and "alfa, beta" in e["detalhe"]
     assert prj.carregar(projeto, "beta")["ccm"]["nome"] == "Projeto Alfa"
     assert _erro(lambda: prj.carregar(projeto, "gama"))["codigo"] == "config"
 
 
+def _pa_em(raiz, pasta: str, nome: str = "alfa", time: str | None = None) -> Path:
+    arq = Path(raiz, pasta, f"pa_{nome}.json")
+    arq.parent.mkdir(parents=True, exist_ok=True)
+    dados = json.loads((FIXTURES / "pa_alfa.json").read_text("utf-8"))
+    dados["ccm"]["nome"] = time or pasta
+    arq.write_text(json.dumps(dados), "utf-8")
+    return arq
+
+
+@pytest.mark.parametrize("pasta", [".sabia/config/elm", ".kiro/config/elm", ".kiro/config/sdd"])
+def test_pa_numa_pasta_so(tmp_path, pasta):
+    _pa_em(tmp_path, pasta)
+    cfg = prj.carregar(str(tmp_path))
+    assert cfg["ccm"]["nome"] == pasta and cfg["_arquivo"] == str(tmp_path / pasta / "pa_alfa.json")
+    assert prj.nomes(str(tmp_path)) == ["alfa"]
+
+
+def test_pa_em_varias_pastas_vale_a_primeira(tmp_path):
+    for pasta in (".kiro/config/sdd", ".kiro/config/elm", ".sabia/config/elm"):
+        _pa_em(tmp_path, pasta)
+    assert prj.carregar(str(tmp_path))["ccm"]["nome"] == ".sabia/config/elm"
+    (tmp_path / ".sabia/config/elm/pa_alfa.json").unlink()
+    assert prj.carregar(str(tmp_path))["ccm"]["nome"] == ".kiro/config/elm"
+    _pa_em(tmp_path, ".kiro/config/sdd", "beta")
+    e = _erro(lambda: prj.carregar(str(tmp_path)))
+    assert e["codigo"] == "entrada" and "alfa, beta" in e["detalhe"] and "vale o da primeira" in e["detalhe"]
+
+
+def test_pa_ausente_cita_pasta_nova_e_as_procuradas(tmp_path):
+    e = _erro(lambda: prj.carregar(str(tmp_path)))
+    assert e["codigo"] == "config" and "nenhum .sabia/config/elm/pa_" in e["detalhe"]
+    assert ".kiro/config/elm" in e["detalhe"] and ".kiro/config/sdd" in e["detalhe"]
+    _pa_em(tmp_path, ".kiro/config/elm")
+    e = _erro(lambda: prj.carregar(str(tmp_path), "gama"))
+    assert ".sabia/config/elm/pa_gama.json" in e["detalhe"] and ".kiro/config/sdd" in e["detalhe"]
+
+
+def test_gravar_vai_sempre_para_a_pasta_nova(tmp_path):
+    antigo = _pa_em(tmp_path, ".kiro/config/sdd")
+    cfg = prj.carregar(str(tmp_path))
+    prj.gravar_iteracao(cfg, "2026/Sprint 1", "_IT1", {"time": "_PL1"})
+    novo = tmp_path / ".sabia/config/elm/pa_alfa.json"
+    assert cfg["_arquivo"] == str(novo)
+    assert json.loads(novo.read_text("utf-8"))["ccm"]["iteracoes"]["2026/Sprint 1"]["id"] == "_IT1"
+    assert "2026/Sprint 1" not in json.loads(antigo.read_text("utf-8"))["ccm"].get("iteracoes", {})
+    assert prj.carregar(str(tmp_path))["ccm"]["iteracoes"]["2026/Sprint 1"]["id"] == "_IT1"
+
+
 def test_carregar_invalido_diz_o_campo(projeto):
-    arq = os.path.join(projeto, ".kiro/config/elm/pa_alfa.json")
+    arq = os.path.join(projeto, ".sabia/config/elm/pa_alfa.json")
     dados = json.load(open(arq, encoding="utf-8"))
     del dados["ccm"]["horas"]["time-code"]
     json.dump(dados, open(arq, "w", encoding="utf-8"))
@@ -45,7 +93,7 @@ def test_carregar_invalido_diz_o_campo(projeto):
 
 
 def test_cache_por_mtime(projeto):
-    arq = os.path.join(projeto, ".kiro/config/elm/pa_alfa.json")
+    arq = os.path.join(projeto, ".sabia/config/elm/pa_alfa.json")
     assert prj.carregar(projeto)["ccm"]["nome"] == "Projeto Alfa"
     dados = json.load(open(arq, encoding="utf-8"))
     dados["ccm"]["nome"] = "Renomeado"

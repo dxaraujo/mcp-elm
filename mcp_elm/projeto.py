@@ -1,4 +1,6 @@
-"""Arquivo do projeto: <projeto>/.kiro/config/elm/pa_<nome>.json, um por project area.
+"""Arquivo do projeto: <projeto>/.sabia/config/elm/pa_<nome>.json, um por project area.
+
+Leitura procura em PASTAS, nesta ordem (vale a primeira que tiver o pa); gravação vai sempre para PASTA.
 
 Validado pelo pa.schema.json (cópia embutida no pacote). O caminho do projeto vem em cada chamada:
 o Kiro não inicia o MCP de um power no workspace.
@@ -15,7 +17,9 @@ import jsonschema
 
 from .contrato import Erro
 
-PASTA = Path(".kiro") / "config" / "elm"
+PASTA = Path(".sabia") / "config" / "elm"
+PASTAS = (PASTA, Path(".kiro") / "config" / "elm", Path(".kiro") / "config" / "sdd")  # as duas últimas: projetos anteriores
+_ONDE = ", ".join(map(str, PASTAS))
 _VALIDADOR = jsonschema.Draft202012Validator(json.loads(Path(__file__).with_name("pa.schema.json").read_text("utf-8")))
 _cache: dict[Path, tuple[int, dict]] = {}
 
@@ -28,21 +32,33 @@ def _raiz(projeto: str) -> Path:
     return Path(projeto)
 
 
+def _achados(projeto: str) -> dict[str, Path]:
+    """nome → arquivo; o mesmo nome em mais de uma pasta fica com a primeira de PASTAS."""
+    raiz, out = _raiz(projeto), {}
+    for pasta in PASTAS:
+        for p in (raiz / pasta).glob("pa_*.json"):
+            out.setdefault(p.stem[3:], p)
+    return out
+
+
 def nomes(projeto: str) -> list[str]:
-    return sorted(p.stem[3:] for p in (_raiz(projeto) / PASTA).glob("pa_*.json"))
+    return sorted(_achados(projeto))
 
 
 def arquivo(projeto: str, pa: str | None) -> Path:
-    todos = nomes(projeto)
+    achados = _achados(projeto)
+    todos = sorted(achados)
     if pa is None:
         if not todos:
-            raise Erro("config", "nenhum .kiro/config/elm/pa_<nome>.json no projeto", "pa")
+            raise Erro("config", f"nenhum {PASTA}/pa_<nome>.json no projeto (procurado em: {_ONDE})", "pa")
         if len(todos) > 1:
-            raise Erro("entrada", f"vários pa no projeto: {', '.join(todos)}; informe pa", "pa")
+            raise Erro("entrada", f"vários pa no projeto: {', '.join(todos)}; informe pa (o mesmo pa_<nome>.json em "
+                                  f"mais de uma pasta vale o da primeira, na ordem: {_ONDE})", "pa")
         pa = todos[0]
-    if pa not in todos:
-        raise Erro("config", f"pa_{pa}.json não existe (há: {', '.join(todos) or 'nenhum'})", "pa")
-    return _raiz(projeto) / PASTA / f"pa_{pa}.json"
+    if pa not in achados:
+        raise Erro("config", f"{PASTA}/pa_{pa}.json não existe (procurado em: {_ONDE}; há: {', '.join(todos) or 'nenhum'})",
+                   "pa")
+    return achados[pa]
 
 
 def faltando(dados) -> list[str]:
@@ -79,15 +95,18 @@ def carregar(projeto: str, pa: str | None = None) -> dict:
 
 def gravar_ccm(cfg: dict, chave: str, valor, sub: str | None = None) -> None:
     """Grava ccm.<chave> (ou ccm.<chave>[sub]) no arquivo, relido agora (indent=2, ordem das chaves preservada), e
-    no cfg."""
-    arq = Path(cfg["_arquivo"])
-    dados = json.loads(arq.read_text("utf-8"))
+    no cfg. Sempre em PASTA: um pa lido de pasta antiga passa a existir lá (o antigo fica, mas perde a precedência)."""
+    origem = Path(cfg["_arquivo"])
+    dados = json.loads(origem.read_text("utf-8"))
+    arq = Path(cfg["_projeto"]) / PASTA / origem.name
+    arq.parent.mkdir(parents=True, exist_ok=True)
     for ccm in (dados["ccm"], cfg["ccm"]):
         if sub is None:
             ccm[chave] = valor
         else:
             ccm.setdefault(chave, {})[sub] = valor
     arq.write_text(json.dumps(dados, indent=2, ensure_ascii=False) + "\n", "utf-8")
+    cfg["_arquivo"] = str(arq)
 
 
 def gravar_iteracao(cfg: dict, nome: str, iteracao_id: str, planos: dict[str, str]) -> None:

@@ -42,7 +42,7 @@ def test_status(elm, projeto, monkeypatch, tmp_path):
     embedder.clear_cache()
     d = ok(chamar("elm_status", projeto=projeto))
     assert d["embedder"] is None and d["rerank"] is None  # sem provider: null, sem quebrar o status
-    os.remove(os.path.join(projeto, ".kiro/config/elm/pa_alfa.json"))
+    os.remove(os.path.join(projeto, ".sabia/config/elm/pa_alfa.json"))
     d = ok(chamar("elm_status", projeto=projeto))
     assert d["valido"] is False and d["faltando"] == ["pa"]
 
@@ -210,7 +210,7 @@ def test_iteracao_acha_e_cria_com_planos_e_grava_no_pa(elm, projeto):
     d = ok(chamar("elm_iteracao", projeto=projeto, nome="Sprint 2", inicio="2026-02-01", fim="2026-02-14"))
     assert d["id"] == "_INOVA" and d["criados"] == ["Sprint 2", "Sprint 2"]
     assert elm.iteracao_criada["parentIterationId"] == "_Y26"
-    arq = os.path.join(projeto, ".kiro/config/elm/pa_alfa.json")
+    arq = os.path.join(projeto, ".sabia/config/elm/pa_alfa.json")
     texto = open(arq, encoding="utf-8").read()
     assert json.loads(texto)["ccm"]["iteracoes"]["Sprint 2"]["id"] == "_INOVA"
     assert texto.startswith('{\n  "$schema"') and texto.endswith("}\n")  # indent=2, ordem mantida
@@ -225,7 +225,7 @@ def test_iteracao_por_caminho_cria_o_pai_irmao_e_desambigua(elm, projeto):
     assert elm.iteracao_criada["parentIterationId"] == "_INOVA" and d["id"] == "_INOVA2"
     assert ok(chamar("elm_iteracao", projeto=projeto, nome="Sprint 1"))["id"] == "_I1"  # o cache resolve, como no iteracao_id
     ok(chamar("elm_listar_wi", projeto=projeto, iteracao="2027/Sprint 1"))
-    arq = os.path.join(projeto, ".kiro/config/elm/pa_alfa.json")
+    arq = os.path.join(projeto, ".sabia/config/elm/pa_alfa.json")
     pa = json.loads(open(arq, encoding="utf-8").read())
     assert pa["ccm"]["iteracoes"]["2027/Sprint 1"]["id"] == "_INOVA2"
     del pa["ccm"]["iteracoes"]["Sprint 1"]
@@ -234,7 +234,7 @@ def test_iteracao_por_caminho_cria_o_pai_irmao_e_desambigua(elm, projeto):
 
 
 def test_iteracao_primeira_sprint_cria_o_pai_no_topo(elm, projeto):
-    arq = os.path.join(projeto, ".kiro/config/elm/pa_alfa.json")
+    arq = os.path.join(projeto, ".sabia/config/elm/pa_alfa.json")
     pa = json.loads(open(arq, encoding="utf-8").read())
     pa["ccm"]["iteracoes"] = {}
     open(arq, "w", encoding="utf-8").write(json.dumps(pa))
@@ -245,7 +245,7 @@ def test_iteracao_primeira_sprint_cria_o_pai_no_topo(elm, projeto):
 
 def test_iteracao_primeira_sprint_com_varias_timelines_nasce_na_base_do_backlog(elm, projeto):
     from conftest import SERVER as S, xml
-    arq = os.path.join(projeto, ".kiro/config/elm/pa_alfa.json")
+    arq = os.path.join(projeto, ".sabia/config/elm/pa_alfa.json")
     pa = json.loads(open(arq, encoding="utf-8").read())
     pa["ccm"]["iteracoes"] = {}
     open(arq, "w", encoding="utf-8").write(json.dumps(pa))
@@ -276,7 +276,7 @@ def test_backlog_lista_e_grava_o_plano_existente(elm, projeto):
     link = "https://elm.exemplo/ccm/web/projects/X#action=com.ibm.team.apt.viewPlan&id=_PB&planMode=x"
     d = ok(chamar("elm_backlog", projeto=projeto, plano=link))
     assert d == {"nome": "Backlog", "id": "_IB", "plano": {"nome": "Backlog Time A", "id": "_PB"}, "pai": "2026", "criados": []}
-    pa = json.loads(open(os.path.join(projeto, ".kiro/config/elm/pa_alfa.json"), encoding="utf-8").read())
+    pa = json.loads(open(os.path.join(projeto, ".sabia/config/elm/pa_alfa.json"), encoding="utf-8").read())
     assert pa["ccm"]["backlog"]["id"] == "_IB" and "Sprint 1" in pa["ccm"]["iteracoes"]
     ok(chamar("elm_criar_wi", projeto=projeto, tipo="tarefa", titulo="x", iteracao="backlog"))
     assert "iterations/_IB" in elm.criado
@@ -333,7 +333,7 @@ def test_linha_de_base_caminho_com_espacos_varios_niveis_e_sem_cache(elm, projet
     assert ok(chamar("elm_iteracao", projeto=projeto, nome="2026/Sprint 1"))["criados"] == []
     d = ok(chamar("elm_iteracao", projeto=projeto, nome="Entrega 3/2026/Sprint 1", inicio="2027-01-04"))
     assert d["criados"] == ["Entrega 3", "2026", "Sprint 1", "Sprint 1"] and d["pai"] == "2026"
-    arq = os.path.join(projeto, ".kiro/config/elm/pa_alfa.json")
+    arq = os.path.join(projeto, ".sabia/config/elm/pa_alfa.json")
     pa = json.loads(open(arq, encoding="utf-8").read())
     assert "2026/Sprint 1" in pa["ccm"]["iteracoes"]  # a chave é o caminho normalizado
     pa["ccm"]["iteracoes"] = {}
@@ -375,7 +375,7 @@ def test_setup_descobrir_ccm(elm, fake):
 
 def test_obrigatorios_do_pa_travam_a_criacao(elm, projeto):
     """Campo que a PA exige por processo (sem o tipo marcar) é exigido já na criação: padrão do pa, campos ou erro."""
-    arq = next(Path(projeto, ".kiro", "config", "elm").glob("pa_*.json"))
+    arq = next(Path(projeto, ".sabia", "config", "elm").glob("pa_*.json"))
     pa = json.loads(arq.read_text())
     pa["ccm"]["tipos"]["tarefa"]["obrigatorios"] = ["Planejado para", "Estimativa", "Prioridade", "OTR"]
     pa["ccm"]["tipos"]["tarefa"]["campos"]["OTR"] = "rtc_ext:otr"
