@@ -159,9 +159,9 @@ def test_serialize_grava_data_como_o_ewm():
 
 
 def test_schema_igual_ao_publicado():
-    publicado = Path(__file__).resolve().parents[2] / "mcps/elm/pa.schema.json"
+    publicado = Path(__file__).resolve().parents[2] / "json-schemas/mcp/elm/pa.schema.json"
     if not publicado.exists():
-        pytest.skip("repositório mcps não clonado ao lado")
+        pytest.skip("repositório json-schemas não clonado ao lado")
     assert (Path(prj.__file__).with_name("pa.schema.json")).read_bytes() == publicado.read_bytes()
 
 
