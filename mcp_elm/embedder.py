@@ -1,9 +1,9 @@
-"""Embedding e rerank do índice local, via API OpenAI-compatível do elm.properties.
+"""Embedding e rerank do índice local, via API OpenAI-compatível das variáveis ELM_PROVIDER_*.
 
 `provider_url` + `provider_api_key` são obrigatórios para a busca semântica, e o mesmo par serve
 para os dois serviços (só o modelo muda): `provider_embed_model` (padrão text-embedding-3-small)
 é o embedding e `provider_rerank_model` opcional liga o rerank na busca. Sem as duas chaves,
-indexar e buscar falham com erro de config apontando o elm.properties — não existe fallback local.
+indexar e buscar falham com erro de config apontando as variáveis — não existe fallback local.
 
 A `assinatura()` identifica o espaço de vetores do índice (base + modelo): se ela mudar, o índice
 é limpo e refeito, porque vetores de dimensão/modelo diferentes não podem coexistir na matriz —
@@ -30,7 +30,7 @@ _REPETIR = (408, 429, 500, 502, 503, 504)
 
 
 def clear_cache() -> None:
-    """Zera a leitura do elm.properties (testes trocam MCP_ELM_CONFIG)."""
+    """Zera a leitura das variáveis (os testes as trocam)."""
     _cfg.cache_clear()
     _api.cache_clear()
     _rerank_fn.cache_clear()
@@ -57,7 +57,7 @@ def _api():
 def _api_ou_erro() -> tuple[str, str]:
     api = _api()
     if api is None:
-        raise Erro("config", "busca semântica requer provider_url e provider_api_key no elm.properties",
+        raise Erro("config", "busca semântica requer ELM_PROVIDER_URL e ELM_PROVIDER_API_KEY",
                    "provider_url")
     return api
 

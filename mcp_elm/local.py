@@ -4,7 +4,7 @@
 (float32 normalizado) + FTS5 (BM25); busca híbrida cosseno + FTS5 com fusão RRF, e rerank opcional no fim (falhou,
 a busca segue na ordem RRF e devolve `erro_rerank`), type-boost no pool inteiro antes do slicing (Caso de Uso
 > História de Usuário > Regra) e piso de título (o query inteiro no título — ou id == query — garante slot no
-top, mesmo com chunks fora do pool do RRF). O vetor vem da API configurada no elm.properties (embedder, sem
+top, mesmo com chunks fora do pool do RRF). O vetor vem da API configurada em ELM_PROVIDER_* (embedder, sem
 fallback local); a assinatura do embedder e a versão do chunking ficam na meta do índice — sem proveniência
 (meta sem o embedder), com outro modelo ou com formato de chunk antigo, o índice é limpo e refeito; e a busca
 em índice de outro embedder falha com erro claro (cossinos de espaço diferente são inválidos — o reindex

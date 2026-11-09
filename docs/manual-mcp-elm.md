@@ -28,7 +28,7 @@ primeira pasta onde achar; gravação sempre em `.sabia/config/elm/`. Campo ause
 - `filedAgainst`: só a categoria do time do pa (nome ou id);
 - `plannedFor`: `backlog` (o `ccm.backlog` do pa; sem ele, `precondicao`), nome do cache `ccm.iteracoes`, nome no
   servidor ou itemId;
-- pessoas: login ou `eu` (o login do `elm.properties`, como o servidor o grava);
+- pessoas: login ou `eu` (o login de `ELM_USER`, como o servidor o grava);
 - durações (`estimate`...): horas → ms;
 - texto rico (`rdf:XMLLiteral`): Markdown → HTML do EWM.
 
@@ -88,7 +88,7 @@ Cinco tools leem o bundle baixado, sem ir ao ELM — mesmo nome da operação re
 O índice fica em `<bundle>/sqlite3/okf.db` (com `.gitignore`): chunks por heading e parágrafo — parágrafo maior
 que ~1.500 chars quebra por linha (lista longa não vira um único vetor diluído), e tabela markdown repete
 header + separador em cada parte — com vetor denso normalizado + FTS5, fundidos por RRF (cosseno + BM25). O vetor
-vem da API OpenAI-compatível do `elm.properties`: `provider_url` + `provider_api_key` são obrigatórios para a
+vem da API OpenAI-compatível de `ELM_PROVIDER_URL` e `ELM_PROVIDER_API_KEY`, que são obrigatórios para a
 busca semântica (sem eles, indexar e buscar falham com erro `config` apontando as chaves — não existe modelo
 local) e o modelo fica em `provider_embed_model` (padrão `text-embedding-3-small`). A assinatura do embedder
 (base + modelo) e a versão do chunking (meta `chunking`) ficam na meta do índice: mudou o embedder (a dimensão
@@ -99,7 +99,7 @@ erro `config` apontando o `elm_indexar_local` antes de gastar a API da query: co
 são inválidos, e a dimensão mista (o matmul) vira o mesmo erro, nunca traceback. Trocar as chaves do provider
 exige reiniciar o servidor MCP (a config fica em cache) e reindexar o bundle.
 
-Com `provider_rerank_model` no `elm.properties` (mesma base e key), a busca é em dois estágios: o RRF larga um top largo
+Com `ELM_PROVIDER_RERANK_MODEL` (mesma base e key), a busca é em dois estágios: o RRF larga um top largo
 de candidatos e o rerank (cross-encoder por API) reordena — a score do rerank substitui a do RRF em
 `itens[].score`. Cada chunk vai truncado (~8k chars: margem de segurança no contexto de 8192 tokens do modelo),
 e o rerank é refinamento opcional: se a API dele falhar, a busca segue na ordem RRF e devolve `erro_rerank` em

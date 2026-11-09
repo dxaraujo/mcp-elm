@@ -56,7 +56,7 @@ def elm_status(projeto: Projeto, pa: Pa = None) -> str:
             raise
         faltando = [e.campo or "pa"]
     try:
-        embedder_atual = embedder.assinatura()  # sem provider no elm.properties: null, sem quebrar o status
+        embedder_atual = embedder.assinatura()  # sem ELM_PROVIDER_*: null, sem quebrar o status
     except Erro:
         embedder_atual = None
     return {"login": ewm.whoami(), "servidor": get_session().cfg.server, "pas": prj.nomes(projeto),

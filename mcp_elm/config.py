@@ -1,13 +1,11 @@
-"""Carrega as credenciais do ELM a partir de elm.properties."""
+"""Carrega credenciais, provider e certificado do ELM das variáveis de ambiente."""
 from __future__ import annotations
 
-import configparser
 import os
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-REQUIRED = ("server", "user", "password")
+REQUIRED = ("ELM_SERVER", "ELM_USER", "ELM_PASSWORD")
 
 
 class CredencialError(RuntimeError):
@@ -26,35 +24,32 @@ class ElmConfig:
     provider_rerank_model: str | None = None
 
 
-def default_path() -> Path:
-    if env := os.environ.get("MCP_ELM_CONFIG"):
-        return Path(env)
-    if sys.platform == "win32":
-        return Path(os.environ["APPDATA"]) / "mcp-elm" / "elm.properties"
-    return Path.home() / ".config" / "mcp-elm" / "elm.properties"
-
-
-def load_config(path: Path | None = None) -> ElmConfig:
-    path = path or default_path()
+def ca_bundle() -> Path | None:
+    """Cadeia PEM extra apontada por ELM_CA_BUNDLE, somada às CAs da máquina."""
+    valor = os.environ.get("ELM_CA_BUNDLE", "").strip()
+    if not valor:
+        return None
+    path = Path(valor).expanduser()
     if not path.is_file():
-        raise CredencialError(f"arquivo de credenciais não encontrado: {path} ([DEFAULT] server, user, password)")
-    # interpolation=None: senhas podem conter '%'
-    parser = configparser.ConfigParser(interpolation=None)
-    parser.read(path, encoding="utf-8")
-    section = parser.defaults()
-    missing = [k for k in REQUIRED if not section.get(k, "").strip()]
+        raise CredencialError(f"ELM_CA_BUNDLE aponta para um arquivo que não existe: {path}")
+    return path
+
+
+def load_config() -> ElmConfig:
+    missing = [k for k in REQUIRED if not os.environ.get(k, "").strip()]
     if missing:
-        raise CredencialError(f"chave(s) ausente(s) em {path} [DEFAULT]: {', '.join(missing)}")
+        raise CredencialError(f"variável(is) de ambiente ausente(s): {', '.join(missing)}")
+    ca_bundle()  # arquivo errado aparece já na carga
 
     def opcional(chave: str) -> str | None:
-        return (section.get(chave, "") or "").strip() or None
+        return (os.environ.get(chave, "") or "").strip() or None
 
     return ElmConfig(
-        server=section["server"].strip().rstrip("/"),
-        user=section["user"].strip(),
-        password=section["password"],
-        provider_url=opcional("provider_url"),
-        provider_api_key=opcional("provider_api_key") or "",
-        provider_embed_model=opcional("provider_embed_model"),
-        provider_rerank_model=opcional("provider_rerank_model"),
+        server=os.environ["ELM_SERVER"].strip().rstrip("/"),
+        user=os.environ["ELM_USER"].strip(),
+        password=os.environ["ELM_PASSWORD"],
+        provider_url=opcional("ELM_PROVIDER_URL"),
+        provider_api_key=opcional("ELM_PROVIDER_API_KEY") or "",
+        provider_embed_model=opcional("ELM_PROVIDER_EMBED_MODEL"),
+        provider_rerank_model=opcional("ELM_PROVIDER_RERANK_MODEL"),
     )

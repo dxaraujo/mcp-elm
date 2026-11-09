@@ -8,13 +8,7 @@ import requests
 from mcp_elm import embedder
 from mcp_elm.contrato import Erro
 
-BASE = "[DEFAULT]\nserver = https://elm.test\nuser = u\npassword = p\n"
-
-
-def _props(tmp_path, **extra):
-    p = tmp_path / "elm.properties"
-    p.write_text(BASE + "".join(f"{k} = {v}\n" for k, v in extra.items()), encoding="utf-8")
-    return p
+PROVIDER = ("ELM_PROVIDER_URL", "ELM_PROVIDER_API_KEY", "ELM_PROVIDER_EMBED_MODEL", "ELM_PROVIDER_RERANK_MODEL")
 
 
 def _resp(status, body):
@@ -26,20 +20,24 @@ def _resp(status, body):
 
 
 def _api(monkeypatch, tmp_path, **extra):
-    monkeypatch.setenv("MCP_ELM_CONFIG", str(_props(tmp_path, **extra)))
+    for k in PROVIDER:
+        monkeypatch.delenv(k, raising=False)
+    for k, v in extra.items():
+        monkeypatch.setenv("ELM_" + k.upper(), v)
     embedder.clear_cache()
 
 
 @pytest.fixture(autouse=True)
 def _isolado(monkeypatch, tmp_path):
-    monkeypatch.setenv("MCP_ELM_CONFIG", str(tmp_path / "nao-existe.properties"))
+    for k in PROVIDER:
+        monkeypatch.delenv(k, raising=False)
     embedder.clear_cache()
     yield
     embedder.clear_cache()
 
 
 def test_sem_config_erro_claro():
-    """Sem provider_url/provider_api_key: assinatura e embed apontam o elm.properties; rerank inativo."""
+    """Sem provider_url/provider_api_key: assinatura e embed apontam as variáveis; rerank inativo."""
     with pytest.raises(Erro) as e:
         embedder.assinatura()
     assert e.value.codigo == "config" and e.value.campo == "provider_url"

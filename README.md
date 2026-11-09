@@ -15,11 +15,22 @@ Publicado no [PyPI](https://pypi.org/project/mcp-elm/); requer o
       "type": "stdio",
       "command": "uvx",
       "args": ["mcp-elm@latest"],
-      "env": { "UV_SYSTEM_CERTS": "true" }
+      "env": {
+        "ELM_SERVER": "https://elm.SEU-SERVIDOR",
+        "ELM_USER": "${ELM_USER}",
+        "ELM_PASSWORD": "${ELM_PASSWORD}",
+        "UV_SYSTEM_CERTS": "true"
+      }
     }
   }
 }
 ```
+
+**Como passar as variáveis:** defina-as no bloco `env` do servidor MCP, como no exemplo. Para não gravar segredos em
+texto puro, use referências: `${VAR}` no Kiro IDE, `${env:VAR}` no Kiro CLI e `{env:VAR}` no opencode, e deixe o valor
+no gerenciador de segredos ou no ambiente de onde a ferramenta é aberta. Não há arquivo de configuração nem caminho padrão.
+No macOS, um app aberto pelo Dock não herda o `export` do shell: abra a ferramenta pelo terminal ou defina a variável no
+ambiente da sessão. Evite `export` no perfil do shell quando o agente puder rodar comandos, porque ele conseguiria ler o valor.
 
 Desenvolvimento:
 
@@ -30,21 +41,15 @@ uv run mcp dev mcp_elm/server.py   # depuração com o MCP Inspector
 
 ## Credenciais
 
-`~/.config/mcp-elm/elm.properties` (Windows: `%APPDATA%\mcp-elm\elm.properties`; outro caminho: `MCP_ELM_CONFIG`).
-CA próprio: `export REQUESTS_CA_BUNDLE=/caminho/ca.pem`. Login pelo form Jazz, com Basic se o servidor pedir.
+Só por variáveis de ambiente, no `env` do servidor MCP. O login usa o form Jazz, com Basic se o servidor pedir.
 
-```ini
-[DEFAULT]
-server = https://elm.SEU-SERVIDOR
-user = SEU_USUARIO
-password = SUA_SENHA
-# busca semântica do bundle local por API OpenAI-compatível (a mesma base e key para os dois);
-# provider_url/provider_api_key são obrigatórios para a busca semântica e a indexação do bundle local (não há modelo local)
-# provider_url = https://sua-api/v1
-# provider_api_key = SUA_KEY
-# provider_embed_model = text-embedding-3-small   # trocar exige reindexar (elm_indexar_local)
-# provider_rerank_model = SEU_MODELO_RERANK       # opcional: rerank (cross-encoder) na busca
-```
+| Variável | Obrigatória | O que é |
+|---|---|---|
+| `ELM_SERVER`, `ELM_USER`, `ELM_PASSWORD` | sim | Servidor, usuário e senha |
+| `ELM_PROVIDER_URL`, `ELM_PROVIDER_API_KEY` | para a busca semântica | API OpenAI-compatível (a mesma base e key para embedding e rerank); não há modelo local |
+| `ELM_PROVIDER_EMBED_MODEL` | não | Modelo de embedding; trocar exige reindexar (`elm_indexar_local`) |
+| `ELM_PROVIDER_RERANK_MODEL` | não | Modelo de rerank (cross-encoder) na busca |
+| `ELM_CA_BUNDLE` | não | Caminho de um arquivo PEM com a cadeia do servidor, somada às CAs da máquina |
 
 ## Configuração do projeto
 
@@ -116,8 +121,8 @@ erro). Duas iterações com o mesmo nome no mesmo pai são erro `entrada`: o MCP
 "Planejado para" da iteração), por isso a sprint é uma iteração e não um plano a mais no pai.
 
 As `_local` leem o bundle em `<projeto>/<rm.download>` (índice em `<bundle>/sqlite3/okf.db`); depois do
-`elm_sync baixar`, indexe com `elm_indexar_local`. O vetor vem da API OpenAI-compatível do `elm.properties`
-(`provider_url` + `provider_api_key` obrigatórios para a busca; rerank opcional em `provider_rerank_model`). Trocar
+`elm_sync baixar`, indexe com `elm_indexar_local`. O vetor vem da API OpenAI-compatível de `ELM_PROVIDER_URL`
+(com `ELM_PROVIDER_API_KEY`, obrigatórios para a busca; rerank opcional em `ELM_PROVIDER_RERANK_MODEL`). Trocar
 as chaves do provider exige reiniciar o servidor MCP (a config fica em cache) e reindexar o bundle
 (`elm_indexar_local`): vetores de outro modelo não coexistem no índice. `elm_explorar_local`
 gera um `explorar.html` autocontido na pasta do bundle: grafo 3D simples (3d-force-graph/three.js,

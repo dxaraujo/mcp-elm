@@ -3,14 +3,16 @@ from __future__ import annotations
 
 import json
 import re
+import ssl
 import threading
 import xml.etree.ElementTree as ET
 from html import unescape
 from urllib.parse import urljoin, urlsplit
 
 import requests
+from requests.adapters import HTTPAdapter
 
-from .config import ElmConfig, load_config
+from .config import ElmConfig, ca_bundle, load_config
 
 TIMEOUT = 60
 RDF_XML = "application/rdf+xml"
@@ -22,6 +24,15 @@ _NOISE = re.compile(r"<(script|style|head)\b.*?</\1>", re.S | re.I)
 
 class AuthError(RuntimeError):
     pass
+
+
+class _TlsAdapter(HTTPAdapter):
+    """Soma a cadeia de ELM_CA_BUNDLE às CAs já confiadas."""
+
+    def init_poolmanager(self, *args, **kwargs):
+        ctx = ssl.create_default_context()
+        ctx.load_verify_locations(ca_bundle())
+        super().init_poolmanager(*args, ssl_context=ctx, **kwargs)
 
 
 def mensagem(body: str) -> str:
@@ -75,6 +86,8 @@ class ElmSession:
     def __init__(self, cfg: ElmConfig):
         self.cfg = cfg
         self.session = requests.Session()
+        if ca_bundle():
+            self.session.mount("https://", _TlsAdapter())
         self.session.headers.update({"OSLC-Core-Version": "2.0", "Accept": RDF_XML})
         self._lock = threading.Lock()
 
@@ -116,7 +129,7 @@ _instance_lock = threading.Lock()
 
 
 def get_session() -> ElmSession:
-    """Sessão única por processo; lê o elm.properties na primeira chamada."""
+    """Sessão única por processo; lê as variáveis de ambiente na primeira chamada."""
     global _instance
     with _instance_lock:
         if _instance is None:

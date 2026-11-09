@@ -87,12 +87,12 @@ def fake_embed(texts):
 def _sem_modelo(monkeypatch, tmp_path):
     monkeypatch.setattr(local, "embed", fake_embed)
     monkeypatch.setattr(local, "SINCRONO", True)  # indexa na própria chamada; o teste do segundo plano desliga
-    # provider fake no elm.properties (assinatura ASSINATURA_FAKE): o embed real é o fake_embed acima,
-    # então nada de API real nos testes (nem key, nem rede)
-    props = tmp_path / "elm.properties"
-    props.write_text(f"[DEFAULT]\nserver = {SERVER}\nuser = u\npassword = p\n"
-                     "provider_url = https://api.test/v1\nprovider_api_key = k\n", encoding="utf-8")
-    monkeypatch.setenv("MCP_ELM_CONFIG", str(props))
+    # provider fake (assinatura ASSINATURA_FAKE): o embed real é o fake_embed acima, então nada de API real nos testes
+    for k, v in {"ELM_SERVER": SERVER, "ELM_USER": "u", "ELM_PASSWORD": "p", "ELM_PROVIDER_URL": "https://api.test/v1",
+                 "ELM_PROVIDER_API_KEY": "k"}.items():
+        monkeypatch.setenv(k, v)
+    for k in ("ELM_PROVIDER_EMBED_MODEL", "ELM_PROVIDER_RERANK_MODEL", "ELM_CA_BUNDLE"):
+        monkeypatch.delenv(k, raising=False)
     embedder.clear_cache()
 
 

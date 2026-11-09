@@ -30,15 +30,12 @@ def test_status(elm, projeto, monkeypatch, tmp_path):
     assert ok(chamar("elm_status", projeto=projeto)) == {
         "login": "joao", "servidor": SERVER, "pas": ["alfa"], "valido": True, "faltando": [],
         "embedder": ASSINATURA_FAKE, "rerank": None}  # as chaves saem sempre; rerank inativo = null
-    props = tmp_path / "elm.properties"
-    props.write_text(f"[DEFAULT]\nserver = {SERVER}\nuser = u\npassword = p\n"
-                     "provider_url = https://api.test/v1\nprovider_api_key = k\n"
-                     "provider_rerank_model = rerank-1\n", encoding="utf-8")
-    monkeypatch.setenv("MCP_ELM_CONFIG", str(props))
+    monkeypatch.setenv("ELM_PROVIDER_RERANK_MODEL", "rerank-1")
     embedder.clear_cache()
     d = ok(chamar("elm_status", projeto=projeto))
     assert d["rerank"] == "api:rerank-1@https://api.test/v1"  # mesma base e key do embedding
-    props.write_text(f"[DEFAULT]\nserver = {SERVER}\nuser = u\npassword = p\n", encoding="utf-8")
+    for k in ("ELM_PROVIDER_URL", "ELM_PROVIDER_API_KEY", "ELM_PROVIDER_RERANK_MODEL"):
+        monkeypatch.delenv(k)
     embedder.clear_cache()
     d = ok(chamar("elm_status", projeto=projeto))
     assert d["embedder"] is None and d["rerank"] is None  # sem provider: null, sem quebrar o status

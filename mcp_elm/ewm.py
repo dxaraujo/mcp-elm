@@ -122,7 +122,7 @@ def _logins() -> tuple[str, ...]:
 
 
 def whoami() -> str:
-    """Login do usuário autenticado como o servidor o grava (o elm.properties pode diferir na caixa)."""
+    """Login do usuário autenticado como o servidor o grava (ELM_USER pode diferir na caixa)."""
     login = get_session().cfg.user.lower()
     found = next((u for u in _logins() if (u or "").lower() == login), None)
     if found is None:
