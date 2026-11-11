@@ -2,7 +2,7 @@
 
 Leitura procura em PASTAS, nesta ordem, e para na primeira pasta onde achar (o pa pedido ou, sem nome, algum pa_*.json); gravação vai sempre para PASTA.
 
-Validado pelo pa.schema.json (cópia embutida no pacote). O caminho do projeto vem em cada chamada:
+Validado pelo pa.schema.json (em schemas/; o build o leva para dentro do pacote). O caminho do projeto vem em cada chamada:
 o Kiro não inicia o MCP de um power no workspace.
 """
 from __future__ import annotations
@@ -20,7 +20,9 @@ from .contrato import Erro
 PASTA = Path(".sabia") / "config" / "elm"
 PASTAS = (PASTA, Path(".kiro") / "config" / "elm", Path(".kiro") / "config" / "sdd")  # as duas últimas: projetos anteriores
 _ONDE = ", ".join(map(str, PASTAS))
-_VALIDADOR = jsonschema.Draft202012Validator(json.loads(Path(__file__).with_name("pa.schema.json").read_text("utf-8")))
+# no pacote instalado o schema vem ao lado do módulo (force-include do build); rodando da fonte, em schemas/
+_SCHEMA = next(p for p in (Path(__file__).with_name("pa.schema.json"), Path(__file__).parents[1] / "schemas" / "pa.schema.json") if p.exists())
+_VALIDADOR = jsonschema.Draft202012Validator(json.loads(_SCHEMA.read_text("utf-8")))
 _cache: dict[Path, tuple[int, dict]] = {}
 
 

@@ -56,8 +56,8 @@ Só por variáveis de ambiente, no `env` do servidor MCP. O login usa o form Jaz
 `<projeto>/.sabia/config/elm/pa_<nome>.json`, um por project area, gravado pela skill `sa-setup`. Projetos anteriores
 continuam lidos: o MCP procura em `.sabia/config/elm/`, depois `.kiro/config/elm/`, depois `.kiro/config/sdd/`, e para na
 primeira pasta onde achar (as seguintes não são lidas). Toda gravação (ex.: `elm_iteracao`) vai para `.sabia/config/elm/`. O schema é o do
-Sabiá ([pa.schema.json](https://dxaraujo.github.io/json-schemas/mcp/elm/pa.schema.json)); o pacote leva uma cópia
-(`mcp_elm/pa.schema.json`) — mantenha as duas iguais.
+Sabiá ([pa.schema.json](https://raw.githubusercontent.com/dxaraujo/mcp-elm/main/schemas/pa.schema.json)); ele mora neste repositório, em
+`schemas/pa.schema.json`, e o build o leva para dentro do pacote.
 
 Toda tool (menos `elm_setup_descobrir`) recebe `projeto` (caminho **absoluto** do workspace: o Kiro não inicia o MCP
 de um power no workspace) e `pa` (o `<nome>`; omitido só quando há um arquivo).

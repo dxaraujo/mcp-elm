@@ -158,11 +158,10 @@ def test_serialize_grava_data_como_o_ewm():
     assert "2026-10-23T14:17:54.000Z" in out and "+00:00" not in out
 
 
-def test_schema_igual_ao_publicado():
-    publicado = Path(__file__).resolve().parents[2] / "json-schemas/mcp/elm/pa.schema.json"
-    if not publicado.exists():
-        pytest.skip("repositório json-schemas não clonado ao lado")
-    assert (Path(prj.__file__).with_name("pa.schema.json")).read_bytes() == publicado.read_bytes()
+def test_schema_aponta_para_este_repositorio():
+    schema = json.loads((Path(__file__).resolve().parents[1] / "schemas/pa.schema.json").read_text("utf-8"))
+    assert schema["$id"] == "https://raw.githubusercontent.com/dxaraujo/mcp-elm/main/schemas/pa.schema.json"
+    assert not Path(prj.__file__).with_name("pa.schema.json").exists()  # uma cópia só, em schemas/
 
 
 def test_mensagem_le_o_erro_da_api_openai():

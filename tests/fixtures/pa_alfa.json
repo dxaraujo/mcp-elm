@@ -1,5 +1,5 @@
 {
-  "$schema": "https://dxaraujo.github.io/json-schemas/mcp/elm/pa.schema.json",
+  "$schema": "https://raw.githubusercontent.com/dxaraujo/mcp-elm/main/schemas/pa.schema.json",
   "ccm": {
     "nome": "Projeto Alfa",
     "id": "_PA1",
